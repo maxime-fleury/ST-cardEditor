@@ -1,0 +1,12 @@
+{
+  "name": "st-card-editor",
+  "version": "1.0.0",
+  "description": "SillyTavern Character Card Reader & Editor - Edit, translate, and enhance character cards with AI",
+  "type": "module",
+  "scripts": {
+    "start": "bun run server.js",
+    "dev": "bun --watch run server.js"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

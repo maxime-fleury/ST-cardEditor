@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ST Card Editor — SillyTavern Character Card Studio</title>
+  
+  <!-- Bootstrap 5.3 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ========== NAVBAR ========== -->
+  <nav class="navbar navbar-dark sticky-top" id="topNav">
+    <div class="container-fluid px-3">
+      <a class="navbar-brand d-flex align-items-center gap-2" href="#">
+        <div class="brand-icon">
+          <i class="bi bi-stars"></i>
+        </div>
+        <span class="brand-text">ST Card Editor</span>
+        <span class="badge bg-purple ms-2">v1.0</span>
+      </a>
+      
+      <div class="d-flex align-items-center gap-2">
+        <!-- Credits indicator -->
+        <div id="creditsBadge" class="credits-badge d-none">
+          <i class="bi bi-coin"></i>
+          <span id="creditsAmount">--</span>
+        </div>
+        
+        <!-- Model selector -->
+        <select id="navModelSelect" class="form-select form-select-sm model-select-nav">
+          <option value="">Select model...</option>
+        </select>
+        
+        <!-- New card button -->
+        <button class="btn btn-outline-secondary btn-sm" id="btnNewCard" title="New blank card">
+          <i class="bi bi-plus-lg"></i>
+        </button>
+        
+        <!-- Save card -->
+        <button class="btn btn-accent btn-sm" id="btnSaveCard" title="Save card">
+          <i class="bi bi-download me-1"></i> Save
+        </button>
+        
+        <!-- Settings -->
+        <button class="btn btn-outline-light btn-sm" id="btnSettings" title="Settings">
+          <i class="bi bi-gear-fill"></i>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ========== MAIN LAYOUT ========== -->
+  <div class="app-container" id="appContainer">
+    
+    <!-- LEFT PANEL — Card Library -->
+    <aside class="panel panel-left" id="panelLeft">
+      <div class="panel-header">
+        <h6 class="panel-title"><i class="bi bi-collection me-2"></i>Card Library</h6>
+        <span class="card-count" id="cardCount">0 cards</span>
+      </div>
+      
+      <!-- Drop Zone -->
+      <div class="drop-zone" id="dropZone">
+        <div class="drop-zone-content">
+          <i class="bi bi-cloud-upload drop-icon"></i>
+          <p class="drop-text">Drag & drop</p>
+          <p class="drop-subtext">PNG or JSON character cards</p>
+          <button class="btn btn-outline-accent btn-sm mt-2" id="btnBrowse">
+            <i class="bi bi-folder2-open me-1"></i> Browse files
+          </button>
+          <input type="file" id="fileInput" accept=".png,.json,.webp" multiple hidden>
+        </div>
+      </div>
+      
+      <!-- Card list -->
+      <div class="card-list" id="cardList"></div>
+      
+      <!-- Empty state -->
+      <div class="empty-state" id="emptyState">
+        <i class="bi bi-inbox"></i>
+        <p>No cards loaded</p>
+        <small>Drop a card or click Browse</small>
+      </div>
+    </aside>
+    
+    <!-- CENTER PANEL — Card Editor -->
+    <main class="panel panel-center" id="panelCenter">
+      <!-- No card selected -->
+      <div class="no-card-selected" id="noCardSelected">
+        <div class="no-card-icon">
+          <i class="bi bi-file-earmark-person"></i>
+        </div>
+        <h3>No card selected</h3>
+        <p>Select a card from the library or drag & drop a new one</p>
+        <button class="btn btn-accent" id="btnNewCardCenter">
+          <i class="bi bi-plus-lg me-2"></i>Create blank card
+        </button>
+      </div>
+      
+      <!-- Editor form -->
+      <div class="editor-container d-none" id="editorContainer">
+        <div class="editor-header">
+          <div class="editor-header-left">
+            <div class="char-avatar" id="charAvatar">
+              <img id="charAvatarImg" src="" alt="" hidden>
+              <i class="bi bi-person-fill avatar-placeholder" id="avatarPlaceholder"></i>
+            </div>
+            <div class="editor-title-group">
+              <input type="text" class="form-control form-control-lg editor-name" 
+                     id="editName" placeholder="Character Name" maxlength="200">
+              <div class="editor-meta">
+                <span class="meta-badge" id="metaCreator"></span>
+                <span class="meta-badge" id="metaVersion"></span>
+                <span class="meta-badge" id="metaTags"></span>
+              </div>
+            </div>
+          </div>
+          <div class="editor-header-right">
+            <button class="btn btn-outline-secondary btn-sm" id="btnExportJson" title="Export as JSON">
+              <i class="bi bi-filetype-json me-1"></i> JSON
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" id="btnExportPng" title="Export as PNG">
+              <i class="bi bi-filetype-png me-1"></i> PNG
+            </button>
+            <button class="btn btn-outline-danger btn-sm" id="btnDeleteCard" title="Delete card">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        </div>
+        
+        <!-- Editor Tabs -->
+        <ul class="nav nav-tabs editor-tabs" id="editorTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabCore" type="button">
+              <i class="bi bi-person-badge me-1"></i> Core
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabPersonality" type="button">
+              <i class="bi bi-brain me-1"></i> Personality
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabAdvanced" type="button">
+              <i class="bi bi-sliders me-1"></i> Advanced
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabLorebook" type="button">
+              <i class="bi bi-book me-1"></i> Lorebook
+            </button>
+          </li>
+        </ul>
+        
+        <!-- Tab Content -->
+        <div class="tab-content editor-content" id="editorTabContent">
+          <!-- Core Tab -->
+          <div class="tab-pane fade show active" id="tabCore">
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label field-label">Description <small>(appearance, backstory)</small></label>
+                <textarea class="form-control editor-textarea" id="editDescription" rows="6" 
+                          placeholder="Describe the character's appearance, background, and key traits..."></textarea>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label field-label">First Message</label>
+                <textarea class="form-control editor-textarea" id="editFirstMes" rows="5" 
+                          placeholder="The character's first message when starting a chat..."></textarea>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label field-label">Scenario</label>
+                <textarea class="form-control editor-textarea" id="editScenario" rows="5" 
+                          placeholder="Current circumstances and context of the conversation..."></textarea>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label field-label">Creator</label>
+                <input type="text" class="form-control" id="editCreator" placeholder="Card creator / author">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label field-label">Character Version</label>
+                <input type="text" class="form-control" id="editVersion" placeholder="v1.0">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label field-label">Tags <small>(comma-separated)</small></label>
+                <input type="text" class="form-control" id="editTags" placeholder="fantasy, warrior, elf">
+              </div>
+            </div>
+          </div>
+          
+          <!-- Personality Tab -->
+          <div class="tab-pane fade" id="tabPersonality">
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label field-label">Personality Summary</label>
+                <textarea class="form-control editor-textarea" id="editPersonality" rows="8" 
+                          placeholder="A brief description of the character's personality... (used in character card format)"></textarea>
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label">Example Messages</label>
+                <textarea class="form-control editor-textarea font-mono" id="editMesExample" rows="10" 
+                          placeholder="&lt;START&gt;&#10;{{char}}: Example dialogue here...&#10;{{user}}: User response...&#10;&lt;START&gt;&#10;{{char}}: Another example..."></textarea>
+                <small class="form-text text-muted">Format: &lt;START&gt; blocks with {{char}}: and {{user}}: prefixes</small>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Advanced Tab -->
+          <div class="tab-pane fade" id="tabAdvanced">
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label field-label">System Prompt</label>
+                <textarea class="form-control editor-textarea font-mono" id="editSystemPrompt" rows="6" 
+                          placeholder="Override the system prompt. Use {{original}} to include the default."></textarea>
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label">Post-History Instructions</label>
+                <textarea class="form-control editor-textarea font-mono" id="editPostHistory" rows="6" 
+                          placeholder="Instructions injected after the chat history. Use {{original}} for default."></textarea>
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label">Creator Notes</label>
+                <textarea class="form-control editor-textarea" id="editCreatorNotes" rows="4" 
+                          placeholder="Notes for card users (model recommendations, usage tips...)"></textarea>
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label">Alternate Greetings <span class="greeting-count" id="greetingCount"></span></label>
+                <div class="greetings-list" id="greetingsList"></div>
+                <button class="btn btn-outline-accent btn-sm mt-2" id="btnAddGreeting">
+                  <i class="bi bi-plus-lg me-1"></i> Add Greeting
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Lorebook Tab -->
+          <div class="tab-pane fade" id="tabLorebook">
+            <div id="lorebookContainer">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <label class="form-label field-label mb-0">Character Lorebook Entries</label>
+                <button class="btn btn-outline-accent btn-sm" id="btnAddLoreEntry">
+                  <i class="bi bi-plus-lg me-1"></i> Add Entry
+                </button>
+              </div>
+              <div id="lorebookEntries">
+                <div class="text-muted text-center py-4" id="lorebookEmpty">
+                  <i class="bi bi-journal-text d-block mb-2" style="font-size: 2rem;"></i>
+                  No lorebook entries yet. Add one to get started.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+    
+    <!-- RIGHT PANEL — AI Assistant -->
+    <aside class="panel panel-right" id="panelRight">
+      <div class="panel-header">
+        <h6 class="panel-title"><i class="bi bi-robot me-2"></i>AI Assistant</h6>
+        <button class="btn btn-outline-secondary btn-sm" id="btnClearChat" title="Clear chat">
+          <i class="bi bi-eraser"></i>
+        </button>
+      </div>
+      
+      <!-- AI Chat Messages -->
+      <div class="ai-chat-messages" id="aiChatMessages">
+        <div class="ai-welcome">
+          <div class="ai-welcome-icon">
+            <i class="bi bi-magic"></i>
+          </div>
+          <h6>AI Card Assistant</h6>
+          <p>Ask the AI to edit, translate, or enhance your character card.</p>
+          <div class="quick-actions">
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="translate">
+              <i class="bi bi-translate me-1"></i> Translate to French
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance">
+              <i class="bi bi-stars me-1"></i> Enhance Description
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="personality">
+              <i class="bi bi-emoji-smile me-1"></i> Expand Personality
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="firstmes">
+              <i class="bi bi-chat-dots me-1"></i> Improve First Message
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- AI Input -->
+      <div class="ai-input-area">
+        <div class="ai-input-row">
+          <textarea class="form-control ai-input" id="aiInput" 
+                    placeholder="Ask AI to edit the card..." rows="2"></textarea>
+          <button class="btn btn-accent btn-sm ai-send-btn" id="btnAiSend" title="Send">
+            <i class="bi bi-send-fill"></i>
+          </button>
+        </div>
+        <div class="ai-input-actions">
+          <select class="form-select form-select-sm ai-model-select" id="aiModelSelect">
+            <option value="">Auto (use nav model)</option>
+          </select>
+          <div class="ai-target-group">
+            <span class="ai-target-label">Target:</span>
+            <select class="form-select form-select-sm ai-target-select" id="aiTargetSelect">
+              <option value="full">Full Card</option>
+              <option value="description">Description</option>
+              <option value="personality">Personality</option>
+              <option value="first_mes">First Message</option>
+              <option value="scenario">Scenario</option>
+              <option value="mes_example">Example Messages</option>
+              <option value="system_prompt">System Prompt</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ========== SETTINGS MODAL ========== -->
+  <div class="modal fade" id="settingsModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-gear-fill me-2"></i>Settings</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <!-- API Key -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold">
+              <i class="bi bi-key-fill me-2 text-accent"></i>OpenRouter API Key
+            </label>
+            <div class="input-group">
+              <input type="password" class="form-control" id="apiKeyInput" 
+                     placeholder="sk-or-v1-...">
+              <button class="btn btn-outline-secondary" id="btnToggleApiKey" type="button">
+                <i class="bi bi-eye-fill"></i>
+              </button>
+            </div>
+            <small class="form-text text-muted">
+              <a href="https://openrouter.ai/keys" target="_blank" class="text-accent">
+                Get your API key from OpenRouter <i class="bi bi-box-arrow-up-right ms-1"></i>
+              </a>
+            </small>
+          </div>
+          
+          <!-- Model Selection -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold">
+              <i class="bi bi-cpu-fill me-2 text-accent"></i>Default Model
+            </label>
+            <div class="row g-2">
+              <div class="col-md-8">
+                <select class="form-select" id="defaultModelSelect">
+                  <option value="">Browse models below...</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <button class="btn btn-outline-accent w-100" id="btnRefreshModels">
+                  <i class="bi bi-arrow-clockwise me-1"></i> Refresh Models
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Model List -->
+          <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <label class="form-label fw-semibold mb-0">Available Models</label>
+              <div class="input-group input-group-sm model-search-group">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" class="form-control" id="modelSearch" placeholder="Search models...">
+              </div>
+            </div>
+            <div class="model-list" id="modelList">
+              <div class="text-center text-muted py-4">
+                <i class="bi bi-cpu d-block mb-2" style="font-size: 2rem;"></i>
+                Enter your API key and refresh to load models
+              </div>
+            </div>
+          </div>
+          
+          <!-- Credits Info -->
+          <div class="credits-section" id="creditsSection">
+            <h6 class="fw-semibold mb-3"><i class="bi bi-coin me-2 text-accent"></i>Credits & Usage</h6>
+            <div class="row g-3" id="creditsInfo">
+              <div class="col-md-3">
+                <div class="stat-card">
+                  <div class="stat-value" id="creditLimit">--</div>
+                  <div class="stat-label">Credit Limit</div>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="stat-card">
+                  <div class="stat-value" id="creditRemaining">--</div>
+                  <div class="stat-label">Remaining</div>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="stat-card">
+                  <div class="stat-value" id="creditUsage">--</div>
+                  <div class="stat-label">Used This Month</div>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="stat-card">
+                  <div class="stat-value" id="storageUsage">--</div>
+                  <div class="stat-label">Local Storage</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-danger btn-sm me-auto" id="btnClearStorage">
+            <i class="bi bi-trash me-1"></i> Clear All Data
+          </button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-accent" id="btnSaveSettings">
+            <i class="bi bi-check-lg me-1"></i> Save Settings
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== TOAST CONTAINER ========== -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer"></div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  
+  <!-- App Modules -->
+  <script src="/js/cardEngine.js?v=3"></script>
+  <script src="/js/aiService.js?v=3"></script>
+  <script src="/js/storage.js?v=3"></script>
+  <script src="/js/ui.js?v=3"></script>
+</body>
+</html>
