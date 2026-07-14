@@ -66,14 +66,21 @@ const Settings = {
     $('#aiModelSelect').innerHTML = '<option value="">Auto (use nav model)</option>' + h;
   },
 
-  renderModelList(filter) {
+  _modelPageSize: 50,
+  _modelPage: 1,
+
+  renderModelList(filter, resetPage) {
     const $ = (sel) => document.querySelector(sel);
     filter = (filter || '').toLowerCase();
+    if (resetPage) this._modelPage = 1;
     const container = $('#modelList');
     const filtered = window.AppState.models.filter(m => !filter || m.name.toLowerCase().includes(filter) || m.id.toLowerCase().includes(filter) || m.provider.toLowerCase().includes(filter) || (m.description || '').toLowerCase().includes(filter));
     if (!filtered.length) { container.innerHTML = '<div class="text-center text-muted py-4">No models found</div>'; return; }
     const d = CardStorage.getDefaultModel();
-    container.innerHTML = filtered.slice(0, 100).map(m =>
+    const end = this._modelPage * this._modelPageSize;
+    const shown = filtered.slice(0, end);
+    const hasMore = end < filtered.length;
+    container.innerHTML = shown.map(m =>
       '<div class="model-item' + (m.id === d ? ' selected' : '') + '" data-model-id="' + Ui.escapeHtml(m.id) + '">'
       + '<div class="model-item-info"><div class="model-item-name">' + Ui.escapeHtml(m.name) + '</div>'
       + '<div class="model-item-provider">' + Ui.escapeHtml(m.provider) + ' · ' + (m.context_length ? Math.floor(m.context_length/1000) + 'k ctx' : '?')
@@ -81,7 +88,9 @@ const Settings = {
       + (m.is_free ? ' · <span class="text-success">FREE</span>' : '') + '</div></div>'
       + '<div class="model-item-pricing">' + (m.is_free ? '<span class="price-highlight">FREE</span>'
         : '<div>in: ' + AIService.formatPrice(m.pricing.prompt) + '</div><div>out: ' + AIService.formatPrice(m.pricing.completion) + '</div>') + '</div></div>'
-    ).join('');
+    ).join('')
+    + (hasMore ? '<div class="text-center py-2"><button class="btn btn-outline-accent btn-sm" id="btnLoadMoreModels">Load more (' + (filtered.length - end) + ' remaining)</button></div>' : '')
+    + '<div class="text-center text-muted" style="font-size:0.7rem;">Showing ' + Math.min(end, filtered.length) + ' of ' + filtered.length + ' models</div>';
     const self = this;
     container.querySelectorAll('.model-item').forEach(item => {
       item.addEventListener('click', () => {
@@ -92,11 +101,13 @@ const Settings = {
         Ui.showToast('Model set: ' + item.dataset.modelId, 'info');
       });
     });
+    const loadMore = container.querySelector('#btnLoadMoreModels');
+    if (loadMore) loadMore.addEventListener('click', () => { self._modelPage++; self.renderModelList(filter); });
   },
 
   filterModels() {
     const $ = (sel) => document.querySelector(sel);
-    this.renderModelList($('#modelSearch').value);
+    this.renderModelList($('#modelSearch').value, true);
   },
 
   onNavModelChange() {
@@ -130,6 +141,39 @@ const Settings = {
     $('#creditsBadge').classList.add('d-none');
     $('#aiChatMessages').innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>AI Card Assistant</h6><p>Ask the AI to edit, translate, or enhance your character card.</p></div>';
     Ui.showToast('All data cleared', 'warning');
+  },
+
+  exportSettings() {
+    const settings = {
+      defaultModel: CardStorage.getDefaultModel(),
+      maxTokens: CardStorage.getMaxTokens(),
+      injectCopyright: CardStorage.getInjectCopyright(),
+    };
+    Ui.downloadFile('st-card-editor-settings.json', JSON.stringify(settings, null, 2), 'application/json');
+    Ui.showToast('Settings exported', 'success');
+  },
+
+  importSettings() {
+    const input = document.querySelector('#settingsFileInput');
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const settings = JSON.parse(reader.result);
+          if (settings.defaultModel) { CardStorage.setDefaultModel(settings.defaultModel); $('#defaultModelSelect').value = settings.defaultModel; $('#navModelSelect').value = settings.defaultModel; }
+          if (settings.maxTokens !== undefined) { CardStorage.setMaxTokens(settings.maxTokens); $('#maxTokensInput').value = settings.maxTokens || ''; }
+          if (settings.injectCopyright !== undefined) { CardStorage.setInjectCopyright(settings.injectCopyright); $('#injectCopyrightToggle').checked = settings.injectCopyright; }
+          Ui.showToast('Settings imported!', 'success');
+        } catch (err) {
+          Ui.showToast('Invalid settings file', 'danger');
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    };
+    input.click();
   },
 };
 

@@ -468,6 +468,13 @@
           <button type="button" class="btn btn-outline-danger btn-sm me-auto" id="btnClearStorage">
             <i class="bi bi-trash me-1"></i> Clear All Data
           </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnExportSettings" title="Export settings">
+            <i class="bi bi-download me-1"></i> Export
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnImportSettings" title="Import settings">
+            <i class="bi bi-upload me-1"></i> Import
+          </button>
+          <input type="file" id="settingsFileInput" accept=".json" hidden>
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
           <button type="button" class="btn btn-accent" id="btnSaveSettings">
             <i class="bi bi-check-lg me-1"></i> Save Settings
@@ -506,6 +513,26 @@
     </div>
   </div>
 
+  <!-- Keyboard Shortcuts Help -->
+  <div class="modal fade" id="shortcutsModal" tabindex="-1">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-keyboard me-2 text-accent"></i>Shortcuts</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" style="font-size:0.85rem;">
+          <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span>Save card</span><kbd>Ctrl+S</kbd></div>
+          <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span>New card</span><kbd>Ctrl+N</kbd></div>
+          <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span>Undo</span><kbd>Ctrl+Z</kbd></div>
+          <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span>Redo</span><kbd>Ctrl+Y</kbd></div>
+          <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span>Send AI message</span><kbd>Enter</kbd></div>
+          <div class="d-flex justify-content-between py-1"><span>New line in AI</span><kbd>Shift+Enter</kbd></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- AI Panel Toggle (mobile) -->
   <button class="btn btn-accent d-lg-none position-fixed bottom-0 end-0 m-3 rounded-circle shadow"
           id="btnToggleAI" style="width:48px;height:48px;z-index:1050;" title="Toggle AI Assistant" aria-label="Toggle AI Assistant">
@@ -518,14 +545,14 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   
   <!-- App Modules -->
-  <script src="js/cardEngine.js?v=8"></script>
-  <script src="js/aiService.js?v=8"></script>
-  <script src="js/storage.js?v=8"></script>
-  <script src="js/exportUtils.js?v=8"></script>
-  <script src="js/editor.js?v=8"></script>
-  <script src="js/cardManager.js?v=8"></script>
-  <script src="js/aiChat.js?v=8"></script>
-  <script src="js/settings.js?v=8"></script>
-  <script src="js/ui.js?v=8"></script>
+  <script src="js/cardEngine.js?v=9"></script>
+  <script src="js/aiService.js?v=9"></script>
+  <script src="js/storage.js?v=9"></script>
+  <script src="js/exportUtils.js?v=9"></script>
+  <script src="js/editor.js?v=9"></script>
+  <script src="js/cardManager.js?v=9"></script>
+  <script src="js/aiChat.js?v=9"></script>
+  <script src="js/settings.js?v=9"></script>
+  <script src="js/ui.js?v=9"></script>
 </body>
 </html>

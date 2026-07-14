@@ -210,6 +210,67 @@ const AIService = {
     return `$${perMillion.toFixed(3)}/M`;
   },
 
+  async chatStream(prompt, systemPrompt = '', model = '', onChunk) {
+    if (!this._apiKey) throw new Error('API key not set');
+    if (!model) throw new Error('No model selected.');
+
+    const messages = [];
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+    messages.push({ role: 'user', content: prompt });
+
+    const maxTokens = this.resolveMaxTokens(model);
+
+    const resp = await fetch(`${this.BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this._apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://github.com/st-card-editor',
+        'X-Title': 'ST Card Editor',
+      },
+      body: JSON.stringify({ model, messages, temperature: this.DEFAULT_TEMPERATURE, max_tokens: maxTokens, stream: true }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      if (resp.status === 402) throw new Error('Insufficient credits.');
+      throw new Error(err.error?.message || `HTTP ${resp.status}`);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let full = '';
+    let usage = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, { stream: true });
+      for (const line of text.split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') break;
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) { full += delta; onChunk(full, delta); }
+          if (parsed.usage) usage = parsed.usage;
+        } catch (_) {}
+      }
+    }
+
+    return {
+      content: full,
+      usage: usage ? {
+        prompt_tokens: usage.prompt_tokens || 0,
+        completion_tokens: usage.completion_tokens || 0,
+        total_tokens: usage.total_tokens || 0,
+        cost: usage.cost || 0,
+      } : null,
+      model,
+    };
+  },
+
   /**
    * Resolve max_tokens: user setting > model limit > default.
    */

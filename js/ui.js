@@ -160,6 +160,8 @@ function bindEvents(settingsModal) {
   $('#btnSaveSettings').addEventListener('click', () => Settings.saveSettings(settingsModal));
   $('#btnRefreshModels').addEventListener('click', () => Settings.refreshModelsList());
   $('#btnClearStorage').addEventListener('click', () => Settings.confirmClearStorage());
+  $('#btnExportSettings').addEventListener('click', () => Settings.exportSettings());
+  $('#btnImportSettings').addEventListener('click', () => Settings.importSettings());
   $('#navModelSelect').addEventListener('change', () => Settings.onNavModelChange());
   $('#btnExportJson').addEventListener('click', () => ExportUtils.exportAsJSON());
   $('#btnExportPng').addEventListener('click', () => ExportUtils.exportAsPNG());
@@ -228,6 +230,10 @@ function handleKeyboardShortcuts(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
     e.preventDefault();
     CardManager.createNewCard();
+  }
+  if (e.key === '?' && !e.target.matches('input,textarea,[contenteditable]')) {
+    const modal = new bootstrap.Modal('#shortcutsModal');
+    modal.show();
   }
 }
 

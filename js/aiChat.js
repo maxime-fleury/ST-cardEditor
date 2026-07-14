@@ -26,11 +26,19 @@ const AiChat = {
     window.AppState.chatHistory.push({ role: 'user', content: prompt });
     CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
 
-    const typingEl = this.showTypingIndicator();
-
-    AIService.chat(prompt, this.buildSystemPrompt(targetField), modelId)
+    const streamingEl = this.createStreamingMessage();
+    AIService.chatStream(prompt, this.buildSystemPrompt(targetField), modelId, (fullText) => {
+      streamingEl.querySelector('.ai-message-content').innerHTML = Ui.escapeHtml(fullText)
+        .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/\n/g, '<br>');
+      const container = document.querySelector('#aiChatMessages');
+      container.scrollTop = container.scrollHeight;
+    })
       .then(result => {
-        typingEl.remove();
+        streamingEl.remove();
         this.addChatMessage('assistant', result.content, result.usage);
         window.AppState.chatHistory.push({ role: 'assistant', content: result.content });
         CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
@@ -43,7 +51,7 @@ const AiChat = {
         Settings.refreshCredits();
       })
       .catch(err => {
-        typingEl.remove();
+        streamingEl.remove();
         this.addChatMessage('system', 'Error: ' + err.message);
         Ui.showToast('AI Error: ' + err.message, 'danger');
       })
@@ -192,6 +200,19 @@ const AiChat = {
     const el = document.createElement('div');
     el.className = 'typing-indicator';
     el.innerHTML = '<span></span><span></span><span></span>';
+    container.appendChild(el);
+    container.scrollTop = container.scrollHeight;
+    return el;
+  },
+
+  createStreamingMessage() {
+    const $ = (sel) => document.querySelector(sel);
+    const container = $('#aiChatMessages');
+    const welcome = container.querySelector('.ai-welcome');
+    if (welcome) welcome.remove();
+    const el = document.createElement('div');
+    el.className = 'ai-message assistant';
+    el.innerHTML = '<div class="ai-message-content"></div>';
     container.appendChild(el);
     container.scrollTop = container.scrollHeight;
     return el;
