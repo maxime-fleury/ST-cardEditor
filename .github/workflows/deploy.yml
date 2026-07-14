@@ -39,6 +39,8 @@ jobs:
           cp -r public/* deploy/
           # Copy js/ contents into deploy/js/
           cp -r js/* deploy/js/
+          # Copy .nojekyll to disable Jekyll processing
+          cp .nojekyll deploy/
           # Show what we're deploying
           ls -la deploy/
 
