@@ -72,7 +72,10 @@
   --bg-deepest: #f0f0f5;
   --bg-deep: #f5f5fa;
   --bg-base: #fafafe;
+  --bg-primary: #fafafe;
   --bg-surface: #ffffff;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f5f5fa;
   --bg-surface-hover: #f0f0f8;
   --bg-elevated: #ffffff;
   --text-primary: #1a1a2e;

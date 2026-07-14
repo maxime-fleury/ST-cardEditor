@@ -148,13 +148,13 @@ const AiChat = {
     };
 
     if (action === 'translate') {
-      const lang = prompt('Translate to which language?', 'French');
+      const lang = window.prompt('Translate to which language?', 'French');
       if (!lang) return;
       prompts.translate = 'Translate this character card to ' + lang + '. Output the COMPLETE card as valid JSON with all fields translated. Keep the exact same JSON structure. Translate ALL text fields.\n\nHere is the card JSON:\n' + CardEngine.toJSON(activeCard);
     }
 
-    const prompt = action === 'translate' ? prompts.translate : prompts[action];
-    if (!prompt) return;
+    const aiPrompt = action === 'translate' ? prompts.translate : prompts[action];
+    if (!aiPrompt) return;
 
     if (action === 'translate') $('#aiTargetSelect').value = 'full';
     else if (action === 'personality') $('#aiTargetSelect').value = 'personality';
@@ -162,7 +162,7 @@ const AiChat = {
     else if (action === 'enhance') $('#aiTargetSelect').value = 'description';
     else $('#aiTargetSelect').value = 'full';
 
-    $('#aiInput').value = prompt;
+    $('#aiInput').value = aiPrompt;
     this.send();
   },
 
