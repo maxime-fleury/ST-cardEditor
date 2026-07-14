@@ -39,7 +39,7 @@
 
     const activeId = Storage.getActiveCardId();
     if (activeId) {
-      const card = cards.find(c => c._id === activeId);
+      const card = Storage.getCard(activeId);
       if (card) selectCard(card);
     }
 
@@ -48,6 +48,7 @@
     updateUIState();
     bindEvents(settingsModal);
     window.addEventListener('beforeunload', () => { if (activeCard) syncEditorToCard(); });
+    window.addEventListener('storage', handleStorageChange);
   }
 
   // ─── EVENT BINDINGS ──────────────────────────────────
@@ -147,13 +148,26 @@
     }
   }
 
+  function handleStorageChange(e) {
+    if (!e.key || !e.key.startsWith(Storage.PREFIX)) return;
+    cards = Storage.getCards();
+    renderCardList();
+    if (activeCard) {
+      const updated = Storage.getCard(activeCard._id);
+      if (updated) {
+        activeCard = updated;
+        populateEditor(activeCard);
+      }
+    }
+  }
+
   function handleFileSelect(e) {
     if (e.target.files?.length) processFiles(e.target.files);
     e.target.value = '';
   }
 
   async function processFiles(fileList) {
-    const validExts = ['png', 'json', 'webp'];
+    const validExts = ['png', 'json'];
     let loaded = 0, errors = 0;
 
     for (const file of fileList) {
@@ -161,9 +175,7 @@
       if (!validExts.includes(ext)) { errors++; continue; }
       try {
         const card = await CardEngine.parseFile(file);
-        const existingIdx = cards.findIndex(c => c._id === card._id);
-        if (existingIdx >= 0) cards[existingIdx] = card;
-        else cards.unshift(card);
+        Storage.upsertCard(card);
         loaded++;
       } catch (err) {
         console.error('Parse error:', file.name, err);
@@ -173,7 +185,7 @@
     }
 
     if (loaded > 0) {
-      Storage.saveCards(cards);
+      cards = Storage.getCards();
       renderCardList();
       if (loaded === 1 && cards.length > 0) selectCard(cards[0]);
       showToast('Loaded ' + loaded + ' card' + (loaded !== 1 ? 's' : ''), 'success');
@@ -220,11 +232,14 @@
 
   // ─── CARD SELECTION ──────────────────────────────────
 
-  function selectCard(card) {
-    if (activeCard && activeCard._id !== card._id) syncEditorToCard();
-    activeCard = card;
-    Storage.setActiveCardId(card._id);
-    populateEditor(card);
+  function selectCard(cardMeta) {
+    if (!cardMeta || !cardMeta._id) return;
+    if (activeCard && activeCard._id !== cardMeta._id) syncEditorToCard();
+    const fullCard = Storage.getCard(cardMeta._id);
+    if (!fullCard) return;
+    activeCard = fullCard;
+    Storage.setActiveCardId(fullCard._id);
+    populateEditor(fullCard);
     renderCardList();
     updateUIState();
   }
@@ -292,7 +307,6 @@
     activeCard.tags = $('#editTags').value.split(',').map(s => s.trim()).filter(Boolean);
     Storage.upsertCard(activeCard);
     cards = Storage.getCards();
-    activeCard = cards.find(c => c._id === activeCard._id) || activeCard;
   }
 
   function showEditor() {
@@ -309,8 +323,8 @@
   function createNewCard() {
     if (activeCard) syncEditorToCard();
     const card = CardEngine.createEmptyCard();
-    cards.unshift(card);
-    Storage.saveCards(cards);
+    Storage.upsertCard(card);
+    cards = Storage.getCards();
     renderCardList();
     selectCard(card);
     $('#editName').focus();
@@ -365,22 +379,26 @@
   // ─── PNG EXPORT HELPERS ──────────────────────────────
 
   async function embedJSONInPNG(imageBase64, jsonStr) {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width; canvas.height = img.height;
-        canvas.getContext('2d').drawImage(img, 0, 0);
-        canvas.toBlob((blob) => {
-          if (!blob) { resolve(null); return; }
-          const reader = new FileReader();
-          reader.onload = () => resolve(new Blob([embedCharaChunk(new Uint8Array(reader.result), jsonStr)], { type: 'image/png' }));
-          reader.readAsArrayBuffer(blob);
-        }, 'image/png');
-      };
-      img.onerror = () => resolve(null);
-      img.src = imageBase64;
-    });
+    try {
+      const bytes = base64DataUrlToBytes(imageBase64);
+      if (!bytes) return null;
+      return new Blob([embedCharaChunk(bytes, jsonStr)], { type: 'image/png' });
+    } catch (err) {
+      console.error('Failed to embed PNG chunk:', err);
+      return null;
+    }
+  }
+
+  function base64DataUrlToBytes(dataUrl) {
+    if (!dataUrl || !dataUrl.startsWith('data:')) return null;
+    const base64 = dataUrl.split(',')[1];
+    if (!base64) return null;
+    const binStr = atob(base64);
+    const bytes = new Uint8Array(binStr.length);
+    for (let i = 0; i < binStr.length; i++) {
+      bytes[i] = binStr.charCodeAt(i);
+    }
+    return bytes;
   }
 
   async function createMinimalPNG(jsonStr) {
@@ -544,7 +562,7 @@
     container.innerHTML = entries.map((entry, idx) =>
       '<div class="lorebook-entry" data-entry-idx="' + idx + '">'
       + '<div class="lorebook-entry-header">'
-      + '<span class="lorebook-entry-key">' + escapeHtml(entry.key || '') + '</span>'
+      + '<input type="text" class="form-control lorebook-entry-key" value="' + escapeAttr(entry.key || '') + '" placeholder="Trigger keyword(s)" data-lore-key-idx="' + idx + '">'
       + '<button class="btn btn-outline-danger btn-sm lorebook-delete-btn" data-idx="' + idx + '"><i class="bi bi-trash"></i></button>'
       + '</div>'
       + '<textarea class="form-control editor-textarea font-mono" rows="3" placeholder="Entry content..." data-lore-idx="' + idx + '">' + escapeHtml(entry.content || '') + '</textarea>'
@@ -562,6 +580,15 @@
         const idx = parseInt(ta.dataset.loreIdx);
         if (activeCard.character_book.entries[idx]) {
           activeCard.character_book.entries[idx].content = ta.value;
+          syncEditorToCard();
+        }
+      }, 600));
+    });
+    container.querySelectorAll('input[data-lore-key-idx]').forEach(input => {
+      input.addEventListener('input', debounce(() => {
+        const idx = parseInt(input.dataset.loreKeyIdx);
+        if (activeCard.character_book.entries[idx]) {
+          activeCard.character_book.entries[idx].key = input.value.trim();
           syncEditorToCard();
         }
       }, 600));
@@ -594,6 +621,12 @@
 
     const targetField = $('#aiTargetSelect').value;
     const modelId = $('#aiModelSelect').value || $('#navModelSelect').value;
+    if (!modelId) {
+      showToast('Please select a model from the navbar or settings first.', 'warning');
+      isAiLoading = false;
+      updateAiSendButton();
+      return;
+    }
     const typingEl = showTypingIndicator();
 
     AIService.chat(prompt, buildSystemPrompt(targetField), modelId)
@@ -650,9 +683,9 @@
       if (jsonMatch) {
         try {
           const parsed = CardEngine.parseJSON(jsonMatch[1].trim(), activeCard._filename);
-          const oldId = activeCard._id, oldFn = activeCard._filename, oldImg = activeCard._imageBase64;
+          const internal = { _id: activeCard._id, _filename: activeCard._filename, _hasImage: activeCard._hasImage, _imageBase64: activeCard._imageBase64 };
           Object.assign(activeCard, parsed);
-          activeCard._id = oldId; activeCard._filename = oldFn; activeCard._imageBase64 = oldImg;
+          Object.assign(activeCard, internal);
           populateEditor(activeCard); syncEditorToCard();
           showToast('Card updated from AI response!', 'success');
         } catch (e) {
@@ -701,8 +734,10 @@
     const welcome = container.querySelector('.ai-welcome');
     if (welcome) welcome.remove();
 
+    // Escape HTML first, then convert markdown-like code fences/blocks to markup.
+    // This order is intentional and security-critical: never swap it.
     let formatted = escapeHtml(content)
-      .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre>$2</pre>')
+      .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')
       .replace(/`([^`]+)`/g, '<code>$1</code>')
       .replace(/\n/g, '<br>');
 
@@ -741,7 +776,15 @@
   function clearChat() {
     chatHistory = [];
     Storage.clearChatHistory();
-    $('#aiChatMessages').innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>AI Card Assistant</h6><p>Ask the AI to edit, translate, or enhance your character card.</p></div>';
+    $('#aiChatMessages').innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>AI Card Assistant</h6><p>Ask the AI to edit, translate, or enhance your character card.</p><div class="quick-actions">'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="translate"><i class="bi bi-translate me-1"></i> Translate to French</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance"><i class="bi bi-stars me-1"></i> Enhance Description</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="personality"><i class="bi bi-emoji-smile me-1"></i> Expand Personality</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="firstmes"><i class="bi bi-chat-dots me-1"></i> Improve First Message</button>'
+      + '</div></div>';
+    $('#aiChatMessages').querySelectorAll('.quick-action').forEach(btn => {
+      btn.addEventListener('click', () => handleQuickAction(btn.dataset.action));
+    });
     showToast('Chat cleared', 'info');
   }
 

@@ -8,7 +8,7 @@ const Storage = {
   _keys: {
     apiKey: 'apiKey',
     defaultModel: 'defaultModel',
-    cards: 'cards',
+    cardIndex: 'cardIndex',
     activeCardId: 'activeCardId',
     aiChatHistory: 'aiChatHistory',
   },
@@ -33,14 +33,47 @@ const Storage = {
     localStorage.setItem(this.PREFIX + this._keys.defaultModel, modelId);
   },
 
+  // ─── Migration ─────────────────────────────────────────
+
+  _checkMigration() {
+    const oldRaw = localStorage.getItem(this.PREFIX + 'cards');
+    if (!oldRaw) return;
+    try {
+      const oldCards = JSON.parse(oldRaw);
+      if (!Array.isArray(oldCards)) return;
+      const index = [];
+      for (const card of oldCards) {
+        if (!card || !card._id) continue;
+        localStorage.setItem(this.PREFIX + 'card_' + card._id, JSON.stringify(card));
+        index.push(this._extractMeta(card));
+      }
+      localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
+      localStorage.removeItem(this.PREFIX + 'cards');
+    } catch (e) {
+      console.error('Migration failed:', e);
+    }
+  },
+
+  _extractMeta(card) {
+    return {
+      _id: card._id,
+      name: card.name,
+      creator: card.creator,
+      tags: card.tags,
+      spec_version: card.spec_version,
+      _imageBase64: card._imageBase64,
+    };
+  },
+
   // ─── Cards ─────────────────────────────────────────────
 
   /**
-   * Get all saved cards.
+   * Get all card metadata for the sidebar list.
    */
   getCards() {
+    this._checkMigration();
     try {
-      const raw = localStorage.getItem(this.PREFIX + this._keys.cards);
+      const raw = localStorage.getItem(this.PREFIX + this._keys.cardIndex);
       return raw ? JSON.parse(raw) : [];
     } catch {
       return [];
@@ -48,11 +81,30 @@ const Storage = {
   },
 
   /**
+   * Fetch a single full card by ID.
+   */
+  getCard(id) {
+    this._checkMigration();
+    try {
+      const raw = localStorage.getItem(this.PREFIX + 'card_' + id);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
    * Save all cards (replaces entire list).
    */
   saveCards(cards) {
+    this._checkMigration();
     try {
-      localStorage.setItem(this.PREFIX + this._keys.cards, JSON.stringify(cards));
+      const index = [];
+      for (const card of cards) {
+        localStorage.setItem(this.PREFIX + 'card_' + card._id, JSON.stringify(card));
+        index.push(this._extractMeta(card));
+      }
+      localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
     } catch (e) {
       if (e.name === 'QuotaExceededError') {
         throw new Error('Storage full! Try removing some cards or exporting them.');
@@ -65,22 +117,28 @@ const Storage = {
    * Add or update a card in storage.
    */
   upsertCard(card) {
-    const cards = this.getCards();
-    const idx = cards.findIndex(c => c._id === card._id);
+    this._checkMigration();
+    localStorage.setItem(this.PREFIX + 'card_' + card._id, JSON.stringify(card));
+
+    const index = this.getCards();
+    const idx = index.findIndex(c => c._id === card._id);
+    const meta = this._extractMeta(card);
     if (idx >= 0) {
-      cards[idx] = card;
+      index[idx] = meta;
     } else {
-      cards.unshift(card);
+      index.unshift(meta);
     }
-    this.saveCards(cards);
+    localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
   },
 
   /**
    * Delete a card by ID.
    */
   deleteCard(id) {
-    const cards = this.getCards().filter(c => c._id !== id);
-    this.saveCards(cards);
+    this._checkMigration();
+    localStorage.removeItem(this.PREFIX + 'card_' + id);
+    const index = this.getCards().filter(c => c._id !== id);
+    localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
     if (this.getActiveCardId() === id) {
       this.setActiveCardId(null);
     }
@@ -106,7 +164,7 @@ const Storage = {
   getActiveCard() {
     const id = this.getActiveCardId();
     if (!id) return null;
-    return this.getCards().find(c => c._id === id) || null;
+    return this.getCard(id);
   },
 
   // ─── AI Chat History ──────────────────────────────────
@@ -138,9 +196,14 @@ const Storage = {
    * Clear ALL stored data.
    */
   clearAll() {
-    Object.values(this._keys).forEach(key => {
-      localStorage.removeItem(this.PREFIX + key);
-    });
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(this.PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
   },
 
   /**
@@ -148,10 +211,13 @@ const Storage = {
    */
   getUsageEstimate() {
     let total = 0;
-    Object.values(this._keys).forEach(key => {
-      const val = localStorage.getItem(this.PREFIX + key);
-      if (val) total += val.length * 2; // rough UTF-16 byte count
-    });
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(this.PREFIX)) {
+        const val = localStorage.getItem(key);
+        if (val) total += val.length * 2; // rough UTF-16 byte count
+      }
+    }
     return total;
   },
 };

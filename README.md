@@ -13,7 +13,7 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 ## ✨ Features
 
 ### 🃏 Card Library
-- **Drag & drop** loading of `.png`, `.json`, and `.webp` SillyTavern character cards
+- **Drag & drop** loading of `.png` and `.json` SillyTavern character cards
 - Automatic parsing of embedded card data from PNG/WebP files (supports both `chara` and `ccv3` chunks)
 - Visual card library with avatars, names, creators, and tags
 - Stable card identification via content hashing
@@ -94,7 +94,7 @@ Or try it instantly on **GitHub Pages**:
 ## 🎮 Usage
 
 ### Loading Cards
-- **Drag & drop** any `.png`, `.json`, or `.webp` file onto the left panel's drop zone
+- **Drag & drop** any `.png` or `.json` file onto the left panel's drop zone
 - Click **Browse files** to select cards via the file picker
 - Multiple cards can be loaded at once
 

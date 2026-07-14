@@ -149,8 +149,11 @@ const AIService = {
     }
     messages.push({ role: 'user', content: prompt });
     
-    // Use a free model by default
-    const useModel = model || 'meta-llama/llama-3.3-70b-instruct:free';
+    // Require an explicit model selection
+    if (!model) {
+      throw new Error('No model selected. Please choose a model from the navbar or settings.');
+    }
+    const useModel = model;
     
     const resp = await fetch(`${this.BASE_URL}/chat/completions`, {
       method: 'POST',

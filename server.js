@@ -1,11 +1,12 @@
 // Bun global — Bun.serve is always available
 // import.meta.dir is supported in Bun
 
-import { join, extname } from "path";
+import { join, extname, resolve } from "path";
 import { existsSync, readFileSync } from "fs";
 
 const PORT = parseInt(process.env.PORT || '8182');
-const PUBLIC_DIR = join(import.meta.dir, "public");
+const PUBLIC_DIR = resolve(join(import.meta.dir, "public"));
+const JS_DIR = resolve(join(import.meta.dir, "js"));
 
 // MIME types map
 const MIME_TYPES = {
@@ -59,12 +60,18 @@ const server = Bun.serve({
       pathname = "/index.html";
     }
 
-    // Determine file path
+    // Determine file path and prevent directory traversal
     let filePath;
     if (pathname.startsWith("/js/")) {
-      filePath = join(import.meta.dir, pathname);
+      filePath = resolve(join(import.meta.dir, pathname));
+      if (!filePath.startsWith(JS_DIR)) {
+        return new Response("Forbidden", { status: 403 });
+      }
     } else {
-      filePath = join(PUBLIC_DIR, pathname);
+      filePath = resolve(join(PUBLIC_DIR, pathname));
+      if (!filePath.startsWith(PUBLIC_DIR)) {
+        return new Response("Forbidden", { status: 403 });
+      }
     }
 
     return serveStatic(filePath, join(PUBLIC_DIR, "index.html"));

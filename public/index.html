@@ -75,7 +75,7 @@
           <button class="btn btn-outline-accent btn-sm mt-2" id="btnBrowse">
             <i class="bi bi-folder2-open me-1"></i> Browse files
           </button>
-          <input type="file" id="fileInput" accept=".png,.json,.webp" multiple hidden>
+          <input type="file" id="fileInput" accept=".png,.json" multiple hidden>
         </div>
       </div>
       
@@ -350,6 +350,10 @@
                 Get your API key from OpenRouter <i class="bi bi-box-arrow-up-right ms-1"></i>
               </a>
             </small>
+            <div class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mt-2 mb-0" style="font-size: 0.78rem;">
+              <i class="bi bi-exclamation-triangle-fill"></i>
+              <span>Your API key is stored locally in your browser's localStorage in plaintext. Do not use this app on shared devices.</span>
+            </div>
           </div>
           
           <!-- Model Selection -->
