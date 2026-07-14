@@ -7,10 +7,26 @@ const Editor = {
   _redoStack: [],
   _maxUndo: 50,
 
+  _FIELD_MAP: {
+    firstMes: 'first_mes',
+    mesExample: 'mes_example',
+    creatorNotes: 'creator_notes',
+    systemPrompt: 'system_prompt',
+    postHistory: 'post_history_instructions',
+    version: 'character_version',
+  },
+
+  _toCardProp(field) { return this._FIELD_MAP[field] || field; },
+  _toDomId(cardProp) {
+    for (const [k, v] of Object.entries(this._FIELD_MAP)) { if (v === cardProp) return k; }
+    return cardProp;
+  },
+
   _snapshot(field) {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
-    this._undoStack.push({ field, oldValue: activeCard[field] || '', newValue: document.querySelector('#edit' + field.charAt(0).toUpperCase() + field.slice(1))?.value || '' });
+    const prop = this._toCardProp(field);
+    this._undoStack.push({ field, prop, oldValue: activeCard[prop] || '' });
     if (this._undoStack.length > this._maxUndo) this._undoStack.shift();
     this._redoStack = [];
   },
@@ -20,12 +36,12 @@ const Editor = {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
     const entry = this._undoStack.pop();
-    this._redoStack.push({ ...entry, oldValue: activeCard[entry.field] || '', newValue: entry.oldValue });
-    activeCard[entry.field] = entry.oldValue;
+    this._redoStack.push({ ...entry, oldValue: activeCard[entry.prop] || '', newValue: entry.oldValue });
+    activeCard[entry.prop] = entry.oldValue;
     const el = document.querySelector('#edit' + entry.field.charAt(0).toUpperCase() + entry.field.slice(1));
     if (el) el.value = entry.oldValue;
     Editor.syncEditorToCard();
-    Ui.showToast('Undid change to ' + entry.field, 'info');
+    Ui.showToast('Undid change to ' + entry.prop, 'info');
   },
 
   redo() {
@@ -33,12 +49,12 @@ const Editor = {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
     const entry = this._redoStack.pop();
-    this._undoStack.push({ ...entry, oldValue: activeCard[entry.field] || '', newValue: entry.newValue });
-    activeCard[entry.field] = entry.newValue;
+    this._undoStack.push({ ...entry, oldValue: activeCard[entry.prop] || '', newValue: entry.newValue });
+    activeCard[entry.prop] = entry.newValue;
     const el = document.querySelector('#edit' + entry.field.charAt(0).toUpperCase() + entry.field.slice(1));
     if (el) el.value = entry.newValue;
     Editor.syncEditorToCard();
-    Ui.showToast('Redid change to ' + entry.field, 'info');
+    Ui.showToast('Redid change to ' + entry.prop, 'info');
   },
   populateEditor(card) {
     const $ = (sel) => document.querySelector(sel);
@@ -164,6 +180,7 @@ const Editor = {
       return '<div class="greeting-item' + (isDefault ? ' default-greeting' : '') + '" data-greeting-idx="' + idx + '">'
         + '<div class="greeting-item-actions">'
         + '<button class="btn btn-outline-secondary btn-sm greeting-up" data-idx="' + idx + '" title="Move up"><i class="bi bi-chevron-up"></i></button>'
+        + '<button class="btn btn-outline-secondary btn-sm greeting-down" data-idx="' + idx + '" title="Move down"><i class="bi bi-chevron-down"></i></button>'
         + (isDefault
             ? '<span class="greeting-item-badge bg-purple" title="This is the current first message"><i class="bi bi-star-fill"></i></span>'
             : '<button class="btn btn-outline-accent btn-sm greeting-set-default" data-idx="' + idx + '" title="Set as first message"><i class="bi bi-star"></i></button>')
@@ -201,6 +218,18 @@ const Editor = {
         if (idx > 0) {
           const arr = window.AppState.activeCard.alternate_greetings;
           [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+          self.renderGreetings(window.AppState.activeCard);
+          self.syncEditorToCard();
+        }
+      });
+    });
+
+    container.querySelectorAll('.greeting-down').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.idx);
+        const arr = window.AppState.activeCard.alternate_greetings;
+        if (idx < arr.length - 1) {
+          [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
           self.renderGreetings(window.AppState.activeCard);
           self.syncEditorToCard();
         }

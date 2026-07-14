@@ -93,15 +93,21 @@ const CardManager = {
   },
 
   async batchExportJSON() {
+    const cards = [];
     for (const id of this._selectedIds) {
       const card = await CardStorage.getCard(id);
       if (card) {
         const clone = JSON.parse(JSON.stringify(card));
         if (CardStorage.getInjectCopyright()) ExportUtils.injectCopyright(clone);
-        Ui.downloadFile((card.name || 'character') + '.json', CardEngine.toJSON(clone), 'application/json');
+        cards.push(clone);
       }
     }
-    Ui.showToast('Exported ' + this._selectedIds.size + ' cards', 'success');
+    if (cards.length === 1) {
+      Ui.downloadFile((cards[0].name || 'character') + '.json', CardEngine.toJSON(cards[0]), 'application/json');
+    } else {
+      Ui.downloadFile('cards_export.json', JSON.stringify(cards, null, 2), 'application/json');
+    }
+    Ui.showToast('Exported ' + cards.length + ' cards', 'success');
   },
 
   renderCardList() {
@@ -122,6 +128,11 @@ const CardManager = {
         || (c.tags || []).some(t => t.toLowerCase().includes(q)));
     }
 
+    if (filtered.length === 0 && this._searchQuery) {
+      container.innerHTML = '<div class="text-center text-muted py-4">No cards match "' + Ui.escapeHtml(this._searchQuery) + '"</div>';
+      emptyState.style.display = 'none';
+      return;
+    }
     if (filtered.length === 0) { container.innerHTML = ''; emptyState.style.display = 'flex'; return; }
     emptyState.style.display = 'none';
 
@@ -203,7 +214,8 @@ const CardManager = {
         const toIdx = cards.findIndex(c => c._id === dropId);
         if (fromIdx < 0 || toIdx < 0) return;
         const [moved] = cards.splice(fromIdx, 1);
-        cards.splice(toIdx, 0, moved);
+        const adjustedTo = toIdx > fromIdx ? toIdx - 1 : toIdx;
+        cards.splice(adjustedTo, 0, moved);
         CardStorage.saveCards(cards);
         this.renderCardList();
         dragId = null;

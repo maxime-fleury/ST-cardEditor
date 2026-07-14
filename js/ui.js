@@ -107,8 +107,7 @@ async function init() {
   bindEvents(settingsModal);
   window.addEventListener('beforeunload', () => {
     if (window.AppState.activeCard) {
-      Editor.syncGreetings(window.AppState.activeCard);
-      Editor.syncLorebook(window.AppState.activeCard);
+      Editor.syncGreetings();
       Editor.syncEditorToCard();
     }
   });
@@ -136,8 +135,10 @@ function bindEvents(settingsModal) {
   $('#fileInput').addEventListener('change', (e) => CardManager.handleFileSelect(e));
 
   document.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    if (!dropZone.contains(e.target)) dropZone.classList.add('drag-over');
+    if (e.dataTransfer?.types?.includes('Files')) {
+      e.preventDefault();
+      if (!dropZone.contains(e.target)) dropZone.classList.add('drag-over');
+    }
   });
   document.addEventListener('dragleave', (e) => {
     if (!e.relatedTarget || e.relatedTarget === document.documentElement)
@@ -206,14 +207,14 @@ function bindEvents(settingsModal) {
   }
 
   const themeToggle = $('#btnThemeToggle');
-  const savedTheme = localStorage.getItem('stce_theme') || 'dark';
+  const savedTheme = localStorage.getItem(CardStorage.PREFIX + 'theme') || 'dark';
   if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); themeToggle.innerHTML = '<i class="bi bi-sun-fill"></i>'; }
   if (themeToggle) {
     themeToggle.addEventListener('click', () => {
       const current = document.documentElement.getAttribute('data-theme');
       const next = current === 'light' ? 'dark' : 'light';
       document.documentElement.setAttribute('data-theme', next);
-      localStorage.setItem('stce_theme', next);
+      localStorage.setItem(CardStorage.PREFIX + 'theme', next);
       themeToggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
     });
   }

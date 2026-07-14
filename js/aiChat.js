@@ -43,9 +43,7 @@ const AiChat = {
         window.AppState.chatHistory.push({ role: 'assistant', content: result.content });
         CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
 
-        if (targetField === 'full' || targetField === 'description' || targetField === 'personality'
-            || targetField === 'first_mes' || targetField === 'scenario' || targetField === 'mes_example'
-            || targetField === 'system_prompt') {
+        if (['full','description','personality','first_mes','scenario','mes_example','system_prompt','post_history_instructions','creator_notes'].includes(targetField)) {
           this.tryApplyAIResponse(result.content, targetField);
         }
         Settings.refreshCredits();
@@ -93,8 +91,12 @@ const AiChat = {
       document.querySelector('.ai-preview-old').textContent = oldVal || '(empty)';
       document.querySelector('.ai-preview-new').textContent = newVal;
       const acceptBtn = document.querySelector('#btnAcceptAI');
-      const handler = () => { applyFn(); modal.hide(); acceptBtn.removeEventListener('click', handler); };
+      const modalEl = document.querySelector('#aiPreviewModal');
+      let applied = false;
+      const handler = () => { applied = true; applyFn(); modal.hide(); };
+      const cleanup = () => { acceptBtn.removeEventListener('click', handler); modalEl.removeEventListener('hidden.bs.modal', cleanup); };
       acceptBtn.addEventListener('click', handler);
+      modalEl.addEventListener('hidden.bs.modal', cleanup);
       modal.show();
     };
 
@@ -234,7 +236,7 @@ const AiChat = {
     CardStorage.clearChatHistory(window.AppState.activeCard?._id);
     const $ = (sel) => document.querySelector(sel);
     $('#aiChatMessages').innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>AI Card Assistant</h6><p>Ask the AI to edit, translate, or enhance your character card.</p><div class="quick-actions">'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="translate"><i class="bi bi-translate me-1"></i> Translate to French</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="translate"><i class="bi bi-translate me-1"></i> Translate Card</button>'
       + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance"><i class="bi bi-stars me-1"></i> Enhance Description</button>'
       + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="personality"><i class="bi bi-emoji-smile me-1"></i> Expand Personality</button>'
       + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="firstmes"><i class="bi bi-chat-dots me-1"></i> Improve First Message</button>'

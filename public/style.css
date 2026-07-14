@@ -7,7 +7,10 @@
   --bg-deepest: #0a0a0f;
   --bg-deep: #0f0f1a;
   --bg-base: #141428;
+  --bg-primary: #141428;
   --bg-surface: #1a1a33;
+  --bg-secondary: #1a1a33;
+  --bg-tertiary: #1e1e3a;
   --bg-surface-hover: #222244;
   --bg-elevated: #252550;
   
@@ -1317,7 +1320,6 @@ a:hover { color: var(--purple-400); text-decoration: underline; }
   .panel-left { width: 260px; min-width: 260px; }
 }
 /* Card hover preview tooltip */
-.card-list-item { position: relative; }
 .card-list-item.batch-selected { outline: 2px solid var(--purple-500); outline-offset: -2px; }
 .card-batch-check { position: absolute; top: 8px; right: 8px; z-index: 5; width: 16px; height: 16px; accent-color: var(--purple-500); cursor: pointer; opacity: 0; transition: opacity var(--transition-fast); }
 .card-list-item:hover .card-batch-check { opacity: 1; }
