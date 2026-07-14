@@ -1,0 +1,127 @@
+/* ============================================================
+   exportUtils.js — PNG/JSON Export, CRC32, PNG Chunk Embedding
+   ============================================================ */
+
+const ExportUtils = {
+  EDITOR_CREDIT: 'Made using https://maxime-fleury.github.io/ST-cardEditor/',
+
+  injectCopyright(card) {
+    const note = card.creator_notes || '';
+    if (!note.includes(this.EDITOR_CREDIT)) {
+      card.creator_notes = note ? note.trimEnd() + '\n\n' + this.EDITOR_CREDIT : this.EDITOR_CREDIT;
+    }
+    return card;
+  },
+
+  async exportAsJSON() {
+    const { activeCard } = window.AppState;
+    if (!activeCard) return;
+    await Editor.syncEditorToCard();
+    const cardWithCredit = this.injectCopyright({ ...activeCard });
+    Ui.downloadFile((activeCard.name || 'character') + '.json', CardEngine.toJSON(cardWithCredit), 'application/json');
+    Ui.showToast('Exported as JSON!', 'success');
+  },
+
+  async exportAsPNG() {
+    const { activeCard } = window.AppState;
+    if (!activeCard) return;
+    await Editor.syncEditorToCard();
+    const cardWithCredit = this.injectCopyright({ ...activeCard });
+    const json = CardEngine.toJSON(cardWithCredit);
+    try {
+      if (activeCard._imageBase64) {
+        const blob = await this.embedJSONInPNG(activeCard._imageBase64, json);
+        if (blob) { Ui.downloadBlob(blob, (activeCard.name || 'character') + '.png'); Ui.showToast('Exported as PNG with card data!', 'success'); return; }
+      }
+      const blob = await this.createMinimalPNG(json);
+      Ui.downloadBlob(blob, (activeCard.name || 'character') + '.png');
+      Ui.showToast('Exported as PNG with card data!', 'success');
+    } catch (err) {
+      console.error('PNG export failed:', err);
+      Ui.showToast('PNG export failed. Falling back to JSON.', 'warning');
+      this.exportAsJSON();
+    }
+  },
+
+  async embedJSONInPNG(imageBase64, jsonStr) {
+    try {
+      const bytes = this.base64DataUrlToBytes(imageBase64);
+      if (!bytes) return null;
+      return new Blob([this.embedCharaChunk(bytes, jsonStr)], { type: 'image/png' });
+    } catch (err) {
+      console.error('Failed to embed PNG chunk:', err);
+      return null;
+    }
+  },
+
+  base64DataUrlToBytes(dataUrl) {
+    if (!dataUrl || !dataUrl.startsWith('data:')) return null;
+    const base64 = dataUrl.split(',')[1];
+    if (!base64) return null;
+    const binStr = atob(base64);
+    const bytes = new Uint8Array(binStr.length);
+    for (let i = 0; i < binStr.length; i++) {
+      bytes[i] = binStr.charCodeAt(i);
+    }
+    return bytes;
+  },
+
+  async createMinimalPNG(jsonStr) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64; canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    const g = ctx.createLinearGradient(0, 0, 64, 64);
+    g.addColorStop(0, '#772ce8'); g.addColorStop(1, '#ec4899');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('ST Card', 32, 36);
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(new Blob([this.embedCharaChunk(new Uint8Array(reader.result), jsonStr)], { type: 'image/png' }));
+        reader.readAsArrayBuffer(blob);
+      }, 'image/png');
+    });
+  },
+
+  embedCharaChunk(pngBytes, jsonStr) {
+    const bytes = new Uint8Array(pngBytes);
+    let offset = 8, iendPos = -1;
+    while (offset + 12 <= bytes.length) {
+      const length = CardEngine._readUint32(bytes, offset);
+      const type = String.fromCharCode(bytes[offset+4], bytes[offset+5], bytes[offset+6], bytes[offset+7]);
+      if (type === 'IEND') { iendPos = offset; break; }
+      offset += 12 + length;
+    }
+    if (iendPos < 0) return bytes;
+
+    const keyword = 'chara';
+    const textData = new TextEncoder().encode(keyword + '\0' + jsonStr);
+    const typeBytes = new TextEncoder().encode('tEXt');
+    const crcData = new Uint8Array(4 + textData.length);
+    crcData.set(typeBytes, 0); crcData.set(textData, 4);
+    const crc = this.crc32(crcData);
+
+    const chunk = new Uint8Array(12 + textData.length);
+    new DataView(chunk.buffer).setUint32(0, textData.length, false);
+    chunk.set(typeBytes, 4); chunk.set(textData, 8);
+    new DataView(chunk.buffer).setUint32(8 + textData.length, crc, false);
+
+    const result = new Uint8Array(bytes.length + chunk.length);
+    result.set(bytes.slice(0, iendPos), 0);
+    result.set(chunk, iendPos);
+    result.set(bytes.slice(iendPos), iendPos + chunk.length);
+    return result;
+  },
+
+  crc32(data) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < data.length; i++) {
+      crc ^= data[i];
+      for (let j = 0; j < 8; j++) crc = (crc & 1) ? (crc >>> 1) ^ 0xEDB88320 : crc >>> 1;
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  },
+};
+
+window.ExportUtils = ExportUtils;

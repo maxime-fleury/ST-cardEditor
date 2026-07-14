@@ -2,7 +2,6 @@
 // import.meta.dir is supported in Bun
 
 import { join, extname, resolve } from "path";
-import { existsSync, readFileSync } from "fs";
 
 const PORT = parseInt(process.env.PORT || '8182');
 const PUBLIC_DIR = resolve(join(import.meta.dir, "public"));
@@ -28,9 +27,10 @@ function getMimeType(path) {
   return MIME_TYPES[extname(path).toLowerCase()] || "application/octet-stream";
 }
 
-function serveStatic(filePath, fallbackPath) {
-  if (existsSync(filePath)) {
-    const content = readFileSync(filePath);
+async function serveStatic(filePath, fallbackPath) {
+  const file = Bun.file(filePath);
+  if (file.size > 0) {
+    const content = await file.arrayBuffer();
     const mimeType = getMimeType(filePath);
     return new Response(content, {
       headers: {
@@ -40,8 +40,9 @@ function serveStatic(filePath, fallbackPath) {
       },
     });
   }
-  if (fallbackPath && existsSync(fallbackPath)) {
-    const content = readFileSync(fallbackPath);
+  const fallbackFile = fallbackPath ? Bun.file(fallbackPath) : null;
+  if (fallbackFile && fallbackFile.size > 0) {
+    const content = await fallbackFile.arrayBuffer();
     return new Response(content, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
@@ -51,7 +52,7 @@ function serveStatic(filePath, fallbackPath) {
 
 const server = Bun.serve({
   port: PORT,
-  fetch(req) {
+  async fetch(req) {
     const url = new URL(req.url);
     let pathname = url.pathname;
 

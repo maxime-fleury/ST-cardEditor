@@ -2,8 +2,9 @@
    storage.js — localStorage + IndexedDB Persistence
    ============================================================ */
 
-const Storage = {
+const CardStorage = {
   PREFIX: 'stce_',
+  CHAT_HISTORY_LIMIT: 50,
 
   /**
    * IndexedDB wrapper for storing large card data and images.
@@ -13,21 +14,32 @@ const Storage = {
     dbName: 'stce_data',
     version: 1,
     stores: { cards: 'cards', images: 'images' },
-    init() {
-      return new Promise((resolve, reject) => {
-        const req = indexedDB.open(this.dbName, this.version);
-        req.onupgradeneeded = (e) => {
-          const db = e.target.result;
-          if (!db.objectStoreNames.contains(this.stores.cards)) {
-            db.createObjectStore(this.stores.cards);
-          }
-          if (!db.objectStoreNames.contains(this.stores.images)) {
-            db.createObjectStore(this.stores.images);
-          }
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
+    _db: null,
+    _dbPromise: null,
+
+    async init() {
+      if (this._db) return this._db;
+      if (!this._dbPromise) {
+        this._dbPromise = new Promise((resolve, reject) => {
+          const req = indexedDB.open(this.dbName, this.version);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(this.stores.cards)) {
+              db.createObjectStore(this.stores.cards);
+            }
+            if (!db.objectStoreNames.contains(this.stores.images)) {
+              db.createObjectStore(this.stores.images);
+            }
+          };
+          req.onsuccess = () => {
+            this._db = req.result;
+            this._db.onclose = () => { this._db = null; this._dbPromise = null; };
+            resolve(this._db);
+          };
+          req.onerror = () => { this._dbPromise = null; reject(req.error); };
+        });
+      }
+      return this._dbPromise;
     },
     async get(store, id) {
       const db = await this.init();
@@ -93,18 +105,24 @@ const Storage = {
 
   // ─── Migration ─────────────────────────────────────────
 
-  _checkMigration() {
+  _migrationDone: false,
+
+  async _checkMigration() {
+    if (this._migrationDone) return;
     const oldRaw = localStorage.getItem(this.PREFIX + 'cards');
-    if (!oldRaw) return;
+    if (!oldRaw) { this._migrationDone = true; return; }
     try {
       const oldCards = JSON.parse(oldRaw);
-      if (!Array.isArray(oldCards)) return;
+      if (!Array.isArray(oldCards)) { this._migrationDone = true; return; }
+      const index = [];
       for (const card of oldCards) {
         if (!card || !card._id) continue;
-        this.DB.set(this.DB.stores.cards, card._id, card).catch(() => {});
+        await this.DB.set(this.DB.stores.cards, card._id, card);
+        index.push(this._extractMeta(card));
       }
-      this._rebuildIndex();
+      localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
       localStorage.removeItem(this.PREFIX + 'cards');
+      this._migrationDone = true;
     } catch (e) {
       console.error('Migration failed:', e);
     }
@@ -150,17 +168,12 @@ const Storage = {
     };
   },
 
-  _rebuildIndex() {
-    // This is a fallback; in normal operation the index is updated directly.
-  },
-
   // ─── Cards ─────────────────────────────────────────────
 
   /**
    * Get all card metadata for the sidebar list.
    */
   getCards() {
-    this._checkMigration();
     try {
       const raw = localStorage.getItem(this.PREFIX + this._keys.cardIndex);
       return raw ? JSON.parse(raw) : [];
@@ -173,7 +186,6 @@ const Storage = {
    * Fetch a single full card by ID.
    */
   async getCard(id) {
-    this._checkMigration();
     try {
       const card = await this.DB.get(this.DB.stores.cards, id);
       if (card) return card;
@@ -189,7 +201,6 @@ const Storage = {
    * Save all cards (replaces entire list).
    */
   async saveCards(cards) {
-    this._checkMigration();
     try {
       const index = [];
       for (const card of cards) {
@@ -211,7 +222,6 @@ const Storage = {
    * The localStorage index is updated synchronously so the UI can refresh immediately.
    */
   upsertCard(card) {
-    this._checkMigration();
     const toSave = { ...card };
     delete toSave._imageBase64;
 
@@ -236,7 +246,6 @@ const Storage = {
    * Delete a card by ID.
    */
   deleteCard(id) {
-    this._checkMigration();
     localStorage.removeItem(this.PREFIX + 'card_' + id);
     const index = this.getCards().filter(c => c._id !== id);
     localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
@@ -284,7 +293,7 @@ const Storage = {
   saveChatHistory(messages) {
     try {
       // Limit to last 50 messages
-      const trimmed = messages.slice(-50);
+      const trimmed = messages.slice(-this.CHAT_HISTORY_LIMIT);
       localStorage.setItem(this.PREFIX + this._keys.aiChatHistory, JSON.stringify(trimmed));
     } catch { /* silently fail */ }
   },
@@ -333,4 +342,4 @@ const Storage = {
   },
 };
 
-window.Storage = Storage;
+window.CardStorage = CardStorage;

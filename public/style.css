@@ -1282,3 +1282,11 @@ a:hover { color: var(--purple-400); text-decoration: underline; }
     max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border-subtle); }
   .app-container { flex-direction: column; }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

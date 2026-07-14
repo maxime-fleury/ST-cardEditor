@@ -4,6 +4,8 @@
 
 const AIService = {
   BASE_URL: 'https://openrouter.ai/api/v1',
+  DEFAULT_TEMPERATURE: 0.7,
+  DEFAULT_MAX_TOKENS: 30000,
 
   /**
    * Known free model IDs on OpenRouter (for quick identification).
@@ -124,12 +126,13 @@ const AIService = {
     }
     
     const data = await resp.json();
+    const key = data.data || {};
     return {
-      label: data.label || 'Unknown',
-      limit: data.limit || 0,
-      limit_remaining: data.limit_remaining ?? 0,
-      usage: data.usage || 0,
-      is_free_tier: data.is_free_tier || false,
+      label: key.label || 'Unknown',
+      limit: key.limit || 0,
+      limit_remaining: key.limit_remaining ?? 0,
+      usage: key.usage || 0,
+      is_free_tier: key.is_free_tier || false,
     };
   },
 
@@ -166,8 +169,8 @@ const AIService = {
       body: JSON.stringify({
         model: useModel,
         messages: messages,
-        temperature: 0.7,
-        max_tokens: 4096,
+        temperature: this.DEFAULT_TEMPERATURE,
+        max_tokens: this.DEFAULT_MAX_TOKENS,
         stream: false,
       }),
     });

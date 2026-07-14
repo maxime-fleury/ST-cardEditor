@@ -3,8 +3,10 @@
    ============================================================ */
 
 const CardEngine = {
-  // Single shared TextDecoder for performance
   _utf8Decoder: new TextDecoder('utf-8'),
+  THUMBNAIL_MAX_SIZE: 128,
+  THUMBNAIL_JPEG_QUALITY: 0.8,
+  STABLE_ID_DESC_PREFIX_LENGTH: 200,
 
   async parseFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
@@ -26,7 +28,7 @@ const CardEngine = {
   },
 
   generateStableId(card) {
-    const key = (card.name || '') + '|' + (card.creator || '') + '|' + ((card.description || '').slice(0, 200));
+    const key = (card.name || '') + '|' + (card.creator || '') + '|' + ((card.description || '').slice(0, this.STABLE_ID_DESC_PREFIX_LENGTH));
     let hash = 0;
     for (let i = 0; i < key.length; i++) {
       hash = ((hash << 5) - hash) + key.charCodeAt(i);
@@ -240,7 +242,7 @@ const CardEngine = {
       img.onload = () => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
-        const MAX = 128;
+        const MAX = this.THUMBNAIL_MAX_SIZE;
         let w = img.width, h = img.height;
         if (w > h) {
           if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
@@ -249,7 +251,7 @@ const CardEngine = {
         }
         canvas.width = w; canvas.height = h;
         ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', 0.8));
+        resolve(canvas.toDataURL('image/jpeg', this.THUMBNAIL_JPEG_QUALITY));
       };
       img.onerror = () => resolve(null);
       img.src = base64;

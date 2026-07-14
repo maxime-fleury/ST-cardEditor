@@ -129,8 +129,13 @@ st-card-editor/
 ├── js/
 │   ├── cardEngine.js   # Card parsing, normalization, PNG chunk embedding
 │   ├── aiService.js    # OpenRouter API client (models, chat, credits)
-│   ├── storage.js      # localStorage persistence layer
-│   └── ui.js           # Main UI controller and event bindings
+│   ├── storage.js      # localStorage + IndexedDB persistence layer
+│   ├── exportUtils.js  # PNG/JSON export, CRC32, PNG chunk embedding
+│   ├── editor.js       # Editor form, greetings, lorebook management
+│   ├── cardManager.js  # Card list, selection, CRUD, file import
+│   ├── aiChat.js       # AI chat interface, quick actions, message rendering
+│   ├── settings.js     # Settings modal, model list, credits display
+│   └── ui.js           # Main controller: utilities, init, event binding
 ├── server.js           # Bun static file server (port 8182)
 ├── package.json        # Project metadata and scripts
 └── README.md           # This file
@@ -142,8 +147,13 @@ The app is a **single-page application** built with vanilla JavaScript and **Boo
 
 - **`cardEngine.js`** — Parses SillyTavern card formats (V1 flat, V2/V3 spec), extracts embedded data from PNG/WebP files (`chara`/`ccv3` tEXt chunks), and handles stable ID generation via content hashing.
 - **`aiService.js`** — Wraps the OpenRouter REST API: lists models with pricing, sends chat completions with system prompts tailored to the target field, and fetches account credit/usage info.
-- **`storage.js`** — Thin wrapper around `localStorage` with namespaced keys (`stce_*`), JSON serialization, quota error handling, and chat history trimming.
-- **`ui.js`** — Glues everything together: renders the card list, populates the editor, manages the AI chat interface, orchestrates PNG export with chunk embedding, and handles all user interactions.
+- **`storage.js`** — Hybrid persistence: lightweight metadata in `localStorage` (namespaced `stce_*`), full card data and images in **IndexedDB** (`stce_data` database). Includes one-time migration from legacy localStorage-only format.
+- **`exportUtils.js`** — PNG/JSON export with CRC32 checksum calculation and `tEXt` chunk embedding for SillyTavern-compatible output.
+- **`editor.js`** — Two-way binding between editor form fields and the active card object, with debounced auto-save. Manages alternate greetings and lorebook entries.
+- **`cardManager.js`** — Card library rendering, drag-and-drop file import, card selection with IndexedDB image loading, and card CRUD operations.
+- **`aiChat.js`** — AI chat interface with context-aware system prompts, auto-apply of AI responses to targeted card fields, and quick action presets.
+- **`settings.js`** — Settings modal with API key management, model browsing/selection, credit tracking, and storage usage display.
+- **`ui.js`** — Thin controller: shared state (`AppState`), utility functions (`escapeHtml`, `debounce`, `showToast`), initialization, and event binding.
 
 ---
 
