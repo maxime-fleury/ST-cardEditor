@@ -1322,6 +1322,9 @@ a:hover { color: var(--purple-400); text-decoration: underline; }
 .card-batch-check { position: absolute; top: 8px; right: 8px; z-index: 5; width: 16px; height: 16px; accent-color: var(--purple-500); cursor: pointer; opacity: 0; transition: opacity var(--transition-fast); }
 .card-list-item:hover .card-batch-check { opacity: 1; }
 .card-batch-check:checked { opacity: 1; }
+.card-drag-handle { cursor: grab; color: var(--text-muted); font-size: 0.8rem; padding: 2px 4px; opacity: 0; transition: opacity var(--transition-fast); }
+.card-list-item:hover .card-drag-handle { opacity: 1; }
+.card-list-item.drag-over { border-top: 2px solid var(--purple-500); }
 .card-preview-tooltip {
   display: none; position: absolute; left: 105%; top: 0; width: 260px;
   background: var(--bg-secondary); border: 1px solid var(--border-subtle);

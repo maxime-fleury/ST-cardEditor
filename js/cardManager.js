@@ -143,6 +143,7 @@ const CardManager = {
         + tags.map(t => Ui.escapeHtml(t)).join(', ')
         + '</div></div>'
         + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? ' checked' : '') + '>'
+        + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"><i class="bi bi-grip-vertical"></i></span>'
         + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + '</span>' : '')
         + '<div class="card-preview-tooltip">'
         + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : '')
@@ -173,6 +174,41 @@ const CardManager = {
           this.renderCardList();
         }, DEBOUNCE_SEARCH_MS));
       }
+
+      let dragId = null;
+      container.addEventListener('dragstart', (e) => {
+        const handle = e.target.closest('.card-drag-handle');
+        if (!handle) return;
+        dragId = handle.dataset.cardId;
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      container.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const item = e.target.closest('.card-list-item');
+        if (item) item.classList.add('drag-over');
+      });
+      container.addEventListener('dragleave', (e) => {
+        const item = e.target.closest('.card-list-item');
+        if (item) item.classList.remove('drag-over');
+      });
+      container.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const item = e.target.closest('.card-list-item');
+        if (item) item.classList.remove('drag-over');
+        if (!dragId || !item) return;
+        const dropId = item.dataset.cardId;
+        if (dragId === dropId) return;
+        const cards = window.AppState.cards;
+        const fromIdx = cards.findIndex(c => c._id === dragId);
+        const toIdx = cards.findIndex(c => c._id === dropId);
+        if (fromIdx < 0 || toIdx < 0) return;
+        const [moved] = cards.splice(fromIdx, 1);
+        cards.splice(toIdx, 0, moved);
+        CardStorage.saveCards(cards);
+        this.renderCardList();
+        dragId = null;
+      });
+      container.addEventListener('dragend', () => { dragId = null; });
     }
   },
 

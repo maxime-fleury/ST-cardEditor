@@ -57,6 +57,11 @@ const Editor = {
     $('#editVersion').value = card.character_version || '';
     $('#editTags').value = (card.tags || []).join(', ');
 
+    const allTags = new Set();
+    (window.AppState.cards || []).forEach(c => (c.tags || []).forEach(t => allTags.add(t)));
+    const datalist = document.querySelector('#tagSuggestions');
+    if (datalist) datalist.innerHTML = [...allTags].map(t => '<option value="' + Ui.escapeAttr(t) + '">').join('');
+
     this.renderGreetings(card);
 
     const metaCreator = $('#metaCreator');
@@ -246,8 +251,20 @@ const Editor = {
     container.innerHTML = entries.map((entry, idx) =>
       '<div class="lorebook-entry" data-entry-idx="' + idx + '">'
       + '<div class="lorebook-entry-header">'
-      + '<input type="text" class="form-control lorebook-entry-key" value="' + Ui.escapeAttr(entry.key || '') + '" placeholder="Trigger keyword(s)" data-lore-key-idx="' + idx + '">'
+      + '<input type="text" class="form-control lorebook-entry-key" value="' + Ui.escapeAttr(entry.key || '') + '" placeholder="Primary keyword(s) — comma separated" data-lore-key-idx="' + idx + '">'
       + '<button class="btn btn-outline-danger btn-sm lorebook-delete-btn" data-idx="' + idx + '"><i class="bi bi-trash"></i></button>'
+      + '</div>'
+      + '<div class="row g-2 mb-2" style="font-size:0.8rem;">'
+      + '<div class="col-6"><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(', ')) + '" placeholder="Secondary keywords" data-lore-secondary-idx="' + idx + '"></div>'
+      + '<div class="col-3"><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || '') + '" placeholder="Comment" data-lore-comment-idx="' + idx + '"></div>'
+      + '<div class="col-3"><input type="number" class="form-control form-control-sm" value="' + (entry.order || 100) + '" placeholder="Order" data-lore-order-idx="' + idx + '"></div>'
+      + '</div>'
+      + '<div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">'
+      + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? ' checked' : '') + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">Constant</label></div>'
+      + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.selective ? ' checked' : '') + ' data-lore-selective-idx="' + idx + '"><label class="form-check-label">Selective</label></div>'
+      + '<select class="form-select form-select-sm" style="width:auto;" data-lore-position-idx="' + idx + '">'
+      + '<option value="before_char"' + (entry.position === 'before_char' ? ' selected' : '') + '>Before char</option>'
+      + '<option value="after_char"' + (entry.position !== 'before_char' ? ' selected' : '') + '>After char</option></select>'
       + '</div>'
       + '<textarea class="form-control editor-textarea font-mono" rows="3" placeholder="Entry content..." data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || '') + '</textarea>'
       + '</div>'
@@ -279,6 +296,60 @@ const Editor = {
         }
       }, 600));
     });
+    container.querySelectorAll('input[data-lore-secondary-idx]').forEach(input => {
+      input.addEventListener('input', Ui.debounce(() => {
+        const idx = parseInt(input.dataset.loreSecondaryIdx);
+        if (window.AppState.activeCard.character_book.entries[idx]) {
+          window.AppState.activeCard.character_book.entries[idx].keysecondary = input.value.split(',').map(s => s.trim()).filter(Boolean);
+          self.syncEditorToCard();
+        }
+      }, 600));
+    });
+    container.querySelectorAll('input[data-lore-comment-idx]').forEach(input => {
+      input.addEventListener('input', Ui.debounce(() => {
+        const idx = parseInt(input.dataset.loreCommentIdx);
+        if (window.AppState.activeCard.character_book.entries[idx]) {
+          window.AppState.activeCard.character_book.entries[idx].comment = input.value;
+          self.syncEditorToCard();
+        }
+      }, 600));
+    });
+    container.querySelectorAll('input[data-lore-order-idx]').forEach(input => {
+      input.addEventListener('input', Ui.debounce(() => {
+        const idx = parseInt(input.dataset.loreOrderIdx);
+        if (window.AppState.activeCard.character_book.entries[idx]) {
+          window.AppState.activeCard.character_book.entries[idx].order = parseInt(input.value) || 100;
+          self.syncEditorToCard();
+        }
+      }, 600));
+    });
+    container.querySelectorAll('input[data-lore-constant-idx]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const idx = parseInt(cb.dataset.loreConstantIdx);
+        if (window.AppState.activeCard.character_book.entries[idx]) {
+          window.AppState.activeCard.character_book.entries[idx].constant = cb.checked;
+          self.syncEditorToCard();
+        }
+      });
+    });
+    container.querySelectorAll('input[data-lore-selective-idx]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const idx = parseInt(cb.dataset.loreSelectiveIdx);
+        if (window.AppState.activeCard.character_book.entries[idx]) {
+          window.AppState.activeCard.character_book.entries[idx].selective = cb.checked;
+          self.syncEditorToCard();
+        }
+      });
+    });
+    container.querySelectorAll('select[data-lore-position-idx]').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const idx = parseInt(sel.dataset.lorePositionIdx);
+        if (window.AppState.activeCard.character_book.entries[idx]) {
+          window.AppState.activeCard.character_book.entries[idx].position = sel.value;
+          self.syncEditorToCard();
+        }
+      });
+    });
   },
 
   addLorebookEntry() {
@@ -286,7 +357,7 @@ const Editor = {
     if (!activeCard) return;
     if (!activeCard.character_book) activeCard.character_book = { entries: [] };
     if (!activeCard.character_book.entries) activeCard.character_book.entries = [];
-    activeCard.character_book.entries.push({ key: 'New Entry', content: '' });
+    activeCard.character_book.entries.push({ key: 'New Entry', content: '', keysecondary: [], constant: false, selective: false, position: 'after_char', order: 100, comment: '' });
     this.renderLorebook(activeCard);
     this.syncEditorToCard();
   },
