@@ -3,8 +3,8 @@
 # Automatically builds and deploys the static app to GitHub Pages
 # whenever changes are pushed to the main branch.
 #
-# 💡 After first push, go to:
-#    Settings > Pages > Source: "Deploy from a branch"
+# 💡 In your repo Settings > Pages:
+#    Source: "Deploy from a branch"
 #    Branch: "gh-pages" / "/ (root)"
 #
 # Deployment URL: https://maxime-fleury.github.io/ST-cardEditor/
@@ -13,7 +13,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   workflow_dispatch:
 
 permissions:
