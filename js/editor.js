@@ -3,6 +3,43 @@
    ============================================================ */
 
 const Editor = {
+  _undoStack: [],
+  _redoStack: [],
+  _maxUndo: 50,
+
+  _snapshot(field) {
+    const { activeCard } = window.AppState;
+    if (!activeCard) return;
+    this._undoStack.push({ field, oldValue: activeCard[field] || '', newValue: document.querySelector('#edit' + field.charAt(0).toUpperCase() + field.slice(1))?.value || '' });
+    if (this._undoStack.length > this._maxUndo) this._undoStack.shift();
+    this._redoStack = [];
+  },
+
+  undo() {
+    if (!this._undoStack.length) return;
+    const { activeCard } = window.AppState;
+    if (!activeCard) return;
+    const entry = this._undoStack.pop();
+    this._redoStack.push({ ...entry, oldValue: activeCard[entry.field] || '', newValue: entry.oldValue });
+    activeCard[entry.field] = entry.oldValue;
+    const el = document.querySelector('#edit' + entry.field.charAt(0).toUpperCase() + entry.field.slice(1));
+    if (el) el.value = entry.oldValue;
+    Editor.syncEditorToCard();
+    Ui.showToast('Undid change to ' + entry.field, 'info');
+  },
+
+  redo() {
+    if (!this._redoStack.length) return;
+    const { activeCard } = window.AppState;
+    if (!activeCard) return;
+    const entry = this._redoStack.pop();
+    this._undoStack.push({ ...entry, oldValue: activeCard[entry.field] || '', newValue: entry.newValue });
+    activeCard[entry.field] = entry.newValue;
+    const el = document.querySelector('#edit' + entry.field.charAt(0).toUpperCase() + entry.field.slice(1));
+    if (el) el.value = entry.newValue;
+    Editor.syncEditorToCard();
+    Ui.showToast('Redid change to ' + entry.field, 'info');
+  },
   populateEditor(card) {
     const $ = (sel) => document.querySelector(sel);
     function safeStyle(id, displayVal) { const el = $(id); if (el) el.style.display = displayVal; }
@@ -43,6 +80,8 @@ const Editor = {
 
     this.renderLorebook(card);
     this.showEditor();
+    this.updateCharCounts();
+    this.autoResizeTextareas();
     window.Ui.updateUIState();
   },
 
@@ -77,6 +116,29 @@ const Editor = {
     const $ = (sel) => document.querySelector(sel);
     $('#noCardSelected').classList.remove('d-none');
     $('#editorContainer').classList.add('d-none');
+  },
+
+  _fieldIds: ['editName','editDescription','editPersonality','editScenario','editFirstMes',
+    'editMesExample','editCreatorNotes','editSystemPrompt','editPostHistory',
+    'editCreator','editVersion','editTags'],
+
+  autoResizeTextareas() {
+    document.querySelectorAll('.editor-textarea').forEach(ta => {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, 400) + 'px';
+    });
+  },
+
+  updateCharCounts() {
+    for (const id of this._fieldIds) {
+      const el = document.querySelector('#' + id);
+      if (!el) continue;
+      const countEl = el.parentElement.querySelector('.char-count');
+      if (!countEl) continue;
+      const len = (el.value || '').length;
+      const tokens = Math.ceil(len / 4);
+      countEl.textContent = len + ' chars ~' + tokens + ' tokens';
+    }
   },
 
   renderGreetings(card) {

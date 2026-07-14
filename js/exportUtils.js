@@ -17,8 +17,10 @@ const ExportUtils = {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
     await Editor.syncEditorToCard();
-    const cardWithCredit = this.injectCopyright({ ...activeCard });
-    Ui.downloadFile((activeCard.name || 'character') + '.json', CardEngine.toJSON(cardWithCredit), 'application/json');
+    if (!activeCard.name) Ui.showToast('Warning: Card has no name. File will be saved as "character.json".', 'warning');
+    const clone = JSON.parse(JSON.stringify(activeCard));
+    if (CardStorage.getInjectCopyright()) this.injectCopyright(clone);
+    Ui.downloadFile((activeCard.name || 'character') + '.json', CardEngine.toJSON(clone), 'application/json');
     Ui.showToast('Exported as JSON!', 'success');
   },
 
@@ -26,8 +28,9 @@ const ExportUtils = {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
     await Editor.syncEditorToCard();
-    const cardWithCredit = this.injectCopyright({ ...activeCard });
-    const json = CardEngine.toJSON(cardWithCredit);
+    const clone = JSON.parse(JSON.stringify(activeCard));
+    if (CardStorage.getInjectCopyright()) this.injectCopyright(clone);
+    const json = CardEngine.toJSON(clone);
     try {
       if (activeCard._imageBase64) {
         const blob = await this.embedJSONInPNG(activeCard._imageBase64, json);

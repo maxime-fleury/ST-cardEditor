@@ -174,6 +174,15 @@ a:hover { color: var(--purple-400); text-decoration: underline; }
   100% { background-position: 200% 0; }
 }
 
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+}
+.skeleton-line { height: 12px; margin-bottom: 8px; }
+.skeleton-avatar { width: 40px; height: 40px; border-radius: 8px; }
+
 @keyframes border-flow {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
@@ -1273,8 +1282,22 @@ a:hover { color: var(--purple-400); text-decoration: underline; }
   .panel-right { width: 320px; min-width: 320px; }
   .panel-left { width: 260px; min-width: 260px; }
 }
+/* Card hover preview tooltip */
+.card-list-item { position: relative; }
+.card-preview-tooltip {
+  display: none; position: absolute; left: 105%; top: 0; width: 260px;
+  background: var(--bg-secondary); border: 1px solid var(--border-subtle);
+  border-radius: 8px; padding: 12px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  pointer-events: none; max-height: 300px; overflow-y: auto;
+}
+.card-list-item:hover .card-preview-tooltip { display: block; }
+.card-preview-tooltip .preview-avatar { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; }
+.card-preview-tooltip .preview-desc { font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+
 @media (max-width: 992px) {
-  .panel-right { display: none; }
+  .card-preview-tooltip { left: auto; right: 105%; }
+  .panel-right { display: none; position: fixed; top: 0; right: 0; bottom: 0; width: 320px; z-index: 1040; background: var(--bg-primary); border-left: 1px solid var(--border-subtle); box-shadow: -4px 0 20px rgba(0,0,0,.5); }
+  .panel-right.mobile-open { display: flex; flex-direction: column; }
   .panel-left { width: 240px; min-width: 240px; }
 }
 @media (max-width: 768px) {

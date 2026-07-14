@@ -56,22 +56,38 @@ const CardManager = {
       Ui.showToast('No valid cards found. Drop PNG or JSON files.', 'warning');
   },
 
+  _cardListBound: false,
+  _searchQuery: '',
+
   renderCardList() {
     const $ = (sel) => document.querySelector(sel);
     const { cards, activeCard } = window.AppState;
     const container = $('#cardList');
     const emptyState = $('#emptyState');
+    const searchWrap = $('#cardSearchWrap');
     $('#cardCount').textContent = cards.length + ' card' + (cards.length !== 1 ? 's' : '');
 
-    if (cards.length === 0) { container.innerHTML = ''; emptyState.style.display = 'flex'; return; }
+    if (searchWrap) searchWrap.style.display = cards.length > 3 ? '' : 'none';
+
+    let filtered = cards;
+    if (this._searchQuery) {
+      const q = this._searchQuery.toLowerCase();
+      filtered = cards.filter(c => (c.name || '').toLowerCase().includes(q)
+        || (c.creator || '').toLowerCase().includes(q)
+        || (c.tags || []).some(t => t.toLowerCase().includes(q)));
+    }
+
+    if (filtered.length === 0) { container.innerHTML = ''; emptyState.style.display = 'flex'; return; }
     emptyState.style.display = 'none';
 
-    container.innerHTML = cards.map(card => {
+    container.innerHTML = filtered.map(card => {
       const isActive = activeCard && activeCard._id === card._id;
       const tags = (card.tags || []).slice(0, 2);
-      return '<div class="card-list-item' + (isActive ? ' active' : '') + '" data-card-id="' + card._id + '">'
+      const thumb = card._thumbnail || card._imageBase64;
+      const desc = (card.description || '').slice(0, 300);
+      return '<div class="card-list-item' + (isActive ? ' active' : '') + '" data-card-id="' + card._id + '" role="option" aria-selected="' + isActive + '">'
         + '<div class="card-list-avatar">'
-        + (card._thumbnail || card._imageBase64 ? '<img src="' + Ui.escapeAttr(card._thumbnail || card._imageBase64) + '" alt="">' : '<i class="bi bi-person-fill"></i>')
+        + (thumb ? '<img src="' + Ui.escapeAttr(thumb) + '" alt="">' : '<i class="bi bi-person-fill"></i>')
         + '</div>'
         + '<div class="card-list-info">'
         + '<div class="card-list-name">' + Ui.escapeHtml(card.name || 'Unnamed') + '</div>'
@@ -81,16 +97,30 @@ const CardManager = {
         + tags.map(t => Ui.escapeHtml(t)).join(', ')
         + '</div></div>'
         + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + '</span>' : '')
-        + '</div>';
+        + '<div class="card-preview-tooltip">'
+        + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : '')
+        + '<div class="fw-semibold">' + Ui.escapeHtml(card.name || 'Unnamed') + '</div>'
+        + (card.creator ? '<div class="text-muted" style="font-size:0.7rem;">by ' + Ui.escapeHtml(card.creator) + '</div>' : '')
+        + (desc ? '<div class="preview-desc">' + Ui.escapeHtml(desc) + '</div>' : '')
+        + '</div></div>';
     }).join('');
 
-    const self = this;
-    container.querySelectorAll('.card-list-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const card = cards.find(c => c._id === item.dataset.cardId);
-        if (card) self.selectCard(card);
+    if (!this._cardListBound) {
+      this._cardListBound = true;
+      container.addEventListener('click', (e) => {
+        const item = e.target.closest('.card-list-item');
+        if (!item) return;
+        const card = window.AppState.cards.find(c => c._id === item.dataset.cardId);
+        if (card) CardManager.selectCard(card);
       });
-    });
+      const searchInput = $('#cardSearchInput');
+      if (searchInput) {
+        searchInput.addEventListener('input', Ui.debounce(() => {
+          this._searchQuery = searchInput.value.trim();
+          this.renderCardList();
+        }, DEBOUNCE_SEARCH_MS));
+      }
+    }
   },
 
   async selectCard(cardMeta) {
@@ -109,6 +139,8 @@ const CardManager = {
       console.error('Failed to load image from IndexedDB:', e);
     }
 
+    window.AppState.chatHistory = CardStorage.getChatHistory(fullCard._id);
+    AiChat.renderChatHistory();
     Editor.populateEditor(fullCard);
     this.renderCardList();
     Ui.updateUIState();
@@ -134,17 +166,59 @@ const CardManager = {
     Ui.showToast('Card saved!', 'success');
   },
 
+  async duplicateCard() {
+    const { activeCard } = window.AppState;
+    if (!activeCard) { Ui.showToast('No card to duplicate', 'warning'); return; }
+    await Editor.syncEditorToCard();
+    const clone = JSON.parse(JSON.stringify(activeCard));
+    clone._id = 'card_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+    clone.name = (clone.name || 'Unnamed') + ' (Copy)';
+    await CardStorage.upsertCard(clone);
+    if (clone._imageBase64) await CardStorage.saveImage(clone._id, clone._imageBase64);
+    window.AppState.cards = CardStorage.getCards();
+    this.renderCardList();
+    await this.selectCard(clone);
+    Ui.showToast('Card duplicated', 'success');
+  },
+
   async deleteActiveCard() {
     const { activeCard, cards } = window.AppState;
     if (!activeCard) return;
-    if (!confirm('Delete "' + activeCard.name + '"? This cannot be undone.')) return;
+    const snapshot = { ...activeCard };
+    const snapshotIndex = cards.findIndex(c => c._id === activeCard._id);
+
     await CardStorage.deleteCard(activeCard._id);
     window.AppState.cards = CardStorage.getCards();
     window.AppState.activeCard = null;
     Editor.hideEditor();
     this.renderCardList();
     if (window.AppState.cards.length > 0) await this.selectCard(window.AppState.cards[0]);
-    Ui.showToast('Card deleted', 'warning');
+
+    let undone = false;
+    const toastEl = document.createElement('div');
+    toastEl.className = 'toast align-items-center border-0';
+    toastEl.setAttribute('role', 'alert');
+    toastEl.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2">'
+      + '<i class="bi bi-trash-fill text-danger"></i>Card "' + Ui.escapeHtml(snapshot.name || 'Unnamed') + '" deleted'
+      + '<button class="btn btn-sm btn-outline-accent ms-2" id="undoDeleteBtn">Undo</button>'
+      + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
+    document.querySelector('#toastContainer').appendChild(toastEl);
+    const toast = new bootstrap.Toast(toastEl, { delay: 8000 });
+    toast.show();
+    toastEl.addEventListener('hidden.bs.toast', () => {
+      toastEl.remove();
+      if (!undone) return;
+    });
+    const undoBtn = toastEl.querySelector('#undoDeleteBtn');
+    undoBtn.addEventListener('click', async () => {
+      undone = true;
+      toast.hide();
+      await CardStorage.upsertCard(snapshot);
+      window.AppState.cards = CardStorage.getCards();
+      this.renderCardList();
+      await this.selectCard(snapshot);
+      Ui.showToast('Card restored', 'success');
+    });
   },
 };
 

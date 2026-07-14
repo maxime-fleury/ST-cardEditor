@@ -98,46 +98,27 @@ const CardEngine = {
       _id: '', _filename: filename, _hasImage: false, _imageBase64: null,
     };
 
+    let source;
     if (raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3') {
       card.spec = 'chara_card_v2';
       card.spec_version = raw.spec_version || '2.0';
-      const d = raw.data || {};
-      card.name = d.name || '';
-      card.description = d.description || '';
-      card.personality = d.personality || '';
-      card.scenario = d.scenario || '';
-      card.first_mes = d.first_mes || '';
-      card.mes_example = d.mes_example || '';
-      card.creator_notes = d.creator_notes || '';
-      card.system_prompt = d.system_prompt || '';
-      card.post_history_instructions = d.post_history_instructions || '';
-      card.alternate_greetings = Array.isArray(d.alternate_greetings) ? [...d.alternate_greetings] : [];
-      card.tags = Array.isArray(d.tags) ? [...d.tags] : [];
-      card.creator = d.creator || '';
-      card.character_version = d.character_version || '';
-      card.character_book = d.character_book ? JSON.parse(JSON.stringify(d.character_book)) : { entries: [] };
-      card.extensions = d.extensions ? JSON.parse(JSON.stringify(d.extensions)) : {};
+      source = raw.data || {};
     } else if (raw.name !== undefined && !raw.spec) {
       card.spec = 'chara_card_v2';
       card.spec_version = '2.0';
-      card.name = raw.name || '';
-      card.description = raw.description || '';
-      card.personality = raw.personality || '';
-      card.scenario = raw.scenario || '';
-      card.first_mes = raw.first_mes || '';
-      card.mes_example = raw.mes_example || '';
-      card.creator_notes = raw.creator_notes || '';
-      card.system_prompt = raw.system_prompt || '';
-      card.post_history_instructions = raw.post_history_instructions || '';
-      card.alternate_greetings = Array.isArray(raw.alternate_greetings) ? [...raw.alternate_greetings] : [];
-      card.tags = Array.isArray(raw.tags) ? [...raw.tags] : [];
-      card.creator = raw.creator || '';
-      card.character_version = raw.character_version || '';
-      card.character_book = raw.character_book ? JSON.parse(JSON.stringify(raw.character_book)) : { entries: [] };
-      card.extensions = raw.extensions ? JSON.parse(JSON.stringify(raw.extensions)) : {};
+      source = raw;
     } else {
       throw new Error('Unknown card format — not a SillyTavern character card');
     }
+
+    const fields = ['name', 'description', 'personality', 'scenario', 'first_mes',
+      'mes_example', 'creator_notes', 'system_prompt', 'post_history_instructions',
+      'creator', 'character_version'];
+    for (const f of fields) card[f] = source[f] || '';
+    card.alternate_greetings = Array.isArray(source.alternate_greetings) ? [...source.alternate_greetings] : [];
+    card.tags = Array.isArray(source.tags) ? [...source.tags] : [];
+    card.character_book = source.character_book ? JSON.parse(JSON.stringify(source.character_book)) : { entries: [] };
+    card.extensions = source.extensions ? JSON.parse(JSON.stringify(source.extensions)) : {};
 
     if (!card.character_book || !card.character_book.entries) {
       card.character_book = { entries: [] };
@@ -218,8 +199,8 @@ const CardEngine = {
 
   _readUint32(bytes, offset) {
     if (offset + 4 > bytes.length) return 0;
-    return (bytes[offset] << 24) | (bytes[offset + 1] << 16) |
-           (bytes[offset + 2] << 8) | bytes[offset + 3];
+    return ((bytes[offset] << 24) | (bytes[offset + 1] << 16) |
+           (bytes[offset + 2] << 8) | bytes[offset + 3]) >>> 0;
   },
 
   _createEmptyCard(filename) {

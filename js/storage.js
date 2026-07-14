@@ -82,16 +82,17 @@ const CardStorage = {
     activeCardId: 'activeCardId',
     aiChatHistory: 'aiChatHistory',
     maxTokens: 'maxTokens',
+    injectCopyright: 'injectCopyright',
   },
 
   // ─── API Key ────────────────────────────────────────────
 
   getApiKey() {
-    return localStorage.getItem(this.PREFIX + this._keys.apiKey) || '';
+    return sessionStorage.getItem(this.PREFIX + this._keys.apiKey) || '';
   },
 
   setApiKey(key) {
-    localStorage.setItem(this.PREFIX + this._keys.apiKey, key);
+    sessionStorage.setItem(this.PREFIX + this._keys.apiKey, key);
   },
 
   // ─── Default Model ─────────────────────────────────────
@@ -113,6 +114,15 @@ const CardStorage = {
 
   setMaxTokens(tokens) {
     localStorage.setItem(this.PREFIX + this._keys.maxTokens, String(tokens));
+  },
+
+  getInjectCopyright() {
+    const val = localStorage.getItem(this.PREFIX + this._keys.injectCopyright);
+    return val === null ? true : val === 'true';
+  },
+
+  setInjectCopyright(val) {
+    localStorage.setItem(this.PREFIX + this._keys.injectCopyright, String(val));
   },
 
   // ─── Migration ─────────────────────────────────────────
@@ -291,27 +301,34 @@ const CardStorage = {
     return this.getCard(id);
   },
 
-  // ─── AI Chat History ──────────────────────────────────
+  // ─── AI Chat History (per-card) ────────────────────────
 
-  getChatHistory() {
+  _chatKey(cardId) {
+    return this.PREFIX + this._keys.aiChatHistory + '_' + (cardId || 'global');
+  },
+
+  getChatHistory(cardId) {
     try {
-      const raw = localStorage.getItem(this.PREFIX + this._keys.aiChatHistory);
+      const raw = localStorage.getItem(this._chatKey(cardId));
       return raw ? JSON.parse(raw) : [];
     } catch {
       return [];
     }
   },
 
-  saveChatHistory(messages) {
+  saveChatHistory(messages, cardId) {
     try {
-      // Limit to last 50 messages
       const trimmed = messages.slice(-this.CHAT_HISTORY_LIMIT);
-      localStorage.setItem(this.PREFIX + this._keys.aiChatHistory, JSON.stringify(trimmed));
+      localStorage.setItem(this._chatKey(cardId), JSON.stringify(trimmed));
     } catch { /* silently fail */ }
   },
 
-  clearChatHistory() {
-    localStorage.removeItem(this.PREFIX + this._keys.aiChatHistory);
+  clearChatHistory(cardId) {
+    if (cardId) {
+      localStorage.removeItem(this._chatKey(cardId));
+    } else {
+      localStorage.removeItem(this._chatKey('global'));
+    }
   },
 
   // ─── Utility ───────────────────────────────────────────
@@ -328,6 +345,7 @@ const CardStorage = {
       }
     }
     keysToRemove.forEach(k => localStorage.removeItem(k));
+    sessionStorage.removeItem(this.PREFIX + this._keys.apiKey);
     this.DB.clear(this.DB.stores.cards).catch(() => {});
     this.DB.clear(this.DB.stores.images).catch(() => {});
   },

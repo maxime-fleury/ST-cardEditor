@@ -11,6 +11,7 @@ const Settings = {
     if (apiKey) { CardStorage.setApiKey(apiKey); AIService.setApiKey(apiKey); }
     CardStorage.setDefaultModel(defaultModel);
     CardStorage.setMaxTokens(maxTokens);
+    CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
     $('#navModelSelect').value = defaultModel;
     modal.hide();
     Ui.showToast('Settings saved!', 'success');
@@ -44,6 +45,8 @@ const Settings = {
 
   async refreshModelsList() {
     if (!AIService.hasApiKey()) return;
+    const container = document.querySelector('#modelList');
+    if (container) container.innerHTML = '<div class="p-3"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>';
     try {
       window.AppState.models = await AIService.fetchModels();
       this.populateModelSelects();
@@ -67,7 +70,7 @@ const Settings = {
     const $ = (sel) => document.querySelector(sel);
     filter = (filter || '').toLowerCase();
     const container = $('#modelList');
-    const filtered = window.AppState.models.filter(m => !filter || m.name.toLowerCase().includes(filter) || m.id.toLowerCase().includes(filter) || m.provider.toLowerCase().includes(filter));
+    const filtered = window.AppState.models.filter(m => !filter || m.name.toLowerCase().includes(filter) || m.id.toLowerCase().includes(filter) || m.provider.toLowerCase().includes(filter) || (m.description || '').toLowerCase().includes(filter));
     if (!filtered.length) { container.innerHTML = '<div class="text-center text-muted py-4">No models found</div>'; return; }
     const d = CardStorage.getDefaultModel();
     container.innerHTML = filtered.slice(0, 100).map(m =>

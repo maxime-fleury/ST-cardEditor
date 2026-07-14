@@ -11,22 +11,21 @@ const AiChat = {
     if (!prompt || window.AppState.isAiLoading) return;
     if (!AIService.hasApiKey()) { Ui.showToast('Set your OpenRouter API key first', 'warning'); return; }
 
+    const targetField = $('#aiTargetSelect').value;
+    const modelId = $('#aiModelSelect').value || $('#navModelSelect').value;
+    if (!modelId) {
+      Ui.showToast('Please select a model from the navbar or settings first.', 'warning');
+      return;
+    }
+
     input.value = '';
     window.AppState.isAiLoading = true;
     this.updateSendButton();
 
     this.addChatMessage('user', prompt);
     window.AppState.chatHistory.push({ role: 'user', content: prompt });
-    CardStorage.saveChatHistory(window.AppState.chatHistory);
+    CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
 
-    const targetField = $('#aiTargetSelect').value;
-    const modelId = $('#aiModelSelect').value || $('#navModelSelect').value;
-    if (!modelId) {
-      Ui.showToast('Please select a model from the navbar or settings first.', 'warning');
-      window.AppState.isAiLoading = false;
-      this.updateSendButton();
-      return;
-    }
     const typingEl = this.showTypingIndicator();
 
     AIService.chat(prompt, this.buildSystemPrompt(targetField), modelId)
@@ -34,7 +33,7 @@ const AiChat = {
         typingEl.remove();
         this.addChatMessage('assistant', result.content, result.usage);
         window.AppState.chatHistory.push({ role: 'assistant', content: result.content });
-        CardStorage.saveChatHistory(window.AppState.chatHistory);
+        CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
 
         if (targetField === 'full' || targetField === 'description' || targetField === 'personality'
             || targetField === 'first_mes' || targetField === 'scenario' || targetField === 'mes_example'
@@ -80,17 +79,30 @@ const AiChat = {
   tryApplyAIResponse(content, targetField) {
     const { activeCard } = window.AppState;
     if (!activeCard || !content) return;
+
+    const showPreview = (oldVal, newVal, applyFn) => {
+      const modal = new bootstrap.Modal('#aiPreviewModal');
+      document.querySelector('.ai-preview-old').textContent = oldVal || '(empty)';
+      document.querySelector('.ai-preview-new').textContent = newVal;
+      const acceptBtn = document.querySelector('#btnAcceptAI');
+      const handler = () => { applyFn(); modal.hide(); acceptBtn.removeEventListener('click', handler); };
+      acceptBtn.addEventListener('click', handler);
+      modal.show();
+    };
+
     if (targetField === 'full') {
       const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || content.match(/(\{[\s\S]*\})/);
       if (jsonMatch) {
         try {
           const parsed = CardEngine.parseJSON(jsonMatch[1].trim(), activeCard._filename);
-          const internal = { _id: activeCard._id, _filename: activeCard._filename, _hasImage: activeCard._hasImage, _imageBase64: activeCard._imageBase64, _thumbnail: activeCard._thumbnail };
-          Object.assign(activeCard, parsed);
-          Object.assign(activeCard, internal);
-          Editor.populateEditor(activeCard);
-          Editor.syncEditorToCard();
-          Ui.showToast('Card updated from AI response!', 'success');
+          showPreview(CardEngine.toJSON(activeCard), CardEngine.toJSON(parsed), () => {
+            const internal = { _id: activeCard._id, _filename: activeCard._filename, _hasImage: activeCard._hasImage, _imageBase64: activeCard._imageBase64, _thumbnail: activeCard._thumbnail };
+            Object.assign(activeCard, parsed);
+            Object.assign(activeCard, internal);
+            Editor.populateEditor(activeCard);
+            Editor.syncEditorToCard();
+            Ui.showToast('Card updated from AI response!', 'success');
+          });
         } catch (e) {
           console.error('Failed to parse AI JSON response', e);
           Ui.showToast('Could not parse AI response as JSON. Check the chat.', 'warning');
@@ -101,11 +113,13 @@ const AiChat = {
     } else if (activeCard[targetField] !== undefined) {
       let clean = content.replace(/```[\s\S]*?```/g, '').replace(/^\[.*?\]\s*/gm, '').trim();
       if (clean) {
-        activeCard[targetField] = clean;
-        Editor.populateEditor(activeCard);
-        Editor.syncEditorToCard();
-        CardManager.renderCardList();
-        Ui.showToast('"' + targetField + '" updated!', 'success');
+        showPreview(activeCard[targetField] || '', clean, () => {
+          activeCard[targetField] = clean;
+          Editor.populateEditor(activeCard);
+          Editor.syncEditorToCard();
+          CardManager.renderCardList();
+          Ui.showToast('"' + targetField + '" updated!', 'success');
+        });
       }
     }
   },
@@ -117,13 +131,19 @@ const AiChat = {
     if (!activeCard) { Ui.showToast('Select a card first', 'warning'); return; }
 
     const prompts = {
-      translate: 'Translate this character card to French. Output the COMPLETE card as valid JSON with all fields translated. Keep the exact same JSON structure. Translate ALL text fields.\n\nHere is the card JSON:\n' + CardEngine.toJSON(activeCard),
+      translate: null,
       enhance: 'Enhance the character description to be more detailed and vivid. Add sensory details and specific traits.\n\nCurrent:\n' + (activeCard.description || '(empty)'),
       personality: 'Expand the personality to be more nuanced. Add quirks, habits, fears, and motivations.\n\nCurrent:\n' + (activeCard.personality || '(empty)'),
       firstmes: 'Improve the first message to be more engaging and in-character.\n\nCurrent:\n' + (activeCard.first_mes || '(empty)'),
     };
 
-    const prompt = prompts[action];
+    if (action === 'translate') {
+      const lang = prompt('Translate to which language?', 'French');
+      if (!lang) return;
+      prompts.translate = 'Translate this character card to ' + lang + '. Output the COMPLETE card as valid JSON with all fields translated. Keep the exact same JSON structure. Translate ALL text fields.\n\nHere is the card JSON:\n' + CardEngine.toJSON(activeCard);
+    }
+
+    const prompt = action === 'translate' ? prompts.translate : prompts[action];
     if (!prompt) return;
 
     if (action === 'translate') $('#aiTargetSelect').value = 'full';
@@ -145,15 +165,21 @@ const AiChat = {
     let formatted = Ui.escapeHtml(content)
       .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')
       .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
+      .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
       .replace(/\n/g, '<br>');
 
     const usageInfo = usage
       ? '<div class="text-muted mt-1" style="font-size:0.65rem;">' + (usage.total_tokens || '?') + ' tokens · $' + (usage.cost || 0).toFixed(5) + '</div>'
       : '';
 
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
     const el = document.createElement('div');
     el.className = 'ai-message ' + role;
-    el.innerHTML = formatted + usageInfo;
+    el.innerHTML = formatted + '<div class="text-muted mt-1" style="font-size:0.6rem;">' + time + '</div>' + usageInfo;
     container.appendChild(el);
     container.scrollTop = container.scrollHeight;
   },
@@ -184,7 +210,7 @@ const AiChat = {
 
   clearChat() {
     window.AppState.chatHistory = [];
-    CardStorage.clearChatHistory();
+    CardStorage.clearChatHistory(window.AppState.activeCard?._id);
     const $ = (sel) => document.querySelector(sel);
     $('#aiChatMessages').innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>AI Card Assistant</h6><p>Ask the AI to edit, translate, or enhance your character card.</p><div class="quick-actions">'
       + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="translate"><i class="bi bi-translate me-1"></i> Translate to French</button>'

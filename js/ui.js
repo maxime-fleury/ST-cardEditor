@@ -13,6 +13,8 @@ window.Ui = {
   showToast(msg, type) {
     type = type || 'info';
     const icons = { success: 'bi-check-circle-fill text-success', danger: 'bi-exclamation-triangle-fill text-danger', warning: 'bi-exclamation-circle-fill text-warning', info: 'bi-info-circle-fill text-info' };
+    const container = document.querySelector('#toastContainer');
+    while (container.children.length >= 3) container.firstChild.remove();
     const el = document.createElement('div');
     el.className = 'toast align-items-center border-0';
     el.setAttribute('role', 'alert');
@@ -71,7 +73,7 @@ async function init() {
   await CardManager.migrateImagesToIndexedDB();
 
   window.AppState.cards = CardStorage.getCards();
-  window.AppState.chatHistory = CardStorage.getChatHistory();
+  window.AppState.chatHistory = [];
   const apiKey = CardStorage.getApiKey();
   const defaultModel = CardStorage.getDefaultModel();
 
@@ -86,6 +88,7 @@ async function init() {
 
   const maxTokens = CardStorage.getMaxTokens();
   if (maxTokens > 0) $('#maxTokensInput').value = maxTokens;
+  $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
 
   const settingsModal = new bootstrap.Modal('#settingsModal');
 
@@ -102,7 +105,13 @@ async function init() {
   if (apiKey) Settings.refreshModelsList();
   Ui.updateUIState();
   bindEvents(settingsModal);
-  window.addEventListener('beforeunload', () => { if (window.AppState.activeCard) Editor.syncEditorToCard(); });
+  window.addEventListener('beforeunload', () => {
+    if (window.AppState.activeCard) {
+      Editor.syncGreetings(window.AppState.activeCard);
+      Editor.syncLorebook(window.AppState.activeCard);
+      Editor.syncEditorToCard();
+    }
+  });
   window.addEventListener('storage', handleStorageChange);
 }
 
@@ -155,12 +164,18 @@ function bindEvents(settingsModal) {
   $('#btnExportJson').addEventListener('click', () => ExportUtils.exportAsJSON());
   $('#btnExportPng').addEventListener('click', () => ExportUtils.exportAsPNG());
   $('#btnDeleteCard').addEventListener('click', () => CardManager.deleteActiveCard());
+  $('#btnDuplicateCard').addEventListener('click', () => CardManager.duplicateCard());
 
   ['editName','editDescription','editPersonality','editScenario','editFirstMes',
    'editMesExample','editCreatorNotes','editSystemPrompt','editPostHistory',
    'editCreator','editVersion','editTags'].forEach(id => {
     const el = $('#' + id);
-    if (el) el.addEventListener('input', Ui.debounce(() => Editor.syncEditorToCard(), DEBOUNCE_INPUT_MS));
+    if (el) {
+      const field = id.replace('edit', '');
+      const camelField = field.charAt(0).toLowerCase() + field.slice(1);
+      el.addEventListener('focus', () => Editor._snapshot(camelField));
+      el.addEventListener('input', Ui.debounce(() => { Editor.syncEditorToCard(); Editor.updateCharCounts(); Editor.autoResizeTextareas(); }, DEBOUNCE_INPUT_MS));
+    }
   });
 
   $('#btnAiSend').addEventListener('click', () => AiChat.send());
@@ -178,11 +193,25 @@ function bindEvents(settingsModal) {
   $('#btnAddGreeting').addEventListener('click', () => Editor.addGreeting());
 
   document.addEventListener('keydown', handleKeyboardShortcuts);
+
+  const toggleAI = $('#btnToggleAI');
+  if (toggleAI) {
+    toggleAI.addEventListener('click', () => {
+      document.querySelector('#panelRight').classList.toggle('mobile-open');
+    });
+  }
 }
 
 // ─── KEYBOARD SHORTCUTS ───────────────────────────────
 
 function handleKeyboardShortcuts(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault(); Editor.undo(); return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+    e.preventDefault(); Editor.redo(); return;
+  }
+
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
