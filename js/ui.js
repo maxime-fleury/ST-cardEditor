@@ -229,6 +229,11 @@
     updateUIState();
   }
 
+  function safeStyle(id, displayVal) {
+    const el = $(id);
+    if (el) el.style.display = displayVal;
+  }
+
   function populateEditor(card) {
     $('#editName').value = card.name || '';
     $('#editDescription').value = card.description || '';
@@ -246,20 +251,23 @@
     // Render greetings list
     renderGreetings(card);
 
-    $('#metaCreator').textContent = card.creator ? 'By ' + card.creator : '';
-    $('#metaCreator').style.display = card.creator ? '' : 'none';
-    $('#metaVersion').textContent = card.character_version ? 'v' + card.character_version : '';
-    $('#metaVersion').style.display = card.character_version ? '' : 'none';
-    $('#metaTags').textContent = (card.tags || []).slice(0, 3).join(', ');
-    $('#metaTags').style.display = card.tags?.length ? '' : 'none';
+    const metaCreator = $('#metaCreator');
+    if (metaCreator) { metaCreator.textContent = card.creator ? 'By ' + card.creator : ''; safeStyle('#metaCreator', card.creator ? '' : 'none'); }
+    safeStyle('#metaVersion', card.character_version ? '' : 'none');
+    const metaVersion = $('#metaVersion');
+    if (metaVersion) { metaVersion.textContent = card.character_version ? 'v' + card.character_version : ''; }
+    safeStyle('#metaTags', card.tags?.length ? '' : 'none');
+    const metaTags = $('#metaTags');
+    if (metaTags) { metaTags.textContent = (card.tags || []).slice(0, 3).join(', '); }
 
     if (card._imageBase64) {
-      $('#charAvatarImg').src = card._imageBase64;
-      $('#charAvatarImg').hidden = false;
-      $('#avatarPlaceholder').style.display = 'none';
+      const img = $('#charAvatarImg');
+      if (img) { img.src = card._imageBase64; img.hidden = false; }
+      safeStyle('#avatarPlaceholder', 'none');
     } else {
-      $('#avatarPlaceholder').style.display = '';
-      $('#charAvatarImg').hidden = true;
+      safeStyle('#avatarPlaceholder', '');
+      const img = $('#charAvatarImg');
+      if (img) img.hidden = true;
     }
 
     renderLorebook(card);
@@ -636,7 +644,7 @@
   }
 
   function tryApplyAIResponse(content, targetField) {
-    if (!activeCard) return;
+    if (!activeCard || !content) return;
     if (targetField === 'full') {
       const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || content.match(/(\{[\s\S]*\})/);
       if (jsonMatch) {
@@ -651,6 +659,8 @@
           console.error('Failed to parse AI JSON response', e);
           showToast('Could not parse AI response as JSON. Check the chat.', 'warning');
         }
+      } else {
+        showToast('AI didn\'t return valid JSON. The response is in the chat — you can copy it manually.', 'info');
       }
     } else if (activeCard[targetField] !== undefined) {
       let clean = content.replace(/```[\s\S]*?```/g, '').replace(/^\[.*?\]\s*/gm, '').trim();

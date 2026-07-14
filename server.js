@@ -4,7 +4,7 @@
 import { join, extname } from "path";
 import { existsSync, readFileSync } from "fs";
 
-const PORT = 8182;
+const PORT = parseInt(process.env.PORT || '8182');
 const PUBLIC_DIR = join(import.meta.dir, "public");
 
 // MIME types map

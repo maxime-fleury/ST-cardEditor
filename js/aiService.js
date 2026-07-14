@@ -6,6 +6,14 @@ const AIService = {
   BASE_URL: 'https://openrouter.ai/api/v1',
 
   /**
+   * Known free model IDs on OpenRouter (for quick identification).
+   */
+  FREE_MODEL_PATTERNS: [
+    ':free',
+    'openrouter/free',
+  ],
+
+  /**
    * Set the API key for all requests.
    */
   setApiKey(key) {
@@ -24,6 +32,30 @@ const AIService = {
    */
   hasApiKey() {
     return !!this._apiKey;
+  },
+
+  /**
+   * Check if a model ID indicates a free model.
+   */
+  _isFreeModelId(modelId, pricing) {
+    // Check by pricing (0 cost)
+    const pPrompt = pricing?.prompt;
+    const pCompletion = pricing?.completion;
+    if (parseFloat(pPrompt) === 0 && parseFloat(pCompletion) === 0) return true;
+    // Check by ID pattern
+    if (modelId && this.FREE_MODEL_PATTERNS.some(p => modelId.includes(p))) return true;
+    return false;
+  },
+
+  /**
+   * Parse a pricing value from OpenRouter (can be string or number).
+   * Returns number or null.
+   */
+  _parsePrice(val) {
+    if (val === null || val === undefined) return null;
+    const num = typeof val === 'string' ? parseFloat(val) : val;
+    if (isNaN(num)) return null;
+    return num * 1_000_000; // Convert to per-million rate
   },
 
   /**
@@ -47,18 +79,23 @@ const AIService = {
     const data = await resp.json();
     
     // Sort: free first, then by pricing
-    const models = (data.data || []).map(m => ({
-      id: m.id,
-      name: m.name || m.id,
-      description: m.description || '',
-      context_length: m.context_length || 0,
-      pricing: {
-        prompt: m.pricing?.prompt ? parseFloat(m.pricing.prompt) * 1_000_000 : null,
-        completion: m.pricing?.completion ? parseFloat(m.pricing.completion) * 1_000_000 : null,
-      },
-      is_free: !m.pricing?.prompt && !m.pricing?.completion,
-      provider: (m.id || '').split('/')[0],
-    })).sort((a, b) => {
+    const models = (data.data || []).map(m => {
+      const pricing = m.pricing || {};
+      const promptPrice = this._parsePrice(pricing.prompt);
+      const completionPrice = this._parsePrice(pricing.completion);
+      return {
+        id: m.id,
+        name: m.name || m.id,
+        description: m.description || '',
+        context_length: m.context_length || 0,
+        pricing: {
+          prompt: promptPrice,
+          completion: completionPrice,
+        },
+        is_free: this._isFreeModelId(m.id, pricing),
+        provider: (m.id || '').split('/')[0],
+      };
+    }).sort((a, b) => {
       if (a.is_free !== b.is_free) return a.is_free ? -1 : 1;
       const aPrice = (a.pricing.prompt || 0) + (a.pricing.completion || 0);
       const bPrice = (b.pricing.prompt || 0) + (b.pricing.completion || 0);
@@ -112,7 +149,8 @@ const AIService = {
     }
     messages.push({ role: 'user', content: prompt });
     
-    const useModel = model || 'google/gemini-flash-1.5';
+    // Use a free model by default
+    const useModel = model || 'meta-llama/llama-3.3-70b-instruct:free';
     
     const resp = await fetch(`${this.BASE_URL}/chat/completions`, {
       method: 'POST',
@@ -162,6 +200,8 @@ const AIService = {
     if (perMillion === 0) return 'Free';
     return `$${perMillion.toFixed(3)}/M`;
   },
+
+
 };
 
 window.AIService = AIService;
