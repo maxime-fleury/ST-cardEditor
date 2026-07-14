@@ -202,6 +202,19 @@ function bindEvents(settingsModal) {
       document.querySelector('#panelRight').classList.toggle('mobile-open');
     });
   }
+
+  const themeToggle = $('#btnThemeToggle');
+  const savedTheme = localStorage.getItem('stce_theme') || 'dark';
+  if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); themeToggle.innerHTML = '<i class="bi bi-sun-fill"></i>'; }
+  if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('stce_theme', next);
+      themeToggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
+    });
+  }
 }
 
 // ─── KEYBOARD SHORTCUTS ───────────────────────────────

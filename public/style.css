@@ -65,6 +65,40 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
+[data-theme="light"] {
+  --bg-deepest: #f0f0f5;
+  --bg-deep: #f5f5fa;
+  --bg-base: #fafafe;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #f0f0f8;
+  --bg-elevated: #ffffff;
+  --text-primary: #1a1a2e;
+  --text-secondary: #555570;
+  --text-muted: #8888a0;
+  --text-accent: #772ce8;
+  --border-subtle: #e0e0ee;
+  --border-default: #cccce0;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.1);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.12);
+  --shadow-lg: 0 8px 30px rgba(0,0,0,0.15);
+}
+
+[data-theme="light"] .navbar { background: var(--bg-surface) !important; }
+[data-theme="light"] .panel { background: var(--bg-base); }
+[data-theme="light"] .form-control, [data-theme="light"] .form-select {
+  background: var(--bg-surface); color: var(--text-primary); border-color: var(--border-subtle);
+}
+[data-theme="light"] .form-control:focus, [data-theme="light"] .form-select:focus {
+  background: #fff; color: var(--text-primary);
+}
+[data-theme="light"] .ai-chat-messages { background: var(--bg-deep); }
+[data-theme="light"] .ai-message.user { background: #ede9fe; color: var(--text-primary); }
+[data-theme="light"] .ai-message.assistant { background: #f0f0f8; color: var(--text-primary); }
+[data-theme="light"] .card-list-item:hover { background: var(--bg-surface-hover); }
+[data-theme="light"] .modal-content { background: var(--bg-surface); color: var(--text-primary); }
+[data-theme="light"] .card-preview-tooltip { background: var(--bg-surface); border-color: var(--border-subtle); }
+[data-theme="light"] .toast { background: var(--bg-surface); color: var(--text-primary); }
+
 /* ============================================================
    RESET & BASE
    ============================================================ */

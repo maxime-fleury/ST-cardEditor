@@ -33,15 +33,16 @@ const ExportUtils = {
     const json = CardEngine.toJSON(clone);
     try {
       if (activeCard._imageBase64) {
+        const ext = activeCard._imageBase64.includes('image/webp') ? 'webp' : 'png';
         const blob = await this.embedJSONInPNG(activeCard._imageBase64, json);
-        if (blob) { Ui.downloadBlob(blob, (activeCard.name || 'character') + '.png'); Ui.showToast('Exported as PNG with card data!', 'success'); return; }
+        if (blob) { Ui.downloadBlob(blob, (activeCard.name || 'character') + '.' + ext); Ui.showToast('Exported as ' + ext.toUpperCase() + ' with card data!', 'success'); return; }
       }
       const blob = await this.createMinimalPNG(json);
       Ui.downloadBlob(blob, (activeCard.name || 'character') + '.png');
       Ui.showToast('Exported as PNG with card data!', 'success');
     } catch (err) {
       console.error('PNG export failed:', err);
-      Ui.showToast('PNG export failed. Falling back to JSON.', 'warning');
+      Ui.showToast('Image export failed. Falling back to JSON.', 'warning');
       this.exportAsJSON();
     }
   },
