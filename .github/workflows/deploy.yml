@@ -3,6 +3,10 @@
 # Automatically builds and deploys the static app to GitHub Pages
 # whenever changes are pushed to the main branch.
 #
+# 💡 After first push, go to:
+#    Settings > Pages > Source: "Deploy from a branch"
+#    Branch: "gh-pages" / "/ (root)"
+#
 # Deployment URL: https://maxime-fleury.github.io/ST-cardEditor/
 
 name: Deploy to GitHub Pages
@@ -11,21 +15,12 @@ on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
-    # Allows manual trigger from the Actions tab
 
-# Sets permissions for GITHUB_TOKEN to deploy to Pages
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-# Only one deploy at a time — cancels in-progress runs
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
+  contents: write
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -33,29 +28,22 @@ jobs:
 
       - name: Prepare static files
         run: |
-          # Create a staging directory for deployment
+          rm -rf deploy
           mkdir -p deploy/js
-          # Copy public/ contents to root of deploy
           cp -r public/* deploy/
-          # Copy js/ contents into deploy/js/
           cp -r js/* deploy/js/
-          # Copy .nojekyll to disable Jekyll processing
           cp .nojekyll deploy/
-          # Show what we're deploying
-          ls -la deploy/
+          echo "=== Deploy contents ==="
+          find deploy -type f | sort
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: deploy
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./deploy
+          publish_branch: gh-pages
+          allow_empty_commit: false
+          keep_files: false
+          force_orphan: true
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
