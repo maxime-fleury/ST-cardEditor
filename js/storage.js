@@ -88,11 +88,11 @@ const CardStorage = {
   // ─── API Key ────────────────────────────────────────────
 
   getApiKey() {
-    return sessionStorage.getItem(this.PREFIX + this._keys.apiKey) || '';
+    return localStorage.getItem(this.PREFIX + this._keys.apiKey) || '';
   },
 
   setApiKey(key) {
-    sessionStorage.setItem(this.PREFIX + this._keys.apiKey, key);
+    localStorage.setItem(this.PREFIX + this._keys.apiKey, key);
   },
 
   // ─── Default Model ─────────────────────────────────────
@@ -345,7 +345,6 @@ const CardStorage = {
       }
     }
     keysToRemove.forEach(k => localStorage.removeItem(k));
-    sessionStorage.removeItem(this.PREFIX + this._keys.apiKey);
     this.DB.clear(this.DB.stores.cards).catch(() => {});
     this.DB.clear(this.DB.stores.images).catch(() => {});
   },
