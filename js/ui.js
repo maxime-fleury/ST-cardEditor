@@ -17,7 +17,7 @@
   const $$ = (sel) => document.querySelectorAll(sel);
 
   // ─── INIT ─────────────────────────────────────────────
-  function init() {
+  async function init() {
     cards = Storage.getCards();
     chatHistory = Storage.getChatHistory();
     const apiKey = Storage.getApiKey();
@@ -34,13 +34,16 @@
 
     const settingsModal = new bootstrap.Modal('#settingsModal');
 
+    // Migrate any large images still stored in localStorage to IndexedDB
+    await migrateImagesToIndexedDB();
+
     renderCardList();
     renderChatHistory();
 
     const activeId = Storage.getActiveCardId();
     if (activeId) {
       const card = Storage.getCard(activeId);
-      if (card) selectCard(card);
+      if (card) await selectCard(card);
     }
 
     if (apiKey) refreshCredits();
@@ -49,6 +52,23 @@
     bindEvents(settingsModal);
     window.addEventListener('beforeunload', () => { if (activeCard) syncEditorToCard(); });
     window.addEventListener('storage', handleStorageChange);
+  }
+
+  async function migrateImagesToIndexedDB() {
+    const all = Storage.getCards();
+    for (const meta of all) {
+      const full = Storage.getCard(meta._id);
+      if (!full || !full._imageBase64) continue;
+      try {
+        await Storage.saveImage(full._id, full._imageBase64);
+        full._thumbnail = full._thumbnail || await CardEngine._createThumbnail(full._imageBase64);
+        delete full._imageBase64;
+        Storage.upsertCard(full);
+      } catch (e) {
+        console.error('Image migration failed for', full._id, e);
+      }
+    }
+    cards = Storage.getCards();
   }
 
   // ─── EVENT BINDINGS ──────────────────────────────────
@@ -148,7 +168,7 @@
     }
   }
 
-  function handleStorageChange(e) {
+  async function handleStorageChange(e) {
     if (!e.key || !e.key.startsWith(Storage.PREFIX)) return;
     cards = Storage.getCards();
     renderCardList();
@@ -156,6 +176,12 @@
       const updated = Storage.getCard(activeCard._id);
       if (updated) {
         activeCard = updated;
+        try {
+          const b64 = await Storage.getImage(updated._id);
+          if (b64) activeCard._imageBase64 = b64;
+        } catch (err) {
+          console.error('Failed to load image from IndexedDB:', err);
+        }
         populateEditor(activeCard);
       }
     }
@@ -175,6 +201,9 @@
       if (!validExts.includes(ext)) { errors++; continue; }
       try {
         const card = await CardEngine.parseFile(file);
+        if (card._imageBase64) {
+          await Storage.saveImage(card._id, card._imageBase64);
+        }
         Storage.upsertCard(card);
         loaded++;
       } catch (err) {
@@ -187,7 +216,7 @@
     if (loaded > 0) {
       cards = Storage.getCards();
       renderCardList();
-      if (loaded === 1 && cards.length > 0) selectCard(cards[0]);
+      if (loaded === 1 && cards.length > 0) await selectCard(cards[0]);
       showToast('Loaded ' + loaded + ' card' + (loaded !== 1 ? 's' : ''), 'success');
     }
     if (errors > 0 && loaded === 0)
@@ -209,7 +238,7 @@
       const tags = (card.tags || []).slice(0, 2);
       return '<div class="card-list-item' + (isActive ? ' active' : '') + '" data-card-id="' + card._id + '">'
         + '<div class="card-list-avatar">'
-        + (card._imageBase64 ? '<img src="' + escapeAttr(card._imageBase64) + '" alt="">' : '<i class="bi bi-person-fill"></i>')
+        + (card._thumbnail || card._imageBase64 ? '<img src="' + escapeAttr(card._thumbnail || card._imageBase64) + '" alt="">' : '<i class="bi bi-person-fill"></i>')
         + '</div>'
         + '<div class="card-list-info">'
         + '<div class="card-list-name">' + escapeHtml(card.name || 'Unnamed') + '</div>'
@@ -232,13 +261,22 @@
 
   // ─── CARD SELECTION ──────────────────────────────────
 
-  function selectCard(cardMeta) {
+  async function selectCard(cardMeta) {
     if (!cardMeta || !cardMeta._id) return;
     if (activeCard && activeCard._id !== cardMeta._id) syncEditorToCard();
     const fullCard = Storage.getCard(cardMeta._id);
     if (!fullCard) return;
     activeCard = fullCard;
     Storage.setActiveCardId(fullCard._id);
+
+    // Load the full image from IndexedDB if available
+    try {
+      const b64 = await Storage.getImage(fullCard._id);
+      if (b64) activeCard._imageBase64 = b64;
+    } catch (e) {
+      console.error('Failed to load image from IndexedDB:', e);
+    }
+
     populateEditor(fullCard);
     renderCardList();
     updateUIState();
@@ -320,13 +358,13 @@
 
   // ─── CARD ACTIONS ────────────────────────────────────
 
-  function createNewCard() {
+  async function createNewCard() {
     if (activeCard) syncEditorToCard();
     const card = CardEngine.createEmptyCard();
     Storage.upsertCard(card);
     cards = Storage.getCards();
     renderCardList();
-    selectCard(card);
+    await selectCard(card);
     $('#editName').focus();
     showToast('New blank card created', 'success');
   }
@@ -338,7 +376,7 @@
     showToast('Card saved!', 'success');
   }
 
-  function deleteActiveCard() {
+  async function deleteActiveCard() {
     if (!activeCard) return;
     if (!confirm('Delete "' + activeCard.name + '"? This cannot be undone.')) return;
     Storage.deleteCard(activeCard._id);
@@ -346,7 +384,7 @@
     activeCard = null;
     hideEditor();
     renderCardList();
-    if (cards.length > 0) selectCard(cards[0]);
+    if (cards.length > 0) await selectCard(cards[0]);
     showToast('Card deleted', 'warning');
   }
 
@@ -683,7 +721,7 @@
       if (jsonMatch) {
         try {
           const parsed = CardEngine.parseJSON(jsonMatch[1].trim(), activeCard._filename);
-          const internal = { _id: activeCard._id, _filename: activeCard._filename, _hasImage: activeCard._hasImage, _imageBase64: activeCard._imageBase64 };
+          const internal = { _id: activeCard._id, _filename: activeCard._filename, _hasImage: activeCard._hasImage, _imageBase64: activeCard._imageBase64, _thumbnail: activeCard._thumbnail };
           Object.assign(activeCard, parsed);
           Object.assign(activeCard, internal);
           populateEditor(activeCard); syncEditorToCard();

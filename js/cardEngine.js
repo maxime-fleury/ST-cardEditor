@@ -19,6 +19,7 @@ const CardEngine = {
         const blob = new Blob([buffer], { type: 'image/' + ext });
         card._imageBase64 = await this._blobToBase64(blob);
       }
+      card._thumbnail = await this._createThumbnail(card._imageBase64);
       return card;
     }
     throw new Error('Unsupported file type: .' + ext);
@@ -229,6 +230,29 @@ const CardEngine = {
       reader.onloadend = () => resolve(reader.result);
       reader.onerror = reject;
       reader.readAsDataURL(blob);
+    });
+  },
+
+  _createThumbnail(base64) {
+    return new Promise(resolve => {
+      if (!base64) return resolve(null);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const MAX = 128;
+        let w = img.width, h = img.height;
+        if (w > h) {
+          if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+        } else {
+          if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        canvas.width = w; canvas.height = h;
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
+      };
+      img.onerror = () => resolve(null);
+      img.src = base64;
     });
   },
 };

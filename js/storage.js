@@ -5,6 +5,57 @@
 const Storage = {
   PREFIX: 'stce_',
 
+  /**
+   * IndexedDB wrapper for storing large card images data.
+   * localStorage is limited to ~5MB, so images are offloaded here.
+   */
+  ImageDB: {
+    dbName: 'stce_images',
+    storeName: 'images',
+    init() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(this.dbName, 1);
+        req.onupgradeneeded = (e) => {
+          e.target.result.createObjectStore(this.storeName);
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    },
+    async get(id) {
+      const db = await this.init();
+      return new Promise((resolve, reject) => {
+        const req = db.transaction(this.storeName, 'readonly').objectStore(this.storeName).get(id);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    },
+    async set(id, data) {
+      const db = await this.init();
+      return new Promise((resolve, reject) => {
+        const req = db.transaction(this.storeName, 'readwrite').objectStore(this.storeName).put(data, id);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    },
+    async delete(id) {
+      const db = await this.init();
+      return new Promise((resolve, reject) => {
+        const req = db.transaction(this.storeName, 'readwrite').objectStore(this.storeName).delete(id);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    },
+    async clear() {
+      const db = await this.init();
+      return new Promise((resolve, reject) => {
+        const req = db.transaction(this.storeName, 'readwrite').objectStore(this.storeName).clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    },
+  },
+
   _keys: {
     apiKey: 'apiKey',
     defaultModel: 'defaultModel',
@@ -61,7 +112,7 @@ const Storage = {
       creator: card.creator,
       tags: card.tags,
       spec_version: card.spec_version,
-      _imageBase64: card._imageBase64,
+      _thumbnail: card._thumbnail,
     };
   },
 
@@ -115,10 +166,13 @@ const Storage = {
 
   /**
    * Add or update a card in storage.
+   * The full _imageBase64 is stripped from localStorage and kept in IndexedDB.
    */
   upsertCard(card) {
     this._checkMigration();
-    localStorage.setItem(this.PREFIX + 'card_' + card._id, JSON.stringify(card));
+    const toSave = { ...card };
+    delete toSave._imageBase64;
+    localStorage.setItem(this.PREFIX + 'card_' + card._id, JSON.stringify(toSave));
 
     const index = this.getCards();
     const idx = index.findIndex(c => c._id === card._id);
@@ -139,6 +193,7 @@ const Storage = {
     localStorage.removeItem(this.PREFIX + 'card_' + id);
     const index = this.getCards().filter(c => c._id !== id);
     localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
+    this.deleteImage(id).catch(() => {});
     if (this.getActiveCardId() === id) {
       this.setActiveCardId(null);
     }
@@ -204,7 +259,14 @@ const Storage = {
       }
     }
     keysToRemove.forEach(k => localStorage.removeItem(k));
+    this.ImageDB.clear().catch(() => {});
   },
+
+  // ─── Image Storage Helpers ─────────────────────────────
+
+  getImage(id) { return this.ImageDB.get(id); },
+  saveImage(id, base64) { return this.ImageDB.set(id, base64); },
+  deleteImage(id) { return this.ImageDB.delete(id); },
 
   /**
    * Get total storage usage estimate.
