@@ -18,6 +18,10 @@
 
   // ─── INIT ─────────────────────────────────────────────
   async function init() {
+    // Migrate any cards/images still stored in localStorage to IndexedDB
+    await Storage.migrateCardsToIndexedDB();
+    await migrateImagesToIndexedDB();
+
     cards = Storage.getCards();
     chatHistory = Storage.getChatHistory();
     const apiKey = Storage.getApiKey();
@@ -34,15 +38,12 @@
 
     const settingsModal = new bootstrap.Modal('#settingsModal');
 
-    // Migrate any large images still stored in localStorage to IndexedDB
-    await migrateImagesToIndexedDB();
-
     renderCardList();
     renderChatHistory();
 
     const activeId = Storage.getActiveCardId();
     if (activeId) {
-      const card = Storage.getCard(activeId);
+      const card = await Storage.getCard(activeId);
       if (card) await selectCard(card);
     }
 
@@ -57,13 +58,13 @@
   async function migrateImagesToIndexedDB() {
     const all = Storage.getCards();
     for (const meta of all) {
-      const full = Storage.getCard(meta._id);
+      const full = await Storage.getCard(meta._id);
       if (!full || !full._imageBase64) continue;
       try {
         await Storage.saveImage(full._id, full._imageBase64);
         full._thumbnail = full._thumbnail || await CardEngine._createThumbnail(full._imageBase64);
         delete full._imageBase64;
-        Storage.upsertCard(full);
+        await Storage.upsertCard(full);
       } catch (e) {
         console.error('Image migration failed for', full._id, e);
       }
@@ -173,7 +174,7 @@
     cards = Storage.getCards();
     renderCardList();
     if (activeCard) {
-      const updated = Storage.getCard(activeCard._id);
+      const updated = await Storage.getCard(activeCard._id);
       if (updated) {
         activeCard = updated;
         try {
@@ -204,7 +205,7 @@
         if (card._imageBase64) {
           await Storage.saveImage(card._id, card._imageBase64);
         }
-        Storage.upsertCard(card);
+        await Storage.upsertCard(card);
         loaded++;
       } catch (err) {
         console.error('Parse error:', file.name, err);
@@ -263,8 +264,8 @@
 
   async function selectCard(cardMeta) {
     if (!cardMeta || !cardMeta._id) return;
-    if (activeCard && activeCard._id !== cardMeta._id) syncEditorToCard();
-    const fullCard = Storage.getCard(cardMeta._id);
+    if (activeCard && activeCard._id !== cardMeta._id) await syncEditorToCard();
+    const fullCard = await Storage.getCard(cardMeta._id);
     if (!fullCard) return;
     activeCard = fullCard;
     Storage.setActiveCardId(fullCard._id);
@@ -328,7 +329,7 @@
     updateUIState();
   }
 
-  function syncEditorToCard() {
+  async function syncEditorToCard() {
     if (!activeCard) return;
     activeCard.name = $('#editName').value.trim();
     activeCard.description = $('#editDescription').value;
@@ -343,7 +344,7 @@
     activeCard.creator = $('#editCreator').value.trim();
     activeCard.character_version = $('#editVersion').value.trim();
     activeCard.tags = $('#editTags').value.split(',').map(s => s.trim()).filter(Boolean);
-    Storage.upsertCard(activeCard);
+    await Storage.upsertCard(activeCard);
     cards = Storage.getCards();
   }
 
@@ -359,9 +360,9 @@
   // ─── CARD ACTIONS ────────────────────────────────────
 
   async function createNewCard() {
-    if (activeCard) syncEditorToCard();
+    if (activeCard) await syncEditorToCard();
     const card = CardEngine.createEmptyCard();
-    Storage.upsertCard(card);
+    await Storage.upsertCard(card);
     cards = Storage.getCards();
     renderCardList();
     await selectCard(card);
@@ -369,9 +370,9 @@
     showToast('New blank card created', 'success');
   }
 
-  function saveCurrentCard() {
+  async function saveCurrentCard() {
     if (!activeCard) { showToast('No card to save', 'warning'); return; }
-    syncEditorToCard();
+    await syncEditorToCard();
     renderCardList();
     showToast('Card saved!', 'success');
   }
@@ -379,7 +380,7 @@
   async function deleteActiveCard() {
     if (!activeCard) return;
     if (!confirm('Delete "' + activeCard.name + '"? This cannot be undone.')) return;
-    Storage.deleteCard(activeCard._id);
+    await Storage.deleteCard(activeCard._id);
     cards = Storage.getCards();
     activeCard = null;
     hideEditor();
@@ -398,9 +399,9 @@
     return card;
   }
 
-  function exportAsJSON() {
+  async function exportAsJSON() {
     if (!activeCard) return;
-    syncEditorToCard();
+    await syncEditorToCard();
     const cardWithCredit = injectCopyright({ ...activeCard });
     downloadFile((activeCard.name || 'character') + '.json', CardEngine.toJSON(cardWithCredit), 'application/json');
     showToast('Exported as JSON!', 'success');
@@ -408,7 +409,7 @@
 
   async function exportAsPNG() {
     if (!activeCard) return;
-    syncEditorToCard();
+    await syncEditorToCard();
     const cardWithCredit = injectCopyright({ ...activeCard });
     const json = CardEngine.toJSON(cardWithCredit);
     try {
@@ -605,10 +606,11 @@
 
   function renderLorebook(card) {
     const container = $('#lorebookEntries');
-    const empty = $('#lorebookEmpty');
     const entries = card.character_book?.entries || [];
-    if (entries.length === 0) { container.innerHTML = ''; empty.style.display = ''; return; }
-    empty.style.display = 'none';
+    if (entries.length === 0) {
+      container.innerHTML = '<div class="text-muted text-center py-4" id="lorebookEmpty"><i class="bi bi-journal-text d-block mb-2" style="font-size: 2rem;"></i>No lorebook entries yet. Add one to get started.</div>';
+      return;
+    }
     container.innerHTML = entries.map((entry, idx) =>
       '<div class="lorebook-entry" data-entry-idx="' + idx + '">'
       + '<div class="lorebook-entry-header">'

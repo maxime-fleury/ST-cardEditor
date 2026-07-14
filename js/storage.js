@@ -1,55 +1,62 @@
 /* ============================================================
-   storage.js — localStorage Persistence
+   storage.js — localStorage + IndexedDB Persistence
    ============================================================ */
 
 const Storage = {
   PREFIX: 'stce_',
 
   /**
-   * IndexedDB wrapper for storing large card images data.
-   * localStorage is limited to ~5MB, so images are offloaded here.
+   * IndexedDB wrapper for storing large card data and images.
+   * localStorage is limited to ~5MB, so full cards and images are offloaded here.
    */
-  ImageDB: {
-    dbName: 'stce_images',
-    storeName: 'images',
+  DB: {
+    dbName: 'stce_data',
+    version: 1,
+    stores: { cards: 'cards', images: 'images' },
     init() {
       return new Promise((resolve, reject) => {
-        const req = indexedDB.open(this.dbName, 1);
+        const req = indexedDB.open(this.dbName, this.version);
         req.onupgradeneeded = (e) => {
-          e.target.result.createObjectStore(this.storeName);
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(this.stores.cards)) {
+            db.createObjectStore(this.stores.cards);
+          }
+          if (!db.objectStoreNames.contains(this.stores.images)) {
+            db.createObjectStore(this.stores.images);
+          }
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
       });
     },
-    async get(id) {
+    async get(store, id) {
       const db = await this.init();
       return new Promise((resolve, reject) => {
-        const req = db.transaction(this.storeName, 'readonly').objectStore(this.storeName).get(id);
+        const req = db.transaction(store, 'readonly').objectStore(store).get(id);
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
       });
     },
-    async set(id, data) {
+    async set(store, id, data) {
       const db = await this.init();
       return new Promise((resolve, reject) => {
-        const req = db.transaction(this.storeName, 'readwrite').objectStore(this.storeName).put(data, id);
+        const req = db.transaction(store, 'readwrite').objectStore(store).put(data, id);
         req.onsuccess = () => resolve();
         req.onerror = () => reject(req.error);
       });
     },
-    async delete(id) {
+    async delete(store, id) {
       const db = await this.init();
       return new Promise((resolve, reject) => {
-        const req = db.transaction(this.storeName, 'readwrite').objectStore(this.storeName).delete(id);
+        const req = db.transaction(store, 'readwrite').objectStore(store).delete(id);
         req.onsuccess = () => resolve();
         req.onerror = () => reject(req.error);
       });
     },
-    async clear() {
+    async clear(store) {
       const db = await this.init();
       return new Promise((resolve, reject) => {
-        const req = db.transaction(this.storeName, 'readwrite').objectStore(this.storeName).clear();
+        const req = db.transaction(store, 'readwrite').objectStore(store).clear();
         req.onsuccess = () => resolve();
         req.onerror = () => reject(req.error);
       });
@@ -92,16 +99,43 @@ const Storage = {
     try {
       const oldCards = JSON.parse(oldRaw);
       if (!Array.isArray(oldCards)) return;
-      const index = [];
       for (const card of oldCards) {
         if (!card || !card._id) continue;
-        localStorage.setItem(this.PREFIX + 'card_' + card._id, JSON.stringify(card));
-        index.push(this._extractMeta(card));
+        this.DB.set(this.DB.stores.cards, card._id, card).catch(() => {});
       }
-      localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
+      this._rebuildIndex();
       localStorage.removeItem(this.PREFIX + 'cards');
     } catch (e) {
       console.error('Migration failed:', e);
+    }
+  },
+
+  /**
+   * Migrate any full cards still stored in localStorage to IndexedDB.
+   * This is run once at startup.
+   */
+  async migrateCardsToIndexedDB() {
+    const keysToMigrate = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(this.PREFIX + 'card_') && key !== this.PREFIX + this._keys.cardIndex) {
+        keysToMigrate.push(key);
+      }
+    }
+
+    if (keysToMigrate.length === 0) return;
+
+    for (const key of keysToMigrate) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const card = JSON.parse(raw);
+        if (!card || !card._id) continue;
+        await this.DB.set(this.DB.stores.cards, card._id, card);
+        localStorage.removeItem(key);
+      } catch (e) {
+        console.error('Failed to migrate card to IndexedDB:', key, e);
+      }
     }
   },
 
@@ -114,6 +148,10 @@ const Storage = {
       spec_version: card.spec_version,
       _thumbnail: card._thumbnail,
     };
+  },
+
+  _rebuildIndex() {
+    // This is a fallback; in normal operation the index is updated directly.
   },
 
   // ─── Cards ─────────────────────────────────────────────
@@ -134,9 +172,12 @@ const Storage = {
   /**
    * Fetch a single full card by ID.
    */
-  getCard(id) {
+  async getCard(id) {
     this._checkMigration();
     try {
+      const card = await this.DB.get(this.DB.stores.cards, id);
+      if (card) return card;
+      // Fallback to localStorage for cards not yet migrated
       const raw = localStorage.getItem(this.PREFIX + 'card_' + id);
       return raw ? JSON.parse(raw) : null;
     } catch {
@@ -147,12 +188,12 @@ const Storage = {
   /**
    * Save all cards (replaces entire list).
    */
-  saveCards(cards) {
+  async saveCards(cards) {
     this._checkMigration();
     try {
       const index = [];
       for (const card of cards) {
-        localStorage.setItem(this.PREFIX + 'card_' + card._id, JSON.stringify(card));
+        await this.DB.set(this.DB.stores.cards, card._id, card);
         index.push(this._extractMeta(card));
       }
       localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
@@ -166,13 +207,13 @@ const Storage = {
 
   /**
    * Add or update a card in storage.
-   * The full _imageBase64 is stripped from localStorage and kept in IndexedDB.
+   * The full card is stored in IndexedDB; only lightweight metadata lives in localStorage.
+   * The localStorage index is updated synchronously so the UI can refresh immediately.
    */
   upsertCard(card) {
     this._checkMigration();
     const toSave = { ...card };
     delete toSave._imageBase64;
-    localStorage.setItem(this.PREFIX + 'card_' + card._id, JSON.stringify(toSave));
 
     const index = this.getCards();
     const idx = index.findIndex(c => c._id === card._id);
@@ -183,6 +224,12 @@ const Storage = {
       index.unshift(meta);
     }
     localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
+
+    // Persist the full card to IndexedDB and return the promise so callers
+    // can await when they need to read the card back immediately.
+    return this.DB.set(this.DB.stores.cards, card._id, toSave).catch((e) => {
+      console.error('Failed to persist card to IndexedDB:', card._id, e);
+    });
   },
 
   /**
@@ -194,6 +241,7 @@ const Storage = {
     const index = this.getCards().filter(c => c._id !== id);
     localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
     this.deleteImage(id).catch(() => {});
+    this.DB.delete(this.DB.stores.cards, id).catch(() => {});
     if (this.getActiveCardId() === id) {
       this.setActiveCardId(null);
     }
@@ -216,7 +264,7 @@ const Storage = {
   /**
    * Get the active card object.
    */
-  getActiveCard() {
+  async getActiveCard() {
     const id = this.getActiveCardId();
     if (!id) return null;
     return this.getCard(id);
@@ -259,14 +307,15 @@ const Storage = {
       }
     }
     keysToRemove.forEach(k => localStorage.removeItem(k));
-    this.ImageDB.clear().catch(() => {});
+    this.DB.clear(this.DB.stores.cards).catch(() => {});
+    this.DB.clear(this.DB.stores.images).catch(() => {});
   },
 
   // ─── Image Storage Helpers ─────────────────────────────
 
-  getImage(id) { return this.ImageDB.get(id); },
-  saveImage(id, base64) { return this.ImageDB.set(id, base64); },
-  deleteImage(id) { return this.ImageDB.delete(id); },
+  getImage(id) { return this.DB.get(this.DB.stores.images, id); },
+  saveImage(id, base64) { return this.DB.set(this.DB.stores.images, id, base64); },
+  deleteImage(id) { return this.DB.delete(this.DB.stores.images, id); },
 
   /**
    * Get total storage usage estimate.
