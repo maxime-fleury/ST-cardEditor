@@ -388,17 +388,29 @@
     showToast('Card deleted', 'warning');
   }
 
+  const EDITOR_CREDIT = 'Made using https://maxime-fleury.github.io/ST-cardEditor/';
+
+  function injectCopyright(card) {
+    const note = card.creator_notes || '';
+    if (!note.includes(EDITOR_CREDIT)) {
+      card.creator_notes = note ? note.trimEnd() + '\n\n' + EDITOR_CREDIT : EDITOR_CREDIT;
+    }
+    return card;
+  }
+
   function exportAsJSON() {
     if (!activeCard) return;
     syncEditorToCard();
-    downloadFile((activeCard.name || 'character') + '.json', CardEngine.toJSON(activeCard), 'application/json');
+    const cardWithCredit = injectCopyright({ ...activeCard });
+    downloadFile((activeCard.name || 'character') + '.json', CardEngine.toJSON(cardWithCredit), 'application/json');
     showToast('Exported as JSON!', 'success');
   }
 
   async function exportAsPNG() {
     if (!activeCard) return;
     syncEditorToCard();
-    const json = CardEngine.toJSON(activeCard);
+    const cardWithCredit = injectCopyright({ ...activeCard });
+    const json = CardEngine.toJSON(cardWithCredit);
     try {
       if (activeCard._imageBase64) {
         const blob = await embedJSONInPNG(activeCard._imageBase64, json);
