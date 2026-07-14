@@ -84,6 +84,9 @@ async function init() {
     $('#defaultModelSelect').value = defaultModel;
   }
 
+  const maxTokens = CardStorage.getMaxTokens();
+  if (maxTokens > 0) $('#maxTokensInput').value = maxTokens;
+
   const settingsModal = new bootstrap.Modal('#settingsModal');
 
   CardManager.renderCardList();

@@ -81,6 +81,7 @@ const CardStorage = {
     cardIndex: 'cardIndex',
     activeCardId: 'activeCardId',
     aiChatHistory: 'aiChatHistory',
+    maxTokens: 'maxTokens',
   },
 
   // ─── API Key ────────────────────────────────────────────
@@ -101,6 +102,17 @@ const CardStorage = {
 
   setDefaultModel(modelId) {
     localStorage.setItem(this.PREFIX + this._keys.defaultModel, modelId);
+  },
+
+  // ─── Max Tokens ─────────────────────────────────────
+
+  getMaxTokens() {
+    const val = localStorage.getItem(this.PREFIX + this._keys.maxTokens);
+    return val ? parseInt(val, 10) : 0;
+  },
+
+  setMaxTokens(tokens) {
+    localStorage.setItem(this.PREFIX + this._keys.maxTokens, String(tokens));
   },
 
   // ─── Migration ─────────────────────────────────────────

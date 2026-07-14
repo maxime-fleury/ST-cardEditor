@@ -7,8 +7,10 @@ const Settings = {
     const $ = (sel) => document.querySelector(sel);
     const apiKey = $('#apiKeyInput').value.trim();
     const defaultModel = $('#defaultModelSelect').value;
+    const maxTokens = parseInt($('#maxTokensInput').value, 10) || 0;
     if (apiKey) { CardStorage.setApiKey(apiKey); AIService.setApiKey(apiKey); }
     CardStorage.setDefaultModel(defaultModel);
+    CardStorage.setMaxTokens(maxTokens);
     $('#navModelSelect').value = defaultModel;
     modal.hide();
     Ui.showToast('Settings saved!', 'success');
@@ -72,6 +74,7 @@ const Settings = {
       '<div class="model-item' + (m.id === d ? ' selected' : '') + '" data-model-id="' + Ui.escapeHtml(m.id) + '">'
       + '<div class="model-item-info"><div class="model-item-name">' + Ui.escapeHtml(m.name) + '</div>'
       + '<div class="model-item-provider">' + Ui.escapeHtml(m.provider) + ' · ' + (m.context_length ? Math.floor(m.context_length/1000) + 'k ctx' : '?')
+      + (m.max_output_tokens ? ' · ' + Math.floor(m.max_output_tokens/1000) + 'k out' : '')
       + (m.is_free ? ' · <span class="text-success">FREE</span>' : '') + '</div></div>'
       + '<div class="model-item-pricing">' + (m.is_free ? '<span class="price-highlight">FREE</span>'
         : '<div>in: ' + AIService.formatPrice(m.pricing.prompt) + '</div><div>out: ' + AIService.formatPrice(m.pricing.completion) + '</div>') + '</div></div>'

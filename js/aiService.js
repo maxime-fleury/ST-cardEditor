@@ -90,6 +90,7 @@ const AIService = {
         name: m.name || m.id,
         description: m.description || '',
         context_length: m.context_length || 0,
+        max_output_tokens: m.top_provider?.max_completion_tokens || m.max_completion_tokens || 0,
         pricing: {
           prompt: promptPrice,
           completion: completionPrice,
@@ -157,6 +158,8 @@ const AIService = {
       throw new Error('No model selected. Please choose a model from the navbar or settings.');
     }
     const useModel = model;
+
+    const maxTokens = this.resolveMaxTokens(model);
     
     const resp = await fetch(`${this.BASE_URL}/chat/completions`, {
       method: 'POST',
@@ -170,7 +173,7 @@ const AIService = {
         model: useModel,
         messages: messages,
         temperature: this.DEFAULT_TEMPERATURE,
-        max_tokens: this.DEFAULT_MAX_TOKENS,
+        max_tokens: maxTokens,
         stream: false,
       }),
     });
@@ -205,6 +208,19 @@ const AIService = {
     if (perMillion === null || perMillion === undefined) return '—';
     if (perMillion === 0) return 'Free';
     return `$${perMillion.toFixed(3)}/M`;
+  },
+
+  /**
+   * Resolve max_tokens: user setting > model limit > default.
+   */
+  resolveMaxTokens(modelId) {
+    const userMax = CardStorage.getMaxTokens();
+    if (userMax > 0) return userMax;
+    if (modelId && window.AppState.models) {
+      const m = window.AppState.models.find(x => x.id === modelId);
+      if (m && m.max_output_tokens > 0) return m.max_output_tokens;
+    }
+    return this.DEFAULT_MAX_TOKENS;
   },
 
 

@@ -375,6 +375,18 @@
             </div>
           </div>
           
+          <!-- Max Tokens -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold">
+              <i class="bi bi-speedometer me-2 text-accent"></i>Max Output Tokens
+            </label>
+            <input type="number" class="form-control" id="maxTokensInput"
+                   min="0" step="1024" placeholder="0 = use model default">
+            <small class="form-text text-muted">
+              Override the max output tokens per request. Set to 0 to auto-use the selected model's limit (or 64k if unknown).
+            </small>
+          </div>
+          
           <!-- Model List -->
           <div class="mb-3">
             <div class="d-flex justify-content-between align-items-center mb-2">
@@ -443,14 +455,14 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   
   <!-- App Modules -->
-  <script src="js/cardEngine.js?v=6"></script>
-  <script src="js/aiService.js?v=6"></script>
-  <script src="js/storage.js?v=6"></script>
-  <script src="js/exportUtils.js?v=6"></script>
-  <script src="js/editor.js?v=6"></script>
-  <script src="js/cardManager.js?v=6"></script>
-  <script src="js/aiChat.js?v=6"></script>
-  <script src="js/settings.js?v=6"></script>
-  <script src="js/ui.js?v=6"></script>
+  <script src="js/cardEngine.js?v=7"></script>
+  <script src="js/aiService.js?v=7"></script>
+  <script src="js/storage.js?v=7"></script>
+  <script src="js/exportUtils.js?v=7"></script>
+  <script src="js/editor.js?v=7"></script>
+  <script src="js/cardManager.js?v=7"></script>
+  <script src="js/aiChat.js?v=7"></script>
+  <script src="js/settings.js?v=7"></script>
+  <script src="js/ui.js?v=7"></script>
 </body>
 </html>
