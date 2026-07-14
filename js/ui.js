@@ -107,6 +107,7 @@ async function init() {
 
 function bindEvents(settingsModal) {
   const $ = Ui.$;
+  const $$ = Ui.$$;
   const dropZone = $('#dropZone');
 
   dropZone.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.add('drag-over'); });

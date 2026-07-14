@@ -5,7 +5,7 @@
 const AIService = {
   BASE_URL: 'https://openrouter.ai/api/v1',
   DEFAULT_TEMPERATURE: 0.7,
-  DEFAULT_MAX_TOKENS: 30000,
+  DEFAULT_MAX_TOKENS: 4096,
 
   /**
    * Known free model IDs on OpenRouter (for quick identification).
