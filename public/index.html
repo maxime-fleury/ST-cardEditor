@@ -92,6 +92,17 @@
           <input type="text" class="form-control" id="cardSearchInput" placeholder="Search cards...">
         </div>
       </div>
+
+      <!-- Batch toolbar -->
+      <div class="px-3 pb-2 d-none" id="batchToolbar">
+        <div class="d-flex align-items-center justify-content-between">
+          <span class="text-accent fw-semibold" style="font-size:0.8rem;" id="batchCount">0 selected</span>
+          <div class="d-flex gap-1">
+            <button class="btn btn-outline-accent btn-sm" id="btnBatchExport" title="Export selected as JSON"><i class="bi bi-download"></i></button>
+            <button class="btn btn-outline-danger btn-sm" id="btnBatchDelete" title="Delete selected"><i class="bi bi-trash"></i></button>
+          </div>
+        </div>
+      </div>
       
       <!-- Card list -->
       <div class="card-list" id="cardList" role="listbox" aria-label="Card library"></div>
@@ -550,14 +561,14 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   
   <!-- App Modules -->
-  <script src="js/cardEngine.js?v=10"></script>
-  <script src="js/aiService.js?v=10"></script>
-  <script src="js/storage.js?v=10"></script>
-  <script src="js/exportUtils.js?v=10"></script>
-  <script src="js/editor.js?v=10"></script>
-  <script src="js/cardManager.js?v=10"></script>
-  <script src="js/aiChat.js?v=10"></script>
-  <script src="js/settings.js?v=10"></script>
-  <script src="js/ui.js?v=10"></script>
+  <script src="js/cardEngine.js?v=11"></script>
+  <script src="js/aiService.js?v=11"></script>
+  <script src="js/storage.js?v=11"></script>
+  <script src="js/exportUtils.js?v=11"></script>
+  <script src="js/editor.js?v=11"></script>
+  <script src="js/cardManager.js?v=11"></script>
+  <script src="js/aiChat.js?v=11"></script>
+  <script src="js/settings.js?v=11"></script>
+  <script src="js/ui.js?v=11"></script>
 </body>
 </html>

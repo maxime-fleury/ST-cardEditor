@@ -167,6 +167,8 @@ function bindEvents(settingsModal) {
   $('#btnExportPng').addEventListener('click', () => ExportUtils.exportAsPNG());
   $('#btnDeleteCard').addEventListener('click', () => CardManager.deleteActiveCard());
   $('#btnDuplicateCard').addEventListener('click', () => CardManager.duplicateCard());
+  $('#btnBatchDelete').addEventListener('click', () => CardManager.batchDelete());
+  $('#btnBatchExport').addEventListener('click', () => CardManager.batchExportJSON());
 
   ['editName','editDescription','editPersonality','editScenario','editFirstMes',
    'editMesExample','editCreatorNotes','editSystemPrompt','editPostHistory',

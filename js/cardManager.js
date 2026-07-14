@@ -58,6 +58,51 @@ const CardManager = {
 
   _cardListBound: false,
   _searchQuery: '',
+  _selectedIds: new Set(),
+
+  _toggleBatchSelect(cardId) {
+    if (this._selectedIds.has(cardId)) this._selectedIds.delete(cardId);
+    else this._selectedIds.add(cardId);
+    this._updateBatchToolbar();
+  },
+
+  _updateBatchToolbar() {
+    const toolbar = document.querySelector('#batchToolbar');
+    const count = document.querySelector('#batchCount');
+    if (!toolbar) return;
+    if (this._selectedIds.size >= 2) {
+      toolbar.classList.remove('d-none');
+      count.textContent = this._selectedIds.size + ' selected';
+    } else {
+      toolbar.classList.add('d-none');
+    }
+  },
+
+  async batchDelete() {
+    if (!confirm('Delete ' + this._selectedIds.size + ' cards? This cannot be undone.')) return;
+    for (const id of this._selectedIds) await CardStorage.deleteCard(id);
+    this._selectedIds.clear();
+    this._updateBatchToolbar();
+    window.AppState.cards = CardStorage.getCards();
+    if (window.AppState.activeCard && !window.AppState.cards.find(c => c._id === window.AppState.activeCard._id)) {
+      window.AppState.activeCard = null;
+      Editor.hideEditor();
+    }
+    this.renderCardList();
+    Ui.showToast('Cards deleted', 'warning');
+  },
+
+  async batchExportJSON() {
+    for (const id of this._selectedIds) {
+      const card = await CardStorage.getCard(id);
+      if (card) {
+        const clone = JSON.parse(JSON.stringify(card));
+        if (CardStorage.getInjectCopyright()) ExportUtils.injectCopyright(clone);
+        Ui.downloadFile((card.name || 'character') + '.json', CardEngine.toJSON(clone), 'application/json');
+      }
+    }
+    Ui.showToast('Exported ' + this._selectedIds.size + ' cards', 'success');
+  },
 
   renderCardList() {
     const $ = (sel) => document.querySelector(sel);
@@ -82,10 +127,11 @@ const CardManager = {
 
     container.innerHTML = filtered.map(card => {
       const isActive = activeCard && activeCard._id === card._id;
+      const isBatch = this._selectedIds.has(card._id);
       const tags = (card.tags || []).slice(0, 2);
       const thumb = card._thumbnail || card._imageBase64;
       const desc = (card.description || '').slice(0, 300);
-      return '<div class="card-list-item' + (isActive ? ' active' : '') + '" data-card-id="' + card._id + '" role="option" aria-selected="' + isActive + '">'
+      return '<div class="card-list-item' + (isActive ? ' active' : '') + (isBatch ? ' batch-selected' : '') + '" data-card-id="' + card._id + '" role="option" aria-selected="' + isActive + '">'
         + '<div class="card-list-avatar">'
         + (thumb ? '<img src="' + Ui.escapeAttr(thumb) + '" alt="">' : '<i class="bi bi-person-fill"></i>')
         + '</div>'
@@ -96,6 +142,7 @@ const CardManager = {
         + (card.creator && tags.length ? ' · ' : '')
         + tags.map(t => Ui.escapeHtml(t)).join(', ')
         + '</div></div>'
+        + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? ' checked' : '') + '>'
         + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + '</span>' : '')
         + '<div class="card-preview-tooltip">'
         + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : '')
@@ -108,6 +155,12 @@ const CardManager = {
     if (!this._cardListBound) {
       this._cardListBound = true;
       container.addEventListener('click', (e) => {
+        const checkbox = e.target.closest('.card-batch-check');
+        if (checkbox) {
+          e.stopPropagation();
+          CardManager._toggleBatchSelect(checkbox.dataset.cardId);
+          return;
+        }
         const item = e.target.closest('.card-list-item');
         if (!item) return;
         const card = window.AppState.cards.find(c => c._id === item.dataset.cardId);
