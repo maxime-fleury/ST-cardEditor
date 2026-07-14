@@ -5,6 +5,8 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 ![Version](https://img.shields.io/badge/version-1.0.0-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-000?logo=bun)
 ![License](https://img.shields.io/badge/license-MIT-blue)
+[![Live Demo](https://img.shields.io/badge/demo-gh--pages-9147ff?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/)
+[![Deploy](https://github.com/maxime-fleury/ST-cardEditor/actions/workflows/deploy.yml/badge.svg)](https://github.com/maxime-fleury/ST-cardEditor/actions/workflows/deploy.yml)
 
 ---
 
@@ -74,6 +76,10 @@ bun run start
 ```
 
 The app will be available at **http://localhost:8182**.
+
+Or try it instantly on **GitHub Pages**:
+
+[**https://maxime-fleury.github.io/ST-cardEditor/**](https://maxime-fleury.github.io/ST-cardEditor/)
 
 ### Getting an API Key (for AI features)
 
@@ -182,6 +188,14 @@ Contributions are welcome! Feel free to open issues or submit pull requests for:
 - Batch editing features
 - Theme customization
 - Localization
+
+---
+
+## ⚡ CI/CD
+
+Every push to the `main` branch automatically deploys the latest version to GitHub Pages via [GitHub Actions](.github/workflows/deploy.yml).
+
+Check the [Actions tab](https://github.com/maxime-fleury/ST-cardEditor/actions) for deployment status.
 
 ---
 

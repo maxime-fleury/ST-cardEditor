@@ -1,0 +1,59 @@
+# 🚀 Deploy to GitHub Pages
+#
+# Automatically builds and deploys the static app to GitHub Pages
+# whenever changes are pushed to the main branch.
+#
+# Deployment URL: https://maxime-fleury.github.io/ST-cardEditor/
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+    # Allows manual trigger from the Actions tab
+
+# Sets permissions for GITHUB_TOKEN to deploy to Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deploy at a time — cancels in-progress runs
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare static files
+        run: |
+          # Create a staging directory for deployment
+          mkdir -p deploy/js
+          # Copy public/ contents to root of deploy
+          cp -r public/* deploy/
+          # Copy js/ contents into deploy/js/
+          cp -r js/* deploy/js/
+          # Show what we're deploying
+          ls -la deploy/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: deploy
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
