@@ -761,7 +761,7 @@ translations.fr = {
   'editor.noGreetings': 'Pas encore de salutations. Cliquez sur <strong>Ajouter une salutation</strong> ou utilisez l\'IA pour en g\u00e9n\u00e9rer.',
   'editor.noEntriesMatch': 'Aucune entr\u00e9e ne correspond \u00e0 \u00ab{{query}}\u00bb',
   'gen.copySuffix': ' (Copie)',
-  'gen.toastAutoHide': '{{s}}s',
+  'gen.toastAutoHide': 'Masquage auto dans {{s}}s',
 };
 translations.es = {
   'nav.selectModel': 'Seleccionar modelo...',

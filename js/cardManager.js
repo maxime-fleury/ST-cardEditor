@@ -458,20 +458,43 @@ const CardManager = {
     if (window.AppState.cards.length > 0) await this.selectCard(window.AppState.cards[0]);
 
     let undone = false;
+    const DURATION = 8000;
+    const toastLabel = (I18n && I18n.t) ? I18n.t('gen.toastAutoHide', { s: Math.ceil(DURATION / 1000) }) : 'Auto-hides in 8s';
     const toastEl = document.createElement('div');
     toastEl.className = 'toast align-items-center border-0';
     toastEl.setAttribute('role', 'alert');
-    toastEl.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2">'
+    toastEl.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2 w-100"><div class="flex-grow-1 d-flex align-items-center gap-2">'
       + '<i class="bi bi-trash-fill text-danger"></i>' + I18n.t('toast.cardDeleted', { name: Ui.escapeHtml(snapshot.name || I18n.t('gen.unnamed')) })
       + '<button class="btn btn-sm btn-outline-accent ms-2" id="undoDeleteBtn">' + I18n.t('toast.undo') + '</button>'
-      + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
+      + '</div><div class="toast-timer text-muted" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">' + toastLabel + '</div><button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
     document.querySelector('#toastContainer').appendChild(toastEl);
-    const toast = new bootstrap.Toast(toastEl, { delay: 8000 });
+    const toast = new bootstrap.Toast(toastEl, { delay: DURATION });
     toast.show();
-    toastEl.addEventListener('hidden.bs.toast', () => {
-      toastEl.remove();
-      if (!undone) return;
-    });
+    // Live countdown timer
+    const timerEl = toastEl.querySelector('.toast-timer');
+    if (timerEl) {
+      const interval = 200;
+      let remaining = DURATION;
+      const tick = () => {
+        remaining -= interval;
+        if (remaining <= 0 || undone) { timerEl.textContent = ''; return; }
+        const secs = Math.ceil(remaining / 1000);
+        timerEl.textContent = (I18n && I18n.t)
+          ? I18n.t('gen.toastAutoHide', { s: secs })
+          : 'Auto-hides in ' + secs + 's';
+      };
+      const timer = setInterval(tick, interval);
+      toastEl.addEventListener('hidden.bs.toast', () => {
+        clearInterval(timer);
+        toastEl.remove();
+        if (!undone) return;
+      });
+    } else {
+      toastEl.addEventListener('hidden.bs.toast', () => {
+        toastEl.remove();
+        if (!undone) return;
+      });
+    }
     const undoBtn = toastEl.querySelector('#undoDeleteBtn');
     undoBtn.addEventListener('click', async () => {
       undone = true;
