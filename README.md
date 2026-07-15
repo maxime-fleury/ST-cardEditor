@@ -4,7 +4,7 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 
 ### **[Try it now](https://maxime-fleury.github.io/ST-cardEditor/)**
 
-![Version](https://img.shields.io/badge/version-2.1.0-purple)
+![Version](https://img.shields.io/badge/version-2.2.0-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-000?logo=bun)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![Live Demo](https://img.shields.io/badge/demo-gh--pages-9147ff?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/)
@@ -38,8 +38,9 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 - **3D tilt effect** on card hover (respects `prefers-reduced-motion`)
 - **Tag cloud** with click-to-filter across all cards (AND logic)
 - **6 sort modes:** name, newest/oldest, largest/smallest
-- **Batch operations:** multi-select for bulk delete or bulk JSON export
+- **Batch operations:** multi-select for bulk delete, bulk JSON export, and **card comparison** (side-by-side JSON diff)
 - **Drag-to-reorder** cards in the library
+- **Workspace backup/restore** — export/import your entire card library and settings as a single file
 
 ### Full Card Editor
 Four tabbed panels covering every aspect of the **V2/V3 card spec**:
@@ -57,6 +58,7 @@ Four tabbed panels covering every aspect of the **V2/V3 card spec**:
 - **Auto-resize** textareas (up to 800px)
 - **Alternate greetings** — add, reorder, set default, delete
 - **Lorebook entries** — keywords, content, order, constant/selective flags, position
+- **Delete confirmation** — prevents accidental card deletion with a confirm dialog
 
 ### AI Assistant
 
@@ -74,12 +76,14 @@ Four tabbed panels covering every aspect of the **V2/V3 card spec**:
 
 - **Streaming responses** with real-time text rendering
 - **Side-by-side diff preview** — review AI changes before applying (uses [jsdiff](https://github.com/kpdecker/jsdiff))
+- **Re-apply button** — re-open the diff modal for any past AI response (no more losing changes when you close the modal)
 - **Auto-apply** AI responses to targeted card fields
 - **Quick actions** — one-click presets:
   - New Card (wizard), Translate, Enhance Description, Expand Personality, Improve First Message, Shorten, Adjust Tone, Fix Grammar
-- **Target field selector** — Description, Personality, First Message, Scenario, Example Messages, System Prompt, or Full Card
-- **Context bar** — estimated token usage vs. context window with progress indicator
-- **Chat history** — persisted per card across sessions (50 message limit)
+- **Multi-field parallel editing** — select multiple fields and edit them simultaneously in one AI request
+- **Field chip selector** — visual toggle for targeting specific fields or the full card
+- **Context bar** — accurate token usage vs. context window with progress indicator
+- **Chat history** — persisted per card across sessions with session management
 - **Cost display** — shows token usage and estimated cost per message
 
 ### Card Creation Wizard
@@ -96,9 +100,10 @@ A 5-step guided character builder:
 
 - **Multi-select chip groups** for genres, moods, and opening vibe
 - **Custom inputs** for gender and language
-- **Reference image** — fetch 3 random anime images from [waifu.im](https://www.waifu.im), select one, refetch unselected, apply as card avatar
+- **Reference image** — fetch 3 anime-style images from [waifu.im](https://www.waifu.im), select one, refetch unselected, apply as card avatar
 - **AI generation** — builds a detailed prompt from all wizard answers and sends to AI for full card generation
-- **Blank generation** — creates a card with name/tags/creator pre-filled
+- **Blank generation** — creates a card with name/tags/creator and selected image pre-filled
+- **Wizard thumbnail** — selected image automatically becomes the card thumbnail in the library
 
 ### Animations & Micro-Interactions
 
@@ -108,15 +113,16 @@ Powered by [anime.js](https://animejs.com/) with full `prefers-reduced-motion` s
 - **Card list** — staggered fade-in after render, drag start/end scale+opacity feedback
 - **Theme toggle** — 360° icon spin on switch
 - **Button feedback** — scale(0.96) click animation on all buttons via mousedown
-- **Toast notifications** — horizontal slide entrance
+- **Toast notifications** — horizontal slide entrance with countdown timer and undo support
 - **AI chat** — message entrance animation, quick action stagger on clear
 - **Lorebook** — spring-like chevron rotation on toggle
 - **Brand icon** — idle floating animation
 - **Skeleton loading** — staggered reveal for card placeholders
+- **Saved indicator** — brief "✓ Saved" flash on the save button after each auto-save
 
 ### Localization (i18n)
 
-Full interface translation across **10 languages** with 336+ translation keys:
+Full interface translation across **10 languages** with 340+ translation keys:
 
 | Language | Key | Status |
 |----------|-----|--------|
@@ -144,14 +150,20 @@ Full interface translation across **10 languages** with 336+ translation keys:
 - Auto-generated fallback avatar PNG for cards without images
 - Storage usage monitor
 - Settings import/export
+- **Full workspace backup** — export/import all cards and settings as a single JSON file
 
-### Design
+### Design & UX
 - **Dark purple theme** (default) and **light theme** with one-click toggle
 - Custom scrollbars, smooth transitions, and micro-interactions
-- Toast notifications for all actions
-- Keyboard shortcuts (`Ctrl+S` save, `Ctrl+N` new card, `Ctrl+Z/Y` undo/redo)
+- Toast notifications for all actions with countdown timers
+- **Global error boundary** — catches unhandled errors and shows user-friendly toasts
+- **Keyboard shortcuts** (`Ctrl+S` save, `Ctrl+N` new card, `Ctrl+Z/Y` undo/redo)
+- **Modal focus traps** — keyboard navigation stays inside open modals
+- **Delete confirmation** — prevents accidental card deletion
 - Fully responsive layout (adapts to tablet and mobile)
 - Resizable panels with drag handles
+- **Offline support** via service worker (caches app shell for instant loading)
+- Content-Security-Policy headers for production security
 
 ---
 
@@ -219,7 +231,7 @@ Or try it instantly on **GitHub Pages**:
 ### Editing
 1. Click a card in the library to select it
 2. Edit any field across the four tabs
-3. Changes auto-save (debounced) — or click **Save** manually
+3. Changes auto-save (debounced) — a "✓ Saved" indicator flashes on the Save button
 4. Use **JSON / PNG** export buttons to download the finished card
 
 ### Creating a New Character
@@ -227,12 +239,14 @@ Or try it instantly on **GitHub Pages**:
 2. Step through the 5 tabs filling in character details
 3. Optionally fetch a reference image from waifu.im
 4. Choose **Generate with AI** (requires API key) or **Create Blank Card**
+5. The selected image becomes the card's avatar and thumbnail automatically
 
 ### AI Editing
-1. Select a target field from the dropdown below the chat input
+1. Select target fields using the chip selector below the chat input
 2. Type a prompt (e.g., "Make this more mysterious and aloof")
 3. Press **Enter** or click the send button
 4. Review the side-by-side diff preview and click **Apply Changes**
+5. If you close the modal without applying, click **Re-apply** on the assistant message to re-open the diff
 
 ### Quick Actions
 Click any suggestion chip to instantly:
@@ -245,6 +259,11 @@ Click any suggestion chip to instantly:
 - Change Tone — rewrites with a specified tone
 - Fix Grammar — corrects grammar, spelling, and punctuation
 
+### Card Comparison
+1. Select exactly 2 cards using the batch checkboxes
+2. Click the **Compare** button in the batch toolbar
+3. View a side-by-side JSON diff of both cards
+
 ---
 
 ## Project Structure
@@ -253,6 +272,7 @@ Click any suggestion chip to instantly:
 st-card-editor/
 ├── public/
 │   ├── index.html          # Main HTML with full UI layout
+│   ├── sw.js               # Service worker for offline app-shell caching
 │   └── css/                # Stylesheets (split by concern)
 │       ├── theme.css        # Design tokens, dark/light themes, backdrop
 │       ├── base.css         # Reset, scrollbars, navbar, animations, buttons
@@ -271,17 +291,19 @@ st-card-editor/
 │   ├── storage.js          # localStorage + IndexedDB persistence layer
 │   ├── exportUtils.js      # PNG/JSON export, CRC32, PNG chunk embedding
 │   ├── editor.js           # Editor form, greetings, lorebook management
-│   ├── cardManager.js      # Card list, selection, CRUD, sorting, tag cloud, 3D tilt
-│   ├── aiChat.js           # AI chat interface, streaming, diff, quick actions
+│   ├── cardManager.js      # Card list, selection, CRUD, sorting, tag cloud, batch compare, 3D tilt
+│   ├── aiChat.js           # AI chat interface, streaming, diff, re-apply, quick actions
 │   ├── wizard.js           # 5-step character creation wizard, waifu.im integration
-│   ├── settings.js         # Settings modal, model list, credits, provider config
+│   ├── settings.js         # Settings modal, model list, credits, provider config, workspace backup
 │   ├── tokenizer.js        # Token estimation (lazy-loaded BPE tokenizer)
 │   ├── animations.js       # anime.js animation utilities (stagger, slide, pulse, etc.)
-│   ├── i18n.js             # Internationalization: 336 keys × 10 languages
-│   └── ui.js               # Main controller: utilities, init, event binding
+│   ├── i18n.js             # Internationalization: 340+ keys × 10 languages
+│   └── ui.js               # Main controller: utilities, init, event binding, error boundary
 ├── .github/
-│   └── screenshots/        # README screenshots
-├── server.js               # Bun static file server with OpenRouter API proxy
+│   ├── screenshots/        # README screenshots
+│   └── workflows/
+│       └── deploy.yml      # GitHub Pages CI/CD
+├── server.js               # Bun static file server with OpenRouter API proxy + CSP headers
 ├── package.json            # Project metadata and scripts
 └── README.md               # This file
 ```
@@ -291,18 +313,18 @@ st-card-editor/
 The app is a **single-page application** built with vanilla JavaScript and **Bootstrap 5.3** for layout:
 
 - **`cardEngine.js`** — Parses SillyTavern card formats (V1 flat, V2/V3 spec), extracts embedded data from PNG/WebP files (`chara`/`ccv3` tEXt chunks), and handles stable ID generation via content hashing.
-- **`aiService.js`** — Wraps 7 AI providers (OpenRouter, NanoGPT, xAI, Z.AI, Chutes, DeepSeek, Custom) with a unified registry: lists models with pricing, sends chat completions (streaming and non-streaming) with context-aware system prompts, and fetches account credit info from OpenRouter.
+- **`aiService.js`** — Wraps 7 AI providers (OpenRouter, NanoGPT, xAI, Z.AI, Chutes, DeepSeek, Custom) with a unified registry: lists models with pricing, sends chat completions (streaming and non-streaming) with context-aware system prompts, fetches account credit info, and includes request timeouts.
 - **`storage.js`** — Hybrid persistence: lightweight metadata in `localStorage` (namespaced `stce_*`), full card data and images in **IndexedDB** (`stce_data` database). Includes one-time migration from legacy localStorage-only format.
 - **`exportUtils.js`** — PNG/JSON export with CRC32 checksum calculation and `tEXt` chunk embedding for SillyTavern-compatible output.
 - **`editor.js`** — Two-way binding between editor form fields and the active card object, with debounced auto-save, undo/redo, alternate greetings, and lorebook entry management.
-- **`cardManager.js`** — Card library rendering, drag-and-drop file import, card selection with IndexedDB image loading, sorting, tag cloud filtering, batch operations, and 3D tilt hover effect.
-- **`aiChat.js`** — AI chat interface with streaming responses, side-by-side diff preview (via jsdiff), markdown rendering (via marked + DOMPurify), context-aware system prompts, and quick action presets.
-- **`wizard.js`** — 5-step guided character creation with chip-based multi-select inputs, summary review, waifu.im image fetching, and AI generation.
-- **`settings.js`** — Settings modal with provider selection (7 providers), API key management, model browsing/selection, credit tracking, and storage usage display.
+- **`cardManager.js`** — Card library rendering, drag-and-drop file import, card selection with IndexedDB image loading, sorting, tag cloud filtering, batch operations (delete, export, compare), and 3D tilt hover effect.
+- **`aiChat.js`** — AI chat interface with streaming responses, side-by-side diff preview (via jsdiff), re-apply button for past responses, markdown rendering (via marked + DOMPurify), context-aware system prompts, multi-field parallel editing, and quick action presets.
+- **`wizard.js`** — 5-step guided character creation with chip-based multi-select inputs, summary review, waifu.im image fetching and selection, and AI generation with automatic thumbnail setup.
+- **`settings.js`** — Settings modal with provider selection (7 providers), API key management, model browsing/selection, credit tracking, storage usage display, language switching, and full workspace backup/restore.
 - **`tokenizer.js`** — Token estimation using lazy-loaded `gpt-tokenizer` BPE library with offline heuristic fallback.
 - **`animations.js`** — Reusable animation functions built on anime.js: stagger fade-in, slide transitions, pulse, shake, scale click, progress bounce, icon spin, skeleton reveal, toast entrance. All respect `prefers-reduced-motion`.
-- **`i18n.js`** — Internationalization module: `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings. 336 keys across 10 languages.
-- **`ui.js`** — Thin controller: shared state (`AppState`), utility functions (`escapeHtml`, `debounce`, `showToast`, `renderMarkdown`), initialization, I18n boot, and all event binding.
+- **`i18n.js`** — Internationalization module: `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings. 340+ keys across 10 languages.
+- **`ui.js`** — Thin controller: shared state (`AppState`), utility functions (`escapeHtml`, `debounce`, `showToast`, `renderMarkdown`), initialization, I18n boot, global error boundary, markdown library lazy-loading, and all event binding.
 
 ---
 
@@ -325,8 +347,8 @@ PNG Signature → IHDR → ... → IDAT → tEXt (chara=JSON) → IEND
 
 | Library | Purpose |
 |---------|---------|
-| [marked](https://github.com/markedjs/marked) | Markdown parsing for AI chat messages |
-| [DOMPurify](https://github.com/cure53/DOMPurify) | XSS sanitization of rendered HTML |
+| [marked](https://github.com/markedjs/marked) | Markdown parsing for AI chat messages (lazy-loaded) |
+| [DOMPurify](https://github.com/cure53/DOMPurify) | XSS sanitization of rendered HTML (lazy-loaded) |
 | [jsdiff](https://github.com/kpdecker/jsdiff) | Word-level diffing for AI response preview |
 | [anime.js](https://animejs.com/) | Animation library for micro-interactions |
 | [gpt-tokenizer](https://github.com/niieani/gpt-tokenizer) | BPE token counting (lazy-loaded) |
