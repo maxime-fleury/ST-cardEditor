@@ -11,7 +11,7 @@
   <!-- Bootstrap Icons -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <!-- Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   
   <link rel="stylesheet" href="style.css">
 </head>
@@ -39,7 +39,12 @@
           <option value="">Select model...</option>
         </select>
         
-        <!-- New card button -->
+        <!-- AI Wizard -->
+        <button class="btn btn-accent btn-sm" id="btnWizardNav" title="Create character with AI wizard" aria-label="Create with AI wizard">
+          <i class="bi bi-magic"></i>
+        </button>
+        
+        <!-- New blank card -->
         <button class="btn btn-outline-secondary btn-sm" id="btnNewCard" title="New blank card" aria-label="New blank card">
           <i class="bi bi-plus-lg"></i>
         </button>
@@ -99,6 +104,26 @@
         </div>
       </div>
 
+      <!-- Sort & Filter Controls -->
+      <div class="library-controls" id="libraryControls" style="display:none;">
+        <select class="form-select form-select-sm" id="cardSortSelect" title="Sort cards">
+          <option value="name-asc">Name A-Z</option>
+          <option value="name-desc">Name Z-A</option>
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="largest">Largest</option>
+          <option value="smallest">Smallest</option>
+        </select>
+        <button class="btn btn-outline-accent btn-sm" id="btnToggleTagCloud" title="Filter by tags">
+          <i class="bi bi-tags"></i>
+        </button>
+      </div>
+
+      <!-- Tag Cloud -->
+      <div class="tag-cloud-wrap" id="tagCloudWrap">
+        <div class="tag-cloud" id="tagCloud"></div>
+      </div>
+
       <!-- Batch toolbar -->
       <div class="px-3 pb-2 d-none" id="batchToolbar">
         <div class="d-flex align-items-center justify-content-between">
@@ -130,9 +155,14 @@
         </div>
         <h3>No card selected</h3>
         <p>Select a card from the library or drag & drop a new one</p>
-        <button class="btn btn-accent" id="btnNewCardCenter">
-          <i class="bi bi-plus-lg me-2"></i>Create blank card
-        </button>
+        <div class="d-flex gap-2 justify-content-center flex-wrap">
+          <button class="btn btn-accent" id="btnWizard">
+            <i class="bi bi-magic me-2"></i>Create with AI
+          </button>
+          <button class="btn btn-outline-accent" id="btnNewCardCenter">
+            <i class="bi bi-plus-lg me-2"></i>Blank Card
+          </button>
+        </div>
       </div>
       
       <!-- Editor form -->
@@ -200,21 +230,42 @@
           <div class="tab-pane fade show active" id="tabCore">
             <div class="row g-3">
               <div class="col-12">
-                <label class="form-label field-label">Description <small>(appearance, backstory)</small></label>
+                <label class="form-label field-label">
+                  Description <small>(appearance, backstory)</small>
+                  <span class="field-toggle-group" data-target="editDescription">
+                    <button class="field-toggle-btn active" data-mode="edit">Edit</button>
+                    <button class="field-toggle-btn" data-mode="preview">Preview</button>
+                  </span>
+                </label>
                 <textarea class="form-control editor-textarea" id="editDescription" rows="6" 
                           placeholder="Describe the character's appearance, background, and key traits..."></textarea>
+                <div class="md-preview" id="previewDescription"></div>
                 <small class="char-count text-muted" style="font-size:0.7rem;"></small>
               </div>
               <div class="col-md-6">
-                <label class="form-label field-label">First Message</label>
+                <label class="form-label field-label">
+                  First Message
+                  <span class="field-toggle-group" data-target="editFirstMes">
+                    <button class="field-toggle-btn active" data-mode="edit">Edit</button>
+                    <button class="field-toggle-btn" data-mode="preview">Preview</button>
+                  </span>
+                </label>
                 <textarea class="form-control editor-textarea" id="editFirstMes" rows="5" 
                           placeholder="The character's first message when starting a chat..."></textarea>
+                <div class="md-preview" id="previewFirstMes"></div>
                 <small class="char-count text-muted" style="font-size:0.7rem;"></small>
               </div>
               <div class="col-md-6">
-                <label class="form-label field-label">Scenario</label>
+                <label class="form-label field-label">
+                  Scenario
+                  <span class="field-toggle-group" data-target="editScenario">
+                    <button class="field-toggle-btn active" data-mode="edit">Edit</button>
+                    <button class="field-toggle-btn" data-mode="preview">Preview</button>
+                  </span>
+                </label>
                 <textarea class="form-control editor-textarea" id="editScenario" rows="5" 
                           placeholder="Current circumstances and context of the conversation..."></textarea>
+                <div class="md-preview" id="previewScenario"></div>
               </div>
               <div class="col-md-6">
                 <label class="form-label field-label">Creator</label>
@@ -237,14 +288,21 @@
             <div class="row g-3">
               <div class="col-12">
                 <label class="form-label field-label">Personality Summary</label>
-                <textarea class="form-control editor-textarea" id="editPersonality" rows="8" 
+                <textarea class="form-control editor-textarea" id="editPersonality" rows="14" 
                           placeholder="A brief description of the character's personality... (used in character card format)"></textarea>
                 <small class="char-count text-muted" style="font-size:0.7rem;"></small>
               </div>
               <div class="col-12">
-                <label class="form-label field-label">Example Messages</label>
-                <textarea class="form-control editor-textarea font-mono" id="editMesExample" rows="10" 
+                <label class="form-label field-label">
+                  Example Messages
+                  <span class="field-toggle-group" data-target="editMesExample">
+                    <button class="field-toggle-btn active" data-mode="edit">Edit</button>
+                    <button class="field-toggle-btn" data-mode="preview">Preview</button>
+                  </span>
+                </label>
+                <textarea class="form-control editor-textarea font-mono" id="editMesExample" rows="16" 
                           placeholder="&lt;START&gt;&#10;{{char}}: Example dialogue here...&#10;{{user}}: User response...&#10;&lt;START&gt;&#10;{{char}}: Another example..."></textarea>
+                <div class="md-preview" id="previewMesExample"></div>
                 <small class="form-text text-muted">Format: &lt;START&gt; blocks with {{char}}: and {{user}}: prefixes</small>
               </div>
             </div>
@@ -255,13 +313,13 @@
             <div class="row g-3">
               <div class="col-12">
                 <label class="form-label field-label">System Prompt</label>
-                <textarea class="form-control editor-textarea font-mono" id="editSystemPrompt" rows="6" 
+                <textarea class="form-control editor-textarea font-mono" id="editSystemPrompt" rows="12" 
                           placeholder="Override the system prompt. Use {{original}} to include the default."></textarea>
                 <small class="char-count text-muted" style="font-size:0.7rem;"></small>
               </div>
               <div class="col-12">
                 <label class="form-label field-label">Post-History Instructions</label>
-                <textarea class="form-control editor-textarea font-mono" id="editPostHistory" rows="6" 
+                <textarea class="form-control editor-textarea font-mono" id="editPostHistory" rows="10" 
                           placeholder="Instructions injected after the chat history. Use {{original}} for default."></textarea>
               </div>
               <div class="col-12">
@@ -288,6 +346,12 @@
                   <i class="bi bi-plus-lg me-1"></i> Add Entry
                 </button>
               </div>
+              <div class="lorebook-search">
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text"><i class="bi bi-search"></i></span>
+                  <input type="text" class="form-control" id="lorebookSearchInput" placeholder="Search entries by key, content, or comment...">
+                </div>
+              </div>
               <div id="lorebookEntries">
                 <div class="text-muted text-center py-4" id="lorebookEmpty">
                   <i class="bi bi-journal-text d-block mb-2" style="font-size: 2rem;"></i>
@@ -312,18 +376,30 @@
       
       <!-- AI Chat Messages -->
       <div class="ai-chat-messages" id="aiChatMessages" role="log" aria-live="polite" aria-label="AI chat messages">
-        <div class="ai-welcome">
+          <div class="ai-welcome">
           <div class="ai-welcome-icon">
             <i class="bi bi-magic"></i>
           </div>
           <h6>AI Card Assistant</h6>
           <p>Ask the AI to edit, translate, or enhance your character card.</p>
           <div class="quick-actions">
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="newcard">
+              <i class="bi bi-magic me-1"></i> New Card
+            </button>
             <button class="btn btn-outline-accent btn-sm quick-action" data-action="translate">
-              <i class="bi bi-translate me-1"></i> Translate to French
+              <i class="bi bi-translate me-1"></i> Translate
             </button>
             <button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance">
-              <i class="bi bi-stars me-1"></i> Enhance Description
+              <i class="bi bi-stars me-1"></i> Enhance
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="shorten">
+              <i class="bi bi-arrows-angle-contract me-1"></i> Shorten
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="tone">
+              <i class="bi bi-palette me-1"></i> Change Tone
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="grammar">
+              <i class="bi bi-check2-all me-1"></i> Fix Grammar
             </button>
             <button class="btn btn-outline-accent btn-sm quick-action" data-action="personality">
               <i class="bi bi-emoji-smile me-1"></i> Expand Personality
@@ -520,23 +596,237 @@
     </div>
   </div>
 
-  <!-- ========== AI PREVIEW MODAL ========== -->
-  <!-- AI Preview Modal -->
+  <!-- ========== WIZARD MODAL ========== -->
+  <div class="modal fade" id="wizardModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content wizard-modal-content">
+        <div class="modal-header wizard-header">
+          <h5 class="modal-title"><i class="bi bi-magic me-2 text-accent"></i>Create Character</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body wizard-body">
+          <!-- Progress bar -->
+          <div class="wizard-progress">
+            <div class="wizard-progress-bar" id="wizardProgressBar"></div>
+          </div>
+          <div class="wizard-steps-indicator" id="wizardStepsIndicator"></div>
+
+          <!-- Step 1: Basics -->
+          <div class="wizard-step" data-step="1">
+            <h6 class="wizard-step-title"><i class="bi bi-person-fill me-2"></i>Character Basics</h6>
+            <div class="row g-3">
+              <div class="col-md-8">
+                <label class="form-label field-label">Character Name <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="wizName" placeholder="e.g. Elara Nightwhisper" maxlength="200">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label field-label">Gender / Pronouns</label>
+                <select class="form-select" id="wizGender">
+                  <option value="">Select...</option>
+                  <option value="female">Female (she/her)</option>
+                  <option value="male">Male (he/him)</option>
+                  <option value="nonbinary">Non-binary (they/them)</option>
+                  <option value="other">Other...</option>
+                </select>
+                <input type="text" class="form-control mt-2 d-none" id="wizGenderCustom" placeholder="Custom pronouns (e.g. it/its)">
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label">Tags <small>(comma-separated, helps organize your library)</small></label>
+                <input type="text" class="form-control" id="wizTags" placeholder="fantasy, warrior, elf, original">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label field-label">Creator</label>
+                <input type="text" class="form-control" id="wizCreator" placeholder="Your name / alias">
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: Concept -->
+          <div class="wizard-step d-none" data-step="2">
+            <h6 class="wizard-step-title"><i class="bi bi-lightbulb me-2"></i>Concept & Setting</h6>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label field-label">Character Type</label>
+                <select class="form-select" id="wizType">
+                  <option value="">Select...</option>
+                  <option value="original">Original Character</option>
+                  <option value="fanfic">Fan Fiction</option>
+                  <option value="game">Game Character</option>
+                  <option value="anime">Anime / Manga</option>
+                  <option value="book">Book / Movie / Show</option>
+                  <option value="historical">Historical Figure</option>
+                  <option value="mythological">Mythological / Folklore</option>
+                  <option value="vtuber">VTuber / Streamer</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label field-label">Language</label>
+                <select class="form-select" id="wizLanguage">
+                  <option value="en">English</option>
+                  <option value="es">Spanish</option>
+                  <option value="fr">French</option>
+                  <option value="de">German</option>
+                  <option value="pt">Portuguese</option>
+                  <option value="ja">Japanese</option>
+                  <option value="zh">Chinese</option>
+                  <option value="ko">Korean</option>
+                  <option value="ru">Russian</option>
+                  <option value="ar">Arabic</option>
+                  <option value="it">Italian</option>
+                  <option value="nl">Dutch</option>
+                  <option value="other">Other</option>
+                </select>
+                <input type="text" class="form-control mt-2 d-none" id="wizLanguageCustom" placeholder="Specify language">
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label">Genre / World <small>(select all that apply)</small></label>
+                <div class="wizard-chip-group" id="wizGenre">
+                  <button class="wizard-chip" data-value="fantasy">Fantasy</button>
+                  <button class="wizard-chip" data-value="scifi">Sci-Fi</button>
+                  <button class="wizard-chip" data-value="modern">Modern</button>
+                  <button class="wizard-chip" data-value="historical">Historical</button>
+                  <button class="wizard-chip" data-value="horror">Horror</button>
+                  <button class="wizard-chip" data-value="romance">Romance</button>
+                  <button class="wizard-chip" data-value="comedy">Comedy</button>
+                  <button class="wizard-chip" data-value="slice-of-life">Slice of Life</button>
+                  <button class="wizard-chip" data-value="adventure">Adventure</button>
+                  <button class="wizard-chip" data-value="mystery">Mystery</button>
+                  <button class="wizard-chip" data-value="cyberpunk">Cyberpunk</button>
+                  <button class="wizard-chip" data-value="post-apocalyptic">Post-Apocalyptic</button>
+                  <button class="wizard-chip" data-value="supernatural">Supernatural</button>
+                  <button class="wizard-chip" data-value="military">Military</button>
+                  <button class="wizard-chip" data-value="surreal">Surreal</button>
+                </div>
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label">Mood / Tone <small>(select all that apply)</small></label>
+                <div class="wizard-chip-group" id="wizMood">
+                  <button class="wizard-chip" data-value="serious">Serious</button>
+                  <button class="wizard-chip" data-value="playful">Playful</button>
+                  <button class="wizard-chip" data-value="dark">Dark</button>
+                  <button class="wizard-chip" data-value="lighthearted">Lighthearted</button>
+                  <button class="wizard-chip" data-value="mysterious">Mysterious</button>
+                  <button class="wizard-chip" data-value="romantic">Romantic</button>
+                  <button class="wizard-chip" data-value="intense">Intense</button>
+                  <button class="wizard-chip" data-value="wholesome">Wholesome</button>
+                  <button class="wizard-chip" data-value="chaotic">Chaotic</button>
+                  <button class="wizard-chip" data-value="melancholic">Melancholic</button>
+                  <button class="wizard-chip" data-value="sarcastic">Sarcastic</button>
+                  <button class="wizard-chip" data-value="stoic">Stoic</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 3: Personality & Appearance -->
+          <div class="wizard-step d-none" data-step="3">
+            <h6 class="wizard-step-title"><i class="bi bi-brain me-2"></i>Personality & Appearance</h6>
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label field-label">Personality Traits <small>(describe 3-5 key traits, this helps the AI)</small></label>
+                <textarea class="form-control" id="wizPersonalityDesc" rows="4" 
+                          placeholder="e.g. Brave but reckless, fiercely loyal to friends, has a dry sense of humor, struggles with trust, secretly loves animals"></textarea>
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label">Physical Appearance <small>(brief description of how they look)</small></label>
+                <textarea class="form-control" id="wizAppearance" rows="4" 
+                          placeholder="e.g. Tall woman with silver hair down to her waist, scarred hands, wears a dark leather jacket, piercing green eyes"></textarea>
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label">Special Abilities / Quirks <small>(optional, any unique traits)</small></label>
+                <textarea class="form-control" id="wizAbilities" rows="3" 
+                          placeholder="e.g. Can speak to animals, has a photographic memory, always carries a worn journal"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 4: Scenario & First Message -->
+          <div class="wizard-step d-none" data-step="4">
+            <h6 class="wizard-step-title"><i class="bi bi-chat-dots me-2"></i>Scenario & First Message</h6>
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label field-label">Scenario / Setting <small>(where does the story begin?)</small></label>
+                <textarea class="form-control" id="wizScenario" rows="4" 
+                          placeholder="e.g. A rainy night in a neon-lit city. The character runs a small repair shop that fixes both machines and broken hearts."></textarea>
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label">Relationship to {{user}} <small>(how does the character see the user?)</small></label>
+                <textarea class="form-control" id="wizRelationship" rows="3" 
+                          placeholder="e.g. A new customer who walked into the shop with a mysterious broken device. The character is curious but cautious."></textarea>
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label">First Message Vibe <small>(what should the opening message feel like?)</small></label>
+                <div class="wizard-chip-group" id="wizOpening">
+                  <button class="wizard-chip" data-value="greeting">Warm Greeting</button>
+                  <button class="wizard-chip" data-value="action">In Media Res</button>
+                  <button class="wizard-chip" data-value="question">Curious Question</button>
+                  <button class="wizard-chip" data-value="mysterious">Mysterious</button>
+                  <button class="wizard-chip" data-value="conflict">Immediate Conflict</button>
+                  <button class="wizard-chip" data-value="atmospheric">Atmospheric</button>
+                </div>
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label">Additional Notes <small>(anything else the AI should know?)</small></label>
+                <textarea class="form-control" id="wizNotes" rows="3" 
+                          placeholder="e.g. Keep the dialogue natural, avoid being overly formal, include action descriptions in asterisks"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 5: Generate -->
+          <div class="wizard-step d-none" data-step="5">
+            <h6 class="wizard-step-title"><i class="bi bi-stars me-2"></i>Generate Character</h6>
+            <div class="wizard-summary" id="wizardSummary"></div>
+            <div class="wizard-generate-options">
+              <button class="btn btn-accent btn-lg w-100 wizard-generate-btn" id="wizBtnAI">
+                <i class="bi bi-magic me-2"></i>Generate with AI
+                <small class="d-block text opacity-75" style="font-size:0.7rem;">Full character card from your answers</small>
+              </button>
+              <button class="btn btn-outline-accent btn-lg w-100 wizard-generate-btn" id="wizBtnBlank">
+                <i class="bi bi-plus-circle me-2"></i>Create Blank Card
+                <small class="d-block text opacity-75" style="font-size:0.7rem;">Start with name and tags pre-filled</small>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Wizard Footer -->
+        <div class="modal-footer wizard-footer">
+          <button type="button" class="btn btn-outline-secondary" id="wizBtnBack" disabled>
+            <i class="bi bi-arrow-left me-1"></i> Back
+          </button>
+          <div class="wizard-step-label" id="wizStepLabel">Step 1 of 5</div>
+          <button type="button" class="btn btn-accent" id="wizBtnNext">
+            Next <i class="bi bi-arrow-right ms-1"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== AI DIFF MODAL ========== -->
   <div class="modal fade" id="aiPreviewModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title"><i class="bi bi-eye-fill me-2 text-accent"></i>AI Response Preview</h5>
+          <h5 class="modal-title"><i class="bi bi-split-cells me-2 text-accent"></i>AI Response Preview</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label fw-semibold text-muted">Current</label>
-            <div class="ai-preview-old p-3 rounded" style="background:#1a1025;max-height:200px;overflow-y:auto;white-space:pre-wrap;font-size:0.85rem;"></div>
+          <div class="diff-legend">
+            <span><span class="diff-del">&nbsp;removed&nbsp;</span> Removed</span>
+            <span><span class="diff-add">&nbsp;added&nbsp;</span> Added</span>
           </div>
-          <div>
-            <label class="form-label fw-semibold text-success">Proposed</label>
-            <div class="ai-preview-new p-3 rounded" style="background:#0f2a1a;max-height:200px;overflow-y:auto;white-space:pre-wrap;font-size:0.85rem;"></div>
+          <div class="diff-container">
+            <div class="diff-pane diff-pane-old">
+              <div class="diff-pane-header"><i class="bi bi-dash-circle"></i> Current</div>
+              <div class="diff-pane-body" id="aiDiffOld"><span class="diff-empty">(empty)</span></div>
+            </div>
+            <div class="diff-pane diff-pane-new">
+              <div class="diff-pane-header"><i class="bi bi-plus-circle"></i> Proposed</div>
+              <div class="diff-pane-body" id="aiDiffNew"></div>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -579,17 +869,22 @@
 
   <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- CDN Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/diff/dist/diff.min.js"></script>
   
   <!-- App Modules -->
-  <script src="js/tokenizer.js?v=18"></script>
-  <script src="js/cardEngine.js?v=18"></script>
-  <script src="js/aiService.js?v=18"></script>
-  <script src="js/storage.js?v=18"></script>
-  <script src="js/exportUtils.js?v=18"></script>
-  <script src="js/editor.js?v=18"></script>
-  <script src="js/cardManager.js?v=18"></script>
-  <script src="js/aiChat.js?v=18"></script>
-  <script src="js/settings.js?v=18"></script>
-  <script src="js/ui.js?v=18"></script>
+  <script src="js/tokenizer.js?v=20"></script>
+  <script src="js/cardEngine.js?v=20"></script>
+  <script src="js/aiService.js?v=20"></script>
+  <script src="js/storage.js?v=20"></script>
+  <script src="js/exportUtils.js?v=20"></script>
+  <script src="js/editor.js?v=20"></script>
+  <script src="js/cardManager.js?v=20"></script>
+  <script src="js/aiChat.js?v=20"></script>
+  <script src="js/wizard.js?v=20"></script>
+  <script src="js/settings.js?v=20"></script>
+  <script src="js/ui.js?v=20"></script>
 </body>
 </html>

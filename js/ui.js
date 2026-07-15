@@ -74,6 +74,40 @@ window.Ui = {
       dot.remove();
     }
   },
+
+  // ─── Markdown Renderer ──────────────────────────────────
+  renderMarkdown(text) {
+    if (!text) return '';
+    if (typeof marked === 'undefined') return this.escapeHtml(text);
+
+    // Configure marked
+    if (marked.setOptions) {
+      marked.setOptions({ breaks: true, gfm: true });
+    }
+
+    let html = typeof marked.parse === 'function' ? marked.parse(text) : marked(text);
+
+    // Sanitize if DOMPurify is available
+    if (typeof DOMPurify !== 'undefined') {
+      html = DOMPurify.sanitize(html, { ADD_TAGS: ['span', 'strong', 'em'] });
+    }
+
+    // Color dialogue lines: {{char}}: and {{user}}:
+    html = html.replace(/({{char}})\s*:/g,
+      '<span class="dlg-char-name">$1</span><span class="dlg-char">:</span>');
+    html = html.replace(/({{user}})\s*:/g,
+      '<span class="dlg-user-name">$1</span><span class="dlg-user">:</span>');
+
+    return html;
+  },
+
+  // ─── Format File Size ──────────────────────────────────
+  formatFileSize(bytes) {
+    if (!bytes || bytes <= 0) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+  },
 };
 
 // ─── Constants ──────────────────────────────────────────
@@ -122,11 +156,11 @@ async function init() {
   Ui.updateUIState();
   bindEvents(settingsModal);
   AiChat.updateContextBar();
+  Wizard.init();
   window.addEventListener('beforeunload', (e) => {
     if (window.AppState.activeCard && window.AppState._dirty) {
       Editor.syncGreetings();
       Editor.syncEditorToCard();
-      // Prompt the user only when there are unsaved changes.
       e.preventDefault();
       e.returnValue = '';
     }
@@ -221,6 +255,7 @@ function bindEvents(settingsModal) {
     e.target.value = '';
   });
 
+  // Editor field input bindings
   ['editName','editDescription','editPersonality','editScenario','editFirstMes',
    'editMesExample','editCreatorNotes','editSystemPrompt','editPostHistory',
    'editCreator','editVersion','editTags'].forEach(id => {
@@ -233,6 +268,35 @@ function bindEvents(settingsModal) {
     }
   });
 
+  // Edit / Preview toggle for textareas
+  document.querySelectorAll('.field-toggle-group').forEach(group => {
+    const targetId = group.dataset.target;
+    group.querySelectorAll('.field-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        group.querySelectorAll('.field-toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        const textarea = document.getElementById(targetId);
+        const previewId = 'preview' + targetId.replace('edit', '');
+        const preview = document.getElementById(previewId);
+
+        if (!textarea || !preview) return;
+
+        if (mode === 'preview') {
+          textarea.style.display = 'none';
+          preview.innerHTML = Ui.renderMarkdown(textarea.value);
+          preview.classList.add('visible');
+        } else {
+          textarea.style.display = '';
+          preview.classList.remove('visible');
+          preview.innerHTML = '';
+        }
+      });
+    });
+  });
+
+  // AI chat
   $('#btnAiSend').addEventListener('click', () => AiChat.send());
   $('#aiInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); AiChat.send(); }
@@ -252,6 +316,32 @@ function bindEvents(settingsModal) {
   $('#modelSearch').addEventListener('input', Ui.debounce(() => Settings.filterModels(), DEBOUNCE_SEARCH_MS));
   $('#btnAddLoreEntry').addEventListener('click', () => Editor.addLorebookEntry());
   $('#btnAddGreeting').addEventListener('click', () => Editor.addGreeting());
+
+  // Library sort control
+  const sortSelect = $('#cardSortSelect');
+  if (sortSelect) {
+    sortSelect.addEventListener('change', () => {
+      CardManager._sortMode = sortSelect.value;
+      CardManager.renderCardList();
+    });
+  }
+
+  // Tag cloud toggle
+  const tagToggle = $('#btnToggleTagCloud');
+  if (tagToggle) {
+    tagToggle.addEventListener('click', () => {
+      const wrap = $('#tagCloudWrap');
+      if (wrap) wrap.classList.toggle('open');
+    });
+  }
+
+  // Lorebook search
+  const loreSearch = $('#lorebookSearchInput');
+  if (loreSearch) {
+    loreSearch.addEventListener('input', Ui.debounce(() => {
+      if (window.AppState.activeCard) Editor.renderLorebook(window.AppState.activeCard);
+    }, DEBOUNCE_SEARCH_MS));
+  }
 
   document.addEventListener('keydown', handleKeyboardShortcuts);
 
@@ -361,7 +451,6 @@ async function handleStorageChange(e) {
   window.AppState.cards = CardStorage.getCards();
   CardManager.renderCardList();
   if (window.AppState.activeCard) {
-    // Avoid overwriting the user's current edits if an editor field is focused.
     const active = document.activeElement;
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
     try {

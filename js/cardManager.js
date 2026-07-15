@@ -4,8 +4,6 @@
 
 const CardManager = {
   async migrateImagesToIndexedDB() {
-    // Legacy migration: cards that still store _imageBase64 inline are moved
-    // to the dedicated image store. Newer imports already save images separately.
     const all = CardStorage.getCards();
     for (const meta of all) {
       const full = await CardStorage.getCard(meta._id);
@@ -61,6 +59,8 @@ const CardManager = {
   _cardListBound: false,
   _searchQuery: '',
   _selectedIds: new Set(),
+  _sortMode: 'name-asc',
+  _activeTagFilters: new Set(),
 
   _toggleBatchSelect(cardId) {
     if (this._selectedIds.has(cardId)) this._selectedIds.delete(cardId);
@@ -114,17 +114,90 @@ const CardManager = {
     Ui.showToast('Exported ' + cards.length + ' cards', 'success');
   },
 
+  // ─── SORTING ──────────────────────────────────────────
+  _sortCards(cards) {
+    const mode = this._sortMode;
+    const sorted = [...cards];
+    switch (mode) {
+      case 'name-asc':
+        sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        break;
+      case 'name-desc':
+        sorted.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
+        break;
+      case 'newest':
+        sorted.sort((a, b) => (b._createdAt || b._id || '').localeCompare(a._createdAt || a._id || ''));
+        break;
+      case 'oldest':
+        sorted.sort((a, b) => (a._createdAt || a._id || '').localeCompare(b._createdAt || b._id || ''));
+        break;
+      case 'largest':
+        sorted.sort((a, b) => (b._fileSize || 0) - (a._fileSize || 0));
+        break;
+      case 'smallest':
+        sorted.sort((a, b) => (a._fileSize || 0) - (b._fileSize || 0));
+        break;
+    }
+    return sorted;
+  },
+
+  // ─── TAG CLOUD ────────────────────────────────────────
+  _renderTagCloud() {
+    const tagCloudEl = document.querySelector('#tagCloud');
+    if (!tagCloudEl) return;
+
+    const tagCounts = {};
+    (window.AppState.cards || []).forEach(c => {
+      (c.tags || []).forEach(t => {
+        tagCounts[t] = (tagCounts[t] || 0) + 1;
+      });
+    });
+
+    const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+
+    if (sortedTags.length === 0) {
+      tagCloudEl.innerHTML = '<span style="font-size:0.68rem;color:var(--text-muted);">No tags found</span>';
+      return;
+    }
+
+    tagCloudEl.innerHTML = sortedTags.map(([tag, count]) => {
+      const isActive = this._activeTagFilters.has(tag);
+      return '<span class="tag-chip' + (isActive ? ' active' : '') + '" data-tag="' + Ui.escapeAttr(tag) + '">'
+        + Ui.escapeHtml(tag)
+        + ' <span class="tag-count">' + count + '</span>'
+        + '</span>';
+    }).join('');
+
+    tagCloudEl.querySelectorAll('.tag-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const tag = chip.dataset.tag;
+        if (this._activeTagFilters.has(tag)) {
+          this._activeTagFilters.delete(tag);
+        } else {
+          this._activeTagFilters.add(tag);
+        }
+        this.renderCardList();
+      });
+    });
+  },
+
   renderCardList() {
     const $ = (sel) => document.querySelector(sel);
     const { cards, activeCard } = window.AppState;
     const container = $('#cardList');
     const emptyState = $('#emptyState');
     const searchWrap = $('#cardSearchWrap');
+    const controlsWrap = $('#libraryControls');
     $('#cardCount').textContent = cards.length + ' card' + (cards.length !== 1 ? 's' : '');
 
     if (searchWrap) searchWrap.style.display = cards.length > 3 ? '' : 'none';
+    if (controlsWrap) controlsWrap.style.display = cards.length > 3 ? '' : 'none';
+
+    this._renderTagCloud();
 
     let filtered = cards;
+
+    // Text search
     if (this._searchQuery) {
       const q = this._searchQuery.toLowerCase();
       filtered = cards.filter(c => (c.name || '').toLowerCase().includes(q)
@@ -132,13 +205,29 @@ const CardManager = {
         || (c.tags || []).some(t => t.toLowerCase().includes(q)));
     }
 
-    if (filtered.length === 0 && this._searchQuery) {
-      container.innerHTML = '<div class="text-center text-muted py-4">No cards match "' + Ui.escapeHtml(this._searchQuery) + '"</div>';
+    // Tag filter
+    if (this._activeTagFilters.size > 0) {
+      filtered = filtered.filter(c => {
+        const cardTags = new Set((c.tags || []).map(t => t.toLowerCase()));
+        for (const filter of this._activeTagFilters) {
+          if (!cardTags.has(filter.toLowerCase())) return false;
+        }
+        return true;
+      });
+    }
+
+    // Sort
+    filtered = this._sortCards(filtered);
+
+    if (filtered.length === 0 && (this._searchQuery || this._activeTagFilters.size > 0)) {
+      container.innerHTML = '<div class="text-center text-muted py-4">No cards match your filters</div>';
       emptyState.style.display = 'none';
       return;
     }
     if (filtered.length === 0) { container.innerHTML = ''; emptyState.style.display = 'flex'; return; }
     emptyState.style.display = 'none';
+
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     container.innerHTML = filtered.map(card => {
       const isActive = activeCard && activeCard._id === card._id;
@@ -146,6 +235,8 @@ const CardManager = {
       const tags = (card.tags || []).slice(0, 2);
       const thumb = card._thumbnail || card._imageBase64;
       const desc = (card.description || '').slice(0, 300);
+      const fileSize = card._fileSize ? Ui.formatFileSize(card._fileSize) : '';
+
       return '<div class="card-list-item' + (isActive ? ' active' : '') + (isBatch ? ' batch-selected' : '') + '" data-card-id="' + card._id + '" role="option" aria-selected="' + isActive + '">'
         + '<div class="card-list-avatar">'
         + (thumb ? '<img src="' + Ui.escapeAttr(thumb) + '" alt="">' : '<i class="bi bi-person-fill"></i>')
@@ -156,6 +247,7 @@ const CardManager = {
         + (card.creator ? Ui.escapeHtml(card.creator) : '')
         + (card.creator && tags.length ? ' · ' : '')
         + tags.map(t => Ui.escapeHtml(t)).join(', ')
+        + (fileSize ? ' <span class="meta-filesize">' + fileSize + '</span>' : '')
         + '</div></div>'
         + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? ' checked' : '') + '>'
         + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"><i class="bi bi-grip-vertical"></i></span>'
@@ -167,6 +259,27 @@ const CardManager = {
         + (desc ? '<div class="preview-desc">' + Ui.escapeHtml(desc) + '</div>' : '')
         + '</div></div>';
     }).join('');
+
+    // ─── 3D Tilt Effect ──────────────────────────────────
+    if (!reducedMotion) {
+      container.querySelectorAll('.card-list-item').forEach(item => {
+        item.addEventListener('mousemove', (e) => {
+          const rect = item.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          const centerX = rect.width / 2;
+          const centerY = rect.height / 2;
+          const rotateX = ((y - centerY) / centerY) * -4;
+          const rotateY = ((x - centerX) / centerX) * 4;
+          item.style.transform = 'perspective(400px) rotateX(' + rotateX + 'deg) rotateY(' + rotateY + 'deg) scale(1.01)';
+          item.style.setProperty('--mouse-x', ((x / rect.width) * 100) + '%');
+          item.style.setProperty('--mouse-y', ((y / rect.height) * 100) + '%');
+        });
+        item.addEventListener('mouseleave', () => {
+          item.style.transform = '';
+        });
+      });
+    }
 
     if (!this._cardListBound) {
       this._cardListBound = true;

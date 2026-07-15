@@ -87,6 +87,19 @@ const Editor = {
     const datalist = document.querySelector('#tagSuggestions');
     if (datalist) datalist.innerHTML = [...allTags].map(t => '<option value="' + Ui.escapeAttr(t) + '">').join('');
 
+    // Reset any preview states when loading a new card
+    document.querySelectorAll('.field-toggle-group').forEach(group => {
+      const targetId = group.dataset.target;
+      group.querySelectorAll('.field-toggle-btn').forEach(b => b.classList.remove('active'));
+      const editBtn = group.querySelector('[data-mode="edit"]');
+      if (editBtn) editBtn.classList.add('active');
+      const textarea = document.getElementById(targetId);
+      const previewId = 'preview' + targetId.replace('edit', '');
+      const preview = document.getElementById(previewId);
+      if (textarea) textarea.style.display = '';
+      if (preview) { preview.classList.remove('visible'); preview.innerHTML = ''; }
+    });
+
     this.renderGreetings(card);
 
     const metaCreator = $('#metaCreator');
@@ -178,7 +191,7 @@ const Editor = {
   autoResizeTextareas() {
     document.querySelectorAll('.editor-textarea').forEach(ta => {
       ta.style.height = 'auto';
-      ta.style.height = Math.min(ta.scrollHeight, 400) + 'px';
+      ta.style.height = Math.min(ta.scrollHeight, 800) + 'px';
     });
   },
 
@@ -301,39 +314,92 @@ const Editor = {
     if (last) last.focus();
   },
 
+  // ─── LOREBOOK — Accordion with Search ──────────────
   renderLorebook(card) {
     const $ = (sel) => document.querySelector(sel);
     const container = $('#lorebookEntries');
     const entries = card.character_book?.entries || [];
+
+    // Get search filter
+    const searchInput = $('#lorebookSearchInput');
+    const searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
     if (entries.length === 0) {
       container.innerHTML = '<div class="text-muted text-center py-4" id="lorebookEmpty"><i class="bi bi-journal-text d-block mb-2" style="font-size: 2rem;"></i>No lorebook entries yet. Add one to get started.</div>';
       return;
     }
-    container.innerHTML = entries.map((entry, idx) =>
-      '<div class="lorebook-entry" data-entry-idx="' + idx + '">'
-      + '<div class="lorebook-entry-header">'
-      + '<input type="text" class="form-control lorebook-entry-key" value="' + Ui.escapeAttr(entry.key || '') + '" placeholder="Primary keyword(s) — comma separated" data-lore-key-idx="' + idx + '">'
-      + '<button class="btn btn-outline-danger btn-sm lorebook-delete-btn" data-idx="' + idx + '"><i class="bi bi-trash"></i></button>'
-      + '</div>'
-      + '<div class="row g-2 mb-2" style="font-size:0.8rem;">'
-      + '<div class="col-6"><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(', ')) + '" placeholder="Secondary keywords" data-lore-secondary-idx="' + idx + '"></div>'
-      + '<div class="col-3"><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || '') + '" placeholder="Comment" data-lore-comment-idx="' + idx + '"></div>'
-      + '<div class="col-3"><input type="number" class="form-control form-control-sm" value="' + (entry.order || 100) + '" placeholder="Order" data-lore-order-idx="' + idx + '"></div>'
-      + '</div>'
-      + '<div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">'
-      + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? ' checked' : '') + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">Constant</label></div>'
-      + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.selective ? ' checked' : '') + ' data-lore-selective-idx="' + idx + '"><label class="form-check-label">Selective</label></div>'
-      + '<select class="form-select form-select-sm" style="width:auto;" data-lore-position-idx="' + idx + '">'
-      + '<option value="before_char"' + (entry.position === 'before_char' ? ' selected' : '') + '>Before char</option>'
-      + '<option value="after_char"' + (entry.position !== 'before_char' ? ' selected' : '') + '>After char</option></select>'
-      + '</div>'
-      + '<textarea class="form-control editor-textarea font-mono" rows="3" placeholder="Entry content..." data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || '') + '</textarea>'
-      + '</div>'
-    ).join('');
+
+    // Filter entries by search
+    let filteredEntries = entries.map((entry, idx) => ({ entry, idx }));
+    if (searchQuery) {
+      filteredEntries = filteredEntries.filter(({ entry }) => {
+        const keyStr = (entry.key || '').toLowerCase();
+        const secStr = (entry.keysecondary || []).join(' ').toLowerCase();
+        const contentStr = (entry.content || '').toLowerCase();
+        const commentStr = (entry.comment || '').toLowerCase();
+        return keyStr.includes(searchQuery) || secStr.includes(searchQuery)
+          || contentStr.includes(searchQuery) || commentStr.includes(searchQuery);
+      });
+    }
+
+    if (filteredEntries.length === 0) {
+      container.innerHTML = '<div class="text-muted text-center py-3">No entries match "' + Ui.escapeHtml(searchQuery) + '"</div>';
+      return;
+    }
+
+    container.innerHTML = '<div class="lorebook-accordion">'
+      + filteredEntries.map(({ entry, idx }) => {
+        const keys = (entry.key || '').split(',').map(s => s.trim()).filter(Boolean);
+        const secondary = (entry.keysecondary || []);
+        const label = entry.comment || entry.key || 'Entry ' + (idx + 1);
+
+        const keyTagsHtml = keys.slice(0, 3).map(k =>
+          '<span class="lorebook-key-tag primary">' + Ui.escapeHtml(k) + '</span>'
+        ).join('') + secondary.slice(0, 2).map(k =>
+          '<span class="lorebook-key-tag secondary">' + Ui.escapeHtml(k) + '</span>'
+        ).join('');
+
+        return '<div class="lorebook-accordion-item" data-entry-idx="' + idx + '">'
+          + '<div class="lorebook-accordion-header" data-lore-toggle="' + idx + '">'
+          + '<i class="bi bi-chevron-right lorebook-chevron"></i>'
+          + '<span class="lorebook-entry-label">' + Ui.escapeHtml(label) + '</span>'
+          + '<div class="lorebook-key-tags">' + keyTagsHtml + '</div>'
+          + '<button class="btn btn-outline-danger btn-sm lorebook-delete-btn" data-idx="' + idx + '" title="Delete entry"><i class="bi bi-trash"></i></button>'
+          + '</div>'
+          + '<div class="lorebook-accordion-body">'
+          + '<div class="row g-2 mb-2" style="font-size:0.8rem;">'
+          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">Primary Keywords</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.key || '') + '" placeholder="Primary keywords — comma separated" data-lore-key-idx="' + idx + '"></div>'
+          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">Secondary Keywords</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(', ')) + '" placeholder="Secondary keywords" data-lore-secondary-idx="' + idx + '"></div>'
+          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">Comment</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || '') + '" placeholder="Comment" data-lore-comment-idx="' + idx + '"></div>'
+          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">Order</label><input type="number" class="form-control form-control-sm" value="' + (entry.order || 100) + '" placeholder="Order" data-lore-order-idx="' + idx + '"></div>'
+          + '</div>'
+          + '<div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">'
+          + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? ' checked' : '') + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">Constant</label></div>'
+          + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.selective ? ' checked' : '') + ' data-lore-selective-idx="' + idx + '"><label class="form-check-label">Selective</label></div>'
+          + '<select class="form-select form-select-sm" style="width:auto;" data-lore-position-idx="' + idx + '">'
+          + '<option value="before_char"' + (entry.position === 'before_char' ? ' selected' : '') + '>Before char</option>'
+          + '<option value="after_char"' + (entry.position !== 'before_char' ? ' selected' : '') + '>After char</option></select>'
+          + '</div>'
+          + '<label class="form-label" style="font-size:0.72rem;">Content</label>'
+          + '<textarea class="form-control editor-textarea font-mono" rows="3" placeholder="Entry content..." data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || '') + '</textarea>'
+          + '</div>'
+          + '</div>';
+      }).join('')
+      + '</div>';
+
+    // Accordion toggle handlers
+    container.querySelectorAll('[data-lore-toggle]').forEach(header => {
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('.lorebook-delete-btn')) return;
+        const item = header.closest('.lorebook-accordion-item');
+        if (item) item.classList.toggle('open');
+      });
+    });
 
     const self = this;
     container.querySelectorAll('.lorebook-delete-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         window.AppState.activeCard.character_book.entries.splice(parseInt(btn.dataset.idx), 1);
         self.renderLorebook(window.AppState.activeCard);
         self.syncEditorToCard();

@@ -90,14 +90,49 @@ const AiChat = {
     return parts.join('\n');
   },
 
+  // ─── SIDE-BY-SIDE DIFF ──────────────────────────────
+  _renderDiff(oldText, newText) {
+    const oldEl = document.querySelector('#aiDiffOld');
+    const newEl = document.querySelector('#aiDiffNew');
+    if (!oldEl || !newEl) return;
+
+    if (typeof Diff === 'undefined') {
+      oldEl.textContent = oldText || '(empty)';
+      newEl.textContent = newText;
+      return;
+    }
+
+    const changes = Diff.diffWords(oldText || '', newText || '');
+
+    let oldHtml = '';
+    let newHtml = '';
+
+    changes.forEach(part => {
+      const escaped = Ui.escapeHtml(part.value);
+      if (part.removed) {
+        oldHtml += '<span class="diff-del">' + escaped + '</span>';
+      } else if (part.added) {
+        newHtml += '<span class="diff-add">' + escaped + '</span>';
+      } else {
+        oldHtml += escaped;
+        newHtml += escaped;
+      }
+    });
+
+    oldEl.innerHTML = oldHtml || '<span class="diff-empty">(empty)</span>';
+    newEl.innerHTML = newHtml || '<span class="diff-empty">(empty)</span>';
+  },
+
   tryApplyAIResponse(content, targetField) {
     const { activeCard } = window.AppState;
     if (!activeCard || !content) return;
 
     const showPreview = (oldVal, newVal, applyFn) => {
       const modal = new bootstrap.Modal('#aiPreviewModal');
-      document.querySelector('.ai-preview-old').textContent = oldVal || '(empty)';
-      document.querySelector('.ai-preview-new').textContent = newVal;
+
+      // Render side-by-side diff
+      this._renderDiff(oldVal || '', newVal);
+
       const acceptBtn = document.querySelector('#btnAcceptAI');
       const modalEl = document.querySelector('#aiPreviewModal');
       let applied = false;
@@ -142,11 +177,6 @@ const AiChat = {
     }
   },
 
-  /**
-   * Extract a full JSON object from AI text. Handles ```json fences and finds
-   * the outermost balanced-brace span (ignoring braces inside strings), which is
-   * far more robust than a greedy regex for messy model output.
-   */
   _extractJSON(text) {
     if (!text) return null;
     const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -178,9 +208,14 @@ const AiChat = {
     return null;
   },
 
+  // ─── QUICK ACTIONS (Expanded) ───────────────────────
   handleQuickAction(action) {
     const $ = (sel) => document.querySelector(sel);
     const { activeCard } = window.AppState;
+    if (action === 'newcard') {
+      Wizard.show();
+      return;
+    }
     if (!AIService.hasApiKey()) { Ui.showToast('Set your OpenRouter API key first', 'warning'); return; }
     if (!activeCard) { Ui.showToast('Select a card first', 'warning'); return; }
 
@@ -189,12 +224,21 @@ const AiChat = {
       enhance: 'Enhance the character description to be more detailed and vivid. Add sensory details and specific traits.\n\nCurrent:\n' + (activeCard.description || '(empty)'),
       personality: 'Expand the personality to be more nuanced. Add quirks, habits, fears, and motivations.\n\nCurrent:\n' + (activeCard.personality || '(empty)'),
       firstmes: 'Improve the first message to be more engaging and in-character.\n\nCurrent:\n' + (activeCard.first_mes || '(empty)'),
+      shorten: 'Shorten and tighten the following text while preserving the core meaning and character voice. Remove redundancies.\n\nCurrent:\n' + (activeCard.description || activeCard.personality || activeCard.first_mes || '(empty)'),
+      tone: null,
+      grammar: 'Fix all grammar, spelling, and punctuation errors in the following text. Improve clarity without changing the meaning or voice.\n\nCurrent:\n' + (activeCard.description || activeCard.personality || activeCard.first_mes || '(empty)'),
     };
 
     if (action === 'translate') {
       const lang = window.prompt('Translate to which language?', 'French');
       if (!lang) return;
       prompts.translate = 'Translate this character card to ' + lang + '. Output the COMPLETE card as valid JSON with all fields translated. Keep the exact same JSON structure. Translate ALL text fields.\n\nHere is the card JSON:\n' + CardEngine.toJSON(activeCard);
+    }
+
+    if (action === 'tone') {
+      const tone = window.prompt('Which tone? (e.g., formal, casual, dark, humorous, poetic)', 'formal');
+      if (!tone) return;
+      prompts.tone = 'Rewrite the following text with a "' + tone + '" tone while preserving the character\'s core personality and key information.\n\nCurrent:\n' + (activeCard.description || activeCard.personality || activeCard.first_mes || '(empty)');
     }
 
     const aiPrompt = action === 'translate' ? prompts.translate : prompts[action];
@@ -204,6 +248,9 @@ const AiChat = {
     else if (action === 'personality') $('#aiTargetSelect').value = 'personality';
     else if (action === 'firstmes') $('#aiTargetSelect').value = 'first_mes';
     else if (action === 'enhance') $('#aiTargetSelect').value = 'description';
+    else if (action === 'shorten') $('#aiTargetSelect').value = 'description';
+    else if (action === 'tone') $('#aiTargetSelect').value = 'description';
+    else if (action === 'grammar') $('#aiTargetSelect').value = 'description';
     else $('#aiTargetSelect').value = 'full';
 
     $('#aiInput').value = aiPrompt;
@@ -216,14 +263,19 @@ const AiChat = {
     const welcome = container.querySelector('.ai-welcome');
     if (welcome) welcome.remove();
 
-    let formatted = Ui.escapeHtml(content)
-      .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g, '<em>$1</em>')
-      .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
-      .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
-      .replace(/\n/g, '<br>');
+    let formatted;
+    if (typeof Ui !== 'undefined' && Ui.renderMarkdown) {
+      formatted = Ui.renderMarkdown(content);
+    } else {
+      formatted = Ui.escapeHtml(content)
+        .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
+        .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
+        .replace(/\n/g, '<br>');
+    }
 
     const usageInfo = usage
       ? '<div class="text-muted mt-1" style="font-size:0.65rem;">' + (usage.total_tokens || '?') + ' tokens · $' + (usage.cost || 0).toFixed(5) + '</div>'
@@ -267,8 +319,12 @@ const AiChat = {
     CardStorage.clearChatHistory(window.AppState.activeCard?._id);
     const $ = (sel) => document.querySelector(sel);
     $('#aiChatMessages').innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>AI Card Assistant</h6><p>Ask the AI to edit, translate, or enhance your character card.</p><div class="quick-actions">'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="translate"><i class="bi bi-translate me-1"></i> Translate Card</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance"><i class="bi bi-stars me-1"></i> Enhance Description</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="newcard"><i class="bi bi-magic me-1"></i> New Card</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="translate"><i class="bi bi-translate me-1"></i> Translate</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance"><i class="bi bi-stars me-1"></i> Enhance</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="shorten"><i class="bi bi-arrows-angle-contract me-1"></i> Shorten</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="tone"><i class="bi bi-palette me-1"></i> Change Tone</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="grammar"><i class="bi bi-check2-all me-1"></i> Fix Grammar</button>'
       + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="personality"><i class="bi bi-emoji-smile me-1"></i> Expand Personality</button>'
       + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="firstmes"><i class="bi bi-chat-dots me-1"></i> Improve First Message</button>'
       + '</div></div>';
@@ -288,11 +344,6 @@ const AiChat = {
     if (stop) stop.classList.toggle('d-none', !window.AppState.isAiLoading);
   },
 
-  /**
-   * Update the context-usage bar: estimates input tokens (card target + prompt)
-   * plus the capped max output, relative to the model's context length.
-   * Uses a real BPE tokenizer when available, with a heuristic fallback.
-   */
   async updateContextBar() {
     const $ = (sel) => document.querySelector(sel);
     const bar = $('#contextBarFill');
