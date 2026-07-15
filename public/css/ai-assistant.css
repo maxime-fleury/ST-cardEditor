@@ -331,6 +331,11 @@
 }
 .context-bar-fill.warn { background: linear-gradient(90deg, #d97706, var(--warning)); }
 .context-bar-fill.danger { background: linear-gradient(90deg, #b91c1c, var(--danger)); }
+.context-bar-fill.warn ~ .context-bar-label,
+.context-bar-fill.danger ~ .context-bar-label {
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
 .context-bar-label {
   position: absolute;
   inset: 0;

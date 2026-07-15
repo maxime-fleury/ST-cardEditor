@@ -900,6 +900,22 @@
 
             <div class="wizard-image-section">
               <label class="form-label field-label"><span data-i18n="wizard.refImage">Reference Image</span> <small data-i18n="wizard.refImageSub">(optional, from waifu.im)</small></label>
+              
+              <!-- Tag Search -->
+              <div class="wizard-image-search">
+                <div class="wizard-search-row">
+                  <input type="text" class="form-control wizard-search-input" id="wizImageTagSearch"
+                    placeholder="Search tags: cat, dress, uniform, cyberpunk..."
+                    spellcheck="false" autocomplete="off">
+                  <button class="btn btn-accent btn-sm" id="wizBtnSearchImages" type="button">
+                    <i class="bi bi-search me-1"></i>Search
+                  </button>
+                </div>
+                <div class="wizard-quick-tags" id="wizQuickTags">
+                  <span class="wizard-quick-tags-label">Quick:</span>
+                </div>
+              </div>
+
               <div class="wizard-image-grid" id="wizImageGrid">
                 <div class="wizard-image-card" data-idx="0">
                   <div class="wizard-image-preview">

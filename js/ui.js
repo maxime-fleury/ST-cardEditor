@@ -232,6 +232,7 @@ function bindEvents(settingsModal) {
   const $ = Ui.$;
   const $$ = Ui.$$;
   const dropZone = $('#dropZone');
+  if (!dropZone) return;
 
   dropZone.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.add('drag-over'); });
   dropZone.addEventListener('dragleave', (e) => { e.stopPropagation(); dropZone.classList.remove('drag-over'); });

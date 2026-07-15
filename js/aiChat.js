@@ -305,10 +305,12 @@ const AiChat = {
   _sendFullCard(prompt) {
     const $ = (sel) => document.querySelector(sel);
     const { activeCard } = window.AppState;
-    const modelId = $('#aiModelSelect').value;
+    const modelSelect = $('#aiModelSelect');
+    const input = $('#aiInput');
+    if (!modelSelect || !input) { Ui.showToast(I18n.t('toast.selectModel'), 'warning'); return; }
+    const modelId = modelSelect.value;
     if (!modelId) { Ui.showToast(I18n.t('toast.selectModel'), 'warning'); return; }
 
-    const input = $('#aiInput');
     input.value = '';
     window.AppState.isAiLoading = true;
     this.updateSendButton();
@@ -589,7 +591,8 @@ const AiChat = {
 
     if (action === 'translate') {
       this._renderFieldChips();
-      $('#aiInput').value = aiPrompt;
+      const inp = $('#aiInput');
+      if (inp) inp.value = aiPrompt;
       this._sendFullCard(aiPrompt);
       return;
     } else if (fieldMap[action]) {
@@ -597,7 +600,8 @@ const AiChat = {
     }
 
     this._renderFieldChips();
-    $('#aiInput').value = aiPrompt;
+    const inp = $('#aiInput');
+    if (inp) inp.value = aiPrompt;
     this.send();
   },
 
@@ -832,6 +836,7 @@ const AiChat = {
     const $ = (sel) => document.querySelector(sel);
     const btn = $('#btnAiSend');
     const stop = $('#btnAiStop');
+    if (!btn) return;
     btn.disabled = window.AppState.isAiLoading;
     btn.innerHTML = window.AppState.isAiLoading ? '<span class="spinner-border spinner-border-sm"></span>' : '<i class="bi bi-send-fill"></i>';
     if (stop) stop.classList.toggle('d-none', !window.AppState.isAiLoading);
@@ -843,8 +848,12 @@ const AiChat = {
     const label = $('#contextBarLabel');
     if (!bar || !label) return;
 
-    const modelId = $('#aiModelSelect').value;
-    const prompt = $('#aiInput').value || '';
+    const modelSelect = $('#aiModelSelect');
+    const input = $('#aiInput');
+    if (!modelSelect || !input) return;
+
+    const modelId = modelSelect.value;
+    const prompt = input.value || '';
     const { activeCard } = window.AppState;
 
     if (!modelId) {
@@ -858,15 +867,34 @@ const AiChat = {
     const inputText = CardEngine.getTextContent(activeCard);
 
     const inputTokens = await Tokenizer.count(inputText + '\n' + prompt);
-    const maxOut = await AIService.resolveMaxTokens(modelId, [{ role: 'system', content: inputText }, { role: 'user', content: prompt }]);
-    const total = inputTokens + maxOut;
+
+    // Get the model's actual max output limit from the model data
+    const modelData = (window.AppState.models || []).find(m => m.id === modelId);
+    const modelMaxOut = (modelData && modelData.max_output_tokens > 0)
+      ? modelData.max_output_tokens
+      : AIService.DEFAULT_MAX_TOKENS;
+
+    // Get the API-safe max for this request (accounts for context space)
+    const resolvedMax = await AIService.resolveMaxTokens(modelId, [{ role: 'system', content: inputText }, { role: 'user', content: prompt }]);
+    // The actual usable output is the smaller of model limit and available context
+    const actualMaxOut = Math.min(modelMaxOut, resolvedMax);
+
+    // Show the meaningful ratio: input + expected output vs context
+    const total = inputTokens + actualMaxOut;
     const ratio = ctx > 0 ? total / ctx : 0;
     const pct = Math.min(100, Math.round(ratio * 100));
 
     bar.style.width = pct + '%';
     bar.classList.toggle('warn', ratio >= 0.9 && ratio < 1);
     bar.classList.toggle('danger', ratio >= 1);
-    label.textContent = this._fmt(inputTokens) + ' in · ' + this._fmt(maxOut) + ' out · ' + this._fmt(ctx) + ' ctx';
+
+    let labelText = this._fmt(inputTokens) + ' in · ' + this._fmt(actualMaxOut) + ' out · ' + this._fmt(ctx) + ' ctx';
+    if (ratio >= 1) {
+      labelText += ' ⚠ Exceeds limit!';
+    } else if (ratio >= 0.9) {
+      labelText += ' ⚠ Approaching limit';
+    }
+    label.textContent = labelText;
   },
 
   _fmt(n) {

@@ -92,6 +92,29 @@ const Wizard = {
     document.querySelector('#wizBtnUseImage').addEventListener('click', () => self._useFetchedImage());
     document.querySelector('#wizBtnRemoveImage').addEventListener('click', () => self._removeFetchedImage());
 
+    // Image tag search
+    const searchInput = document.querySelector('#wizImageTagSearch');
+    const searchBtn = document.querySelector('#wizBtnSearchImages');
+    if (searchInput) {
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          self._syncTagSearch();
+          self._fetchImage();
+        }
+      });
+      searchInput.addEventListener('input', () => {
+        self._tagSearch = searchInput.value;
+        self._renderQuickTags();
+      });
+    }
+    if (searchBtn) {
+      searchBtn.addEventListener('click', () => {
+        self._syncTagSearch();
+        self._fetchImage();
+      });
+    }
+
     // Nav button and center button
     document.querySelector('#btnWizardNav').addEventListener('click', () => self.show());
     const centerBtn = document.querySelector('#btnWizard');
@@ -206,21 +229,35 @@ const Wizard = {
     const prevEl = document.querySelector('.wizard-step[data-step="' + prevStep + '"]');
     const nextEl = document.querySelector('.wizard-step[data-step="' + step + '"]');
 
+    // Clean up any lingering inline styles on all steps before animating
+    document.querySelectorAll('.wizard-step').forEach(el => {
+      el.style.opacity = '';
+      el.style.transform = '';
+    });
+
     document.querySelector('#wizBtnBack').disabled = step === 1;
 
     if (step === this._totalSteps) {
       document.querySelector('#wizBtnNext').classList.add('d-none');
       document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.ready');
       this._renderSummary();
+      this._renderQuickTags();
+      // Derive tags from wizard answers for initial pre-fill
+      const derivedTags = this._deriveImageTags();
+      const searchInput = document.querySelector('#wizImageTagSearch');
+      if (searchInput) {
+        searchInput.value = derivedTags;
+        this._tagSearch = derivedTags;
+        this._renderQuickTags();
+      }
+      if (!this._autoFetched) {
+        this._autoFetched = true;
+        this._fetchImage();
+      }
     } else {
       document.querySelector('#wizBtnNext').classList.remove('d-none');
       document.querySelector('#wizBtnNext').innerHTML = I18n.t('wizard.next') + ' <i class="bi bi-arrow-right ms-1"></i>';
       document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.stepLabel', { step: step, total: this._totalSteps });
-    }
-
-    if (step === this._totalSteps && !this._autoFetched) {
-      this._autoFetched = true;
-      this._fetchImage();
     }
 
     this._renderStepIndicator();
@@ -237,7 +274,12 @@ const Wizard = {
   },
 
   _showStep(step) {
-    document.querySelectorAll('.wizard-step').forEach(el => el.classList.add('d-none'));
+    document.querySelectorAll('.wizard-step').forEach(el => {
+      el.classList.add('d-none');
+      // Clean up any inline styles left from interrupted animations
+      el.style.opacity = '';
+      el.style.transform = '';
+    });
     const target = document.querySelector('.wizard-step[data-step="' + step + '"]');
     if (target) target.classList.remove('d-none');
 
@@ -247,15 +289,23 @@ const Wizard = {
       document.querySelector('#wizBtnNext').classList.add('d-none');
       document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.ready');
       this._renderSummary();
+      this._renderQuickTags();
+      // Derive tags from wizard answers for initial pre-fill
+      const derivedTags = this._deriveImageTags();
+      const searchInput = document.querySelector('#wizImageTagSearch');
+      if (searchInput) {
+        searchInput.value = derivedTags;
+        this._tagSearch = derivedTags;
+        this._renderQuickTags();
+      }
+      if (!this._autoFetched) {
+        this._autoFetched = true;
+        this._fetchImage();
+      }
     } else {
       document.querySelector('#wizBtnNext').classList.remove('d-none');
       document.querySelector('#wizBtnNext').innerHTML = I18n.t('wizard.next') + ' <i class="bi bi-arrow-right ms-1"></i>';
       document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.stepLabel', { step: step, total: this._totalSteps });
-    }
-
-    if (step === this._totalSteps && !this._autoFetched) {
-      this._autoFetched = true;
-      this._fetchImage();
     }
 
     this._renderStepIndicator();
@@ -309,6 +359,55 @@ const Wizard = {
   // ─── IMAGE FETCH (waifu.im) ─────────────────────────
   _fetchedImages: [],
   _selectedImageIdx: -1,
+  _tagSearch: '',
+
+  // Popular SFW tags from waifu.im for quick-selection chips
+  TAG_OPTIONS: [
+    'waifu', 'maid', 'uniform', 'selfies', 'dress',
+    'cat', 'neko', 'fox', 'witch', 'swimsuit',
+    'gothic', 'dark', 'fantasy', 'cyberpunk', 'military',
+    'sailor', 'princess', 'angel', 'devil', 'ninja',
+    'samurai', 'pirate', 'vampire', 'elf', 'robot',
+  ],
+
+  _renderQuickTags() {
+    const container = document.querySelector('#wizQuickTags');
+    if (!container) return;
+
+    // Keep the label, remove old chips
+    const label = container.querySelector('.wizard-quick-tags-label');
+    container.innerHTML = '';
+    if (label) container.appendChild(label);
+
+    const activeTags = this._tagSearch
+      ? new Set(this._tagSearch.split(',').map(s => s.trim().toLowerCase()).filter(Boolean))
+      : new Set();
+
+    this.TAG_OPTIONS.forEach(tag => {
+      const chip = document.createElement('span');
+      chip.className = 'wizard-quick-tag' + (activeTags.has(tag) ? ' active' : '');
+      chip.dataset.tag = tag;
+      chip.textContent = tag;
+      chip.addEventListener('click', () => {
+        // Toggle this tag in the search input
+        const input = document.querySelector('#wizImageTagSearch');
+        if (!input) return;
+        const current = input.value
+          .split(',')
+          .map(s => s.trim().toLowerCase())
+          .filter(Boolean);
+        const idx = current.indexOf(tag);
+        if (idx >= 0) {
+          current.splice(idx, 1);
+        } else {
+          current.push(tag);
+        }
+        input.value = current.join(', ');
+        this._renderQuickTags();
+      });
+      container.appendChild(chip);
+    });
+  },
 
   _bindImageEvents() {
     const self = this;
@@ -326,16 +425,73 @@ const Wizard = {
     });
   },
 
+  // Synchronize _tagSearch from the search input field
+  _syncTagSearch() {
+    const input = document.querySelector('#wizImageTagSearch');
+    if (input) {
+      this._tagSearch = input.value;
+      this._renderQuickTags();
+    }
+  },
+
+  // Derive waifu.im tags from the wizard answers (used only for initial pre-fill)
+  _deriveImageTags() {
+    const a = this._answers;
+    const tagMap = {
+      fantasy: 'fantasy',
+      scifi: 'cyberpunk',
+      modern: 'uniform',
+      horror: 'dark',
+      romance: 'dress',
+      'slice-of-life': 'maid',
+      cyberpunk: 'cyberpunk',
+      military: 'military',
+      dark: 'gothic',
+      supernatural: 'witch',
+    };
+    const tags = new Set(['waifu']);
+    (a.genres || []).forEach(g => {
+      if (tagMap[g]) tags.add(tagMap[g]);
+    });
+    if (a.type === 'vtuber') tags.add('selfies');
+    if (a.type === 'historical') tags.add('maid');
+    if (a.type === 'anime') tags.add('neko');
+    // Add a couple from appearance keywords
+    const appearance = (a.appearance || '').toLowerCase();
+    if (appearance.includes('cat') || appearance.includes('feline') || appearance.includes('neko')) tags.add('cat');
+    if (appearance.includes('fox') || appearance.includes('kitsune')) tags.add('fox');
+    if (appearance.includes('angel')) tags.add('angel');
+    if (appearance.includes('devil') || appearance.includes('demon') || appearance.includes('succubus')) tags.add('devil');
+    if (appearance.includes('vampire')) tags.add('vampire');
+    if (appearance.includes('elf')) tags.add('elf');
+    if (appearance.includes('sword') || appearance.includes('samurai') || appearance.includes('ninja')) { tags.add('samurai'); tags.add('ninja'); }
+    if (appearance.includes('pirate')) tags.add('pirate');
+    if (appearance.includes('robot') || appearance.includes('cyborg') || appearance.includes('android')) tags.add('robot');
+    if (appearance.includes('princess')) tags.add('princess');
+    if (appearance.includes('sailor') || appearance.includes('navy') || appearance.includes('marine')) tags.add('sailor');
+    return [...tags].join(', ');
+  },
+
   async _fetchImage() {
     const btn = document.querySelector('#wizBtnFetchImage');
     const origHtml = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>' + I18n.t('wizard.fetching');
 
+    // Sync tags from search input
+    this._syncTagSearch();
+
+    // Parse user-entered tags (comma-separated)
+    const userTags = this._tagSearch
+      .split(',')
+      .map(s => s.trim().toLowerCase())
+      .filter(Boolean);
+
+    // Fall back to 'waifu' if no tags entered
+    if (!userTags.length) userTags.push('waifu');
+
     try {
       // Determine which slots need new images (unselected ones).
-      // waifu.im /images returns only a single image per request, so we fetch
-      // each needed slot with its own request (in parallel).
       const slotsToFetch = [];
       for (let i = 0; i < 3; i++) {
         if (i === this._selectedImageIdx) continue; // keep selected
@@ -356,66 +512,38 @@ const Wizard = {
         this._fetchedImages[i] = null;
       }
 
-      // Derive relevant tags from wizard answers for better image selection
-      const genreMap = {
-        fantasy: 'waifu',
-        scifi: 'waifu',
-        modern: 'uniform',
-        historical: 'maid',
-        horror: 'waifu',
-        romance: 'waifu',
-        comedy: 'waifu',
-        'slice-of-life': 'maid',
-        adventure: 'waifu',
-        mystery: 'waifu',
-        cyberpunk: 'uniform',
-        'post-apocalyptic': 'waifu',
-        supernatural: 'waifu',
-        military: 'uniform',
-        surreal: 'waifu',
-      };
-      const a = this._answers;
-      const selectedGenres = a.genres || [];
-      // Pick the best tag: first matching genre, or fallback to waifu
-      let primaryTag = 'waifu';
-      for (const genre of selectedGenres) {
-        if (genreMap[genre]) {
-          primaryTag = genreMap[genre];
-          break;
-        }
-      }
-
-      // Also use the character type to influence tag choice
-      const typeTagMap = {
-        anime: 'waifu',
-        game: 'uniform',
-        vtuber: 'selfies',
-        historical: 'maid',
-        fanfic: 'waifu',
-      };
-      if (a.type && typeTagMap[a.type]) {
-        primaryTag = typeTagMap[a.type];
-      }
-
-      // Build a varied tag per slot for diversity
-      const sfwTags = ['waifu', 'maid', 'uniform', 'selfies'];
-
+      // Fetch each slot in parallel, using user's tags for variety
       await Promise.all(slotsToFetch.map(async (i) => {
         try {
-          // Use different tags per slot for variety, with fallback to waifu
-          const slotTag = sfwTags[(i + sfwTags.indexOf(primaryTag)) % sfwTags.length] || 'waifu';
+          // Use a subset of user tags per slot for diversity (up to 2 tags per request)
+          const slotTags = [];
+          // Pick 1-2 tags for this slot, cycling through user's list
+          const tagIdx1 = (i * 2) % userTags.length;
+          slotTags.push(userTags[tagIdx1]);
+          if (userTags.length > 1) {
+            const tagIdx2 = (i * 2 + 1) % userTags.length;
+            if (tagIdx2 !== tagIdx1) slotTags.push(userTags[tagIdx2]);
+          }
+
           const page = Math.max(1, Math.floor(Math.random() * 20));
-          const resp = await fetch('https://api.waifu.im/images?included_tags=' + slotTag + '&is_nsfw=false&page=' + page);
+          const resp = await fetch('https://api.waifu.im/images?'
+            + 'included_tags=' + encodeURIComponent(slotTags.join(','))
+            + '&is_nsfw=false&page=' + page);
           if (!resp.ok) throw new Error('API returned ' + resp.status);
           const data = await resp.json();
           const items = data.items || [];
-          if (!items.length) throw new Error('No image returned for tag: ' + slotTag);
+          if (!items.length) throw new Error('No image for tags: ' + slotTags.join(', '));
           // Pick a random image from the page for variety
           const item = items[Math.floor(Math.random() * items.length)];
           const imgResp = await fetch(item.url);
           const blob = await imgResp.blob();
           const objUrl = URL.createObjectURL(blob);
-          this._fetchedImages[i] = { blob, url: item.url, _objUrl: objUrl, tags: (item.tags || []).map(t => t.name).join(', ') };
+          this._fetchedImages[i] = {
+            blob,
+            url: item.url,
+            _objUrl: objUrl,
+            tags: (item.tags || []).map(t => t.name).join(', '),
+          };
           const card = document.querySelectorAll('.wizard-image-card')[i];
           const thumb = card.querySelector('.wiz-thumb');
           thumb.src = objUrl;

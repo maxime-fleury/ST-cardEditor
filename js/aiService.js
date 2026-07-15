@@ -410,7 +410,14 @@ const AIService = {
     let maxTokens = this.DEFAULT_MAX_TOKENS;
     if (modelId && window.AppState.models) {
       const m = window.AppState.models.find(x => x.id === modelId);
-      if (m && m.max_output_tokens > 0) maxTokens = m.max_output_tokens;
+      if (m && m.max_output_tokens > 0) {
+        // Some models report their context_length as max_completion_tokens.
+        // If the reported max is more than half the context length, it's
+        // likely a misreported context window — cap to the default instead.
+        if (m.max_output_tokens < ctxLength / 2) {
+          maxTokens = m.max_output_tokens;
+        }
+      }
     }
 
     return Math.min(maxTokens, available);
