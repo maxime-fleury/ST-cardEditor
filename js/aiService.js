@@ -292,8 +292,11 @@ const AIService = {
 
     const ctxLength = this._getContextLength(modelId);
 
+    // Always cap: available = context - input, with a floor of 1024
+    const available = Math.max(1024, ctxLength - inputTokens);
+
     const userMax = CardStorage.getMaxTokens();
-    if (userMax > 0) return Math.min(userMax, Math.max(1024, ctxLength - inputTokens));
+    if (userMax > 0) return Math.min(userMax, available);
 
     let maxTokens = this.DEFAULT_MAX_TOKENS;
     if (modelId && window.AppState.models) {
@@ -301,11 +304,7 @@ const AIService = {
       if (m && m.max_output_tokens > 0) maxTokens = m.max_output_tokens;
     }
 
-    if (ctxLength > 0) {
-      maxTokens = Math.min(maxTokens, Math.max(1024, ctxLength - inputTokens));
-    }
-
-    return maxTokens;
+    return Math.min(maxTokens, available);
   },
 
   /**
