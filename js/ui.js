@@ -20,7 +20,7 @@ window.Ui = {
     el.setAttribute('role', 'alert');
     el.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2"><i class="bi ' + (icons[type] || icons.info) + '"></i>' + this.escapeHtml(msg) + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
     document.querySelector('#toastContainer').appendChild(el);
-    const toast = new bootstrap.Toast(el, { delay: 3000 });
+    const toast = new bootstrap.Toast(el, { delay: 10000 });
     toast.show();
     el.addEventListener('hidden.bs.toast', () => el.remove());
   },
