@@ -83,6 +83,10 @@ const CardStorage = {
     aiChatHistory: 'aiChatHistory',
     maxTokens: 'maxTokens',
     injectCopyright: 'injectCopyright',
+    provider: 'provider',
+    customApiUrl: 'customApiUrl',
+    customApiKey: 'customApiKey',
+    customModelId: 'customModelId',
   },
 
   // ─── API Key ────────────────────────────────────────────
@@ -119,6 +123,40 @@ const CardStorage = {
   getInjectCopyright() {
     const val = localStorage.getItem(this.PREFIX + this._keys.injectCopyright);
     return val === null ? true : val === 'true';
+  },
+
+  // ─── Provider ───────────────────────────────────────
+
+  getProvider() {
+    return localStorage.getItem(this.PREFIX + this._keys.provider) || 'openrouter';
+  },
+
+  setProvider(provider) {
+    localStorage.setItem(this.PREFIX + this._keys.provider, provider);
+  },
+
+  getCustomApiUrl() {
+    return localStorage.getItem(this.PREFIX + this._keys.customApiUrl) || '';
+  },
+
+  setCustomApiUrl(url) {
+    localStorage.setItem(this.PREFIX + this._keys.customApiUrl, url);
+  },
+
+  getCustomApiKey() {
+    return localStorage.getItem(this.PREFIX + this._keys.customApiKey) || '';
+  },
+
+  setCustomApiKey(key) {
+    localStorage.setItem(this.PREFIX + this._keys.customApiKey, key);
+  },
+
+  getCustomModelId() {
+    return localStorage.getItem(this.PREFIX + this._keys.customModelId) || '';
+  },
+
+  setCustomModelId(id) {
+    localStorage.setItem(this.PREFIX + this._keys.customModelId, id);
   },
 
   setInjectCopyright(val) {

@@ -4,6 +4,8 @@
 
 const AIService = {
   BASE_URL: 'https://openrouter.ai/api/v1',
+  _provider: 'openrouter',
+  _customBaseUrl: '',
   DEFAULT_TEMPERATURE: 0.7,
   DEFAULT_MAX_TOKENS: 65536,
 
@@ -14,6 +16,41 @@ const AIService = {
     ':free',
     'openrouter/free',
   ],
+
+  /**
+   * Set the provider mode and base URL.
+   */
+  setProvider(provider, customUrl, customKey) {
+    this._provider = provider || 'openrouter';
+    if (provider === 'custom') {
+      this._customBaseUrl = (customUrl || '').replace(/\/+$/, '');
+      this._apiKey = customKey || '';
+    } else {
+      this._customBaseUrl = '';
+      this.BASE_URL = 'https://openrouter.ai/api/v1';
+    }
+  },
+
+  /**
+   * Get the effective base URL.
+   */
+  _getBaseUrl() {
+    if (this._provider === 'custom' && this._customBaseUrl) {
+      return this._customBaseUrl;
+    }
+    return 'https://openrouter.ai/api/v1';
+  },
+
+  /**
+   * Get the effective model ID (custom overrides).
+   */
+  _resolveModel(model) {
+    if (this._provider === 'custom') {
+      const custom = CardStorage.getCustomModelId();
+      return custom || model || '';
+    }
+    return model;
+  },
 
   /**
    * Set the API key for all requests.
@@ -33,6 +70,7 @@ const AIService = {
    * Check if API key is set.
    */
   hasApiKey() {
+    if (this._provider === 'custom') return true; // custom providers may not need a key
     return !!this._apiKey;
   },
 
@@ -64,6 +102,9 @@ const AIService = {
    * Fetch available models with pricing.
    */
   async fetchModels() {
+    if (this._provider === 'custom') {
+      return this._fetchCustomModels();
+    }
     if (!this._apiKey) throw new Error('API key not set');
     
     const resp = await fetch(`${this.BASE_URL}/models`, {
@@ -109,6 +150,45 @@ const AIService = {
   },
 
   /**
+   * Fetch models from a custom (OpenAI-compatible) provider.
+   */
+  async _fetchCustomModels() {
+    const baseUrl = this._getBaseUrl();
+    const headers = { 'Content-Type': 'application/json' };
+    if (this._apiKey) headers['Authorization'] = 'Bearer ' + this._apiKey;
+
+    const resp = await fetch(baseUrl + '/models', { headers });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error?.message || 'Failed to fetch models (HTTP ' + resp.status + ')');
+    }
+
+    const data = await resp.json();
+    const customModelId = CardStorage.getCustomModelId();
+
+    // If the provider returns a model list, use it
+    if (data.data && data.data.length) {
+      return data.data.map(m => ({
+        id: m.id,
+        name: m.name || m.id,
+        description: m.description || '',
+        context_length: m.context_length || m.max_context_length || 0,
+        max_output_tokens: m.max_output_tokens || m.max_tokens || 0,
+        pricing: { prompt: null, completion: null },
+        is_free: true,
+        provider: 'custom',
+      }));
+    }
+
+    // Fallback: if no list but we have a custom model ID, return it
+    if (customModelId) {
+      return [{ id: customModelId, name: customModelId, description: 'Custom model', context_length: 0, max_output_tokens: 0, pricing: { prompt: null, completion: null }, is_free: true, provider: 'custom' }];
+    }
+
+    return [];
+  },
+
+  /**
    * Fetch API key info (credits, limits, usage).
    */
   async fetchKeyInfo() {
@@ -145,7 +225,8 @@ const AIService = {
    * @returns {Promise<object>} { content, usage, model }
    */
   async chat(prompt, systemPrompt = '', model = '') {
-    if (!this._apiKey) throw new Error('API key not set');
+    const apiKey = this._provider === 'custom' ? this._apiKey : this._apiKey;
+    if (!apiKey && this._provider !== 'custom') throw new Error('API key not set');
     
     const messages = [];
     if (systemPrompt) {
@@ -153,22 +234,25 @@ const AIService = {
     }
     messages.push({ role: 'user', content: prompt });
     
-    // Require an explicit model selection
-    if (!model) {
-      throw new Error('No model selected. Please choose a model from the navbar or settings.');
+    // Resolve model (custom may override)
+    const useModel = this._resolveModel(model);
+    if (!useModel) {
+      throw new Error('No model selected. Please choose a model or set a custom model ID in Settings.');
     }
-    const useModel = model;
 
-    const maxTokens = this.resolveMaxTokens(model, messages);
+    const maxTokens = this.resolveMaxTokens(useModel, messages);
+    const baseUrl = this._getBaseUrl();
     
-    const resp = await fetch(`${this.BASE_URL}/chat/completions`, {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+    if (this._provider === 'openrouter') {
+      headers['HTTP-Referer'] = 'https://github.com/st-card-editor';
+      headers['X-Title'] = 'ST Card Editor';
+    }
+    
+    const resp = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this._apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://github.com/st-card-editor',
-        'X-Title': 'ST Card Editor',
-      },
+      headers,
       body: JSON.stringify({
         model: useModel,
         messages: messages,
@@ -181,7 +265,7 @@ const AIService = {
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       if (resp.status === 402) {
-        throw new Error('Insufficient credits. Please top up your OpenRouter account.');
+        throw new Error('Insufficient credits. Please top up your account.');
       }
       throw new Error(err.error?.message || `HTTP ${resp.status}`);
     }
@@ -211,24 +295,30 @@ const AIService = {
   },
 
   async chatStream(prompt, systemPrompt = '', model = '', onChunk, signal) {
-    if (!this._apiKey) throw new Error('API key not set');
-    if (!model) throw new Error('No model selected.');
+    const apiKey = this._apiKey;
+    if (!apiKey && this._provider !== 'custom') throw new Error('API key not set');
 
     const messages = [];
     if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
     messages.push({ role: 'user', content: prompt });
 
-    const maxTokens = this.resolveMaxTokens(model, messages);
+    const useModel = this._resolveModel(model);
+    if (!useModel) throw new Error('No model selected.');
 
-    const resp = await fetch(`${this.BASE_URL}/chat/completions`, {
+    const maxTokens = this.resolveMaxTokens(useModel, messages);
+    const baseUrl = this._getBaseUrl();
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+    if (this._provider === 'openrouter') {
+      headers['HTTP-Referer'] = 'https://github.com/st-card-editor';
+      headers['X-Title'] = 'ST Card Editor';
+    }
+
+    const resp = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this._apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://github.com/st-card-editor',
-        'X-Title': 'ST Card Editor',
-      },
-      body: JSON.stringify({ model, messages, temperature: this.DEFAULT_TEMPERATURE, max_tokens: maxTokens, stream: true }),
+      headers,
+      body: JSON.stringify({ model: useModel, messages, temperature: this.DEFAULT_TEMPERATURE, max_tokens: maxTokens, stream: true }),
       signal,
     });
 

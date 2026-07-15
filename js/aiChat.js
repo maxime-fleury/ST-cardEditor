@@ -9,7 +9,7 @@ const AiChat = {
     const prompt = input.value.trim();
     const { activeCard } = window.AppState;
     if (!prompt || window.AppState.isAiLoading) return;
-    if (!AIService.hasApiKey()) { Ui.showToast('Set your OpenRouter API key first', 'warning'); return; }
+    if (!AIService.hasApiKey()) { Ui.showToast('Set your API key in Settings', 'warning'); return; }
 
     const targetField = $('#aiTargetSelect').value;
     const modelId = $('#aiModelSelect').value || $('#navModelSelect').value;
@@ -216,7 +216,7 @@ const AiChat = {
       Wizard.show();
       return;
     }
-    if (!AIService.hasApiKey()) { Ui.showToast('Set your OpenRouter API key first', 'warning'); return; }
+    if (!AIService.hasApiKey()) { Ui.showToast('Set your API key in Settings', 'warning'); return; }
     if (!activeCard) { Ui.showToast('Select a card first', 'warning'); return; }
 
     const prompts = {

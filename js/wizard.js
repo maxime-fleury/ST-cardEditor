@@ -25,16 +25,19 @@ const Wizard = {
   },
 
   _resetImageUI() {
-    const img = document.querySelector('#wizImagePreviewImg');
-    const placeholder = document.querySelector('#wizImagePlaceholder');
+    const btnFetch = document.querySelector('#wizBtnFetchImage');
+    if (btnFetch) btnFetch.innerHTML = '<i class="bi bi-shuffle me-1"></i>Fetch 3 Images';
+    document.querySelectorAll('.wizard-image-card').forEach(c => {
+      c.classList.remove('selected');
+      const thumb = c.querySelector('.wiz-thumb');
+      if (thumb) { thumb.src = ''; thumb.hidden = true; }
+      const ph = c.querySelector('.wizard-image-placeholder');
+      if (ph) ph.classList.remove('d-none');
+    });
     const btnUse = document.querySelector('#wizBtnUseImage');
     const btnRemove = document.querySelector('#wizBtnRemoveImage');
-    const source = document.querySelector('#wizImageSource');
-    if (img) { img.src = ''; img.hidden = true; }
-    if (placeholder) placeholder.classList.remove('d-none');
     if (btnUse) btnUse.classList.add('d-none');
     if (btnRemove) btnRemove.classList.add('d-none');
-    if (source) { source.textContent = ''; source.classList.add('d-none'); }
   },
 
   _bindEvents() {
@@ -246,46 +249,87 @@ const Wizard = {
   },
 
   // ─── IMAGE FETCH (waifu.im) ─────────────────────────
-  _fetchedImageUrl: null,
-  _fetchedImageBlob: null,
+  _fetchedImages: [],
+  _selectedImageIdx: -1,
+
+  _bindImageEvents() {
+    const self = this;
+    document.querySelectorAll('.wizard-image-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const idx = parseInt(card.dataset.idx, 10);
+        if (!self._fetchedImages[idx]) return;
+        document.querySelectorAll('.wizard-image-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        self._selectedImageIdx = idx;
+        document.querySelector('#wizBtnUseImage').classList.remove('d-none');
+        document.querySelector('#wizBtnRemoveImage').classList.remove('d-none');
+        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>Refetch Others';
+      });
+    });
+  },
 
   async _fetchImage() {
     const btn = document.querySelector('#wizBtnFetchImage');
     const origHtml = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Fetching...';
+
     try {
-      const resp = await fetch('https://api.waifu.im/images?IncludedTags=waifu&IsNsfw=False');
+      // Determine which slots need new images (unselected ones)
+      const slotsToFetch = [];
+      for (let i = 0; i < 3; i++) {
+        if (i === this._selectedImageIdx) continue; // keep selected
+        slotsToFetch.push(i);
+      }
+      const needed = slotsToFetch.length;
+      if (needed === 0) { btn.disabled = false; btn.innerHTML = origHtml; return; }
+
+      const resp = await fetch('https://api.waifu.im/images?IncludedTags=waifu&IsNsfw=False&PageSize=' + needed);
       if (!resp.ok) throw new Error('API returned ' + resp.status);
       const data = await resp.json();
       if (!data.items || !data.items.length) throw new Error('No images returned');
-      const item = data.items[0];
-      const imgUrl = item.url;
-      const imgResp = await fetch(imgUrl);
-      const blob = await imgResp.blob();
-      this._fetchedImageUrl = imgUrl;
-      this._fetchedImageBlob = blob;
 
-      const img = document.querySelector('#wizImagePreviewImg');
-      const placeholder = document.querySelector('#wizImagePlaceholder');
-      const btnUse = document.querySelector('#wizBtnUseImage');
-      const btnRemove = document.querySelector('#wizBtnRemoveImage');
-      const source = document.querySelector('#wizImageSource');
+      // Only clear unselected cards
+      for (const i of slotsToFetch) {
+        const card = document.querySelectorAll('.wizard-image-card')[i];
+        card.classList.remove('selected');
+        const thumb = card.querySelector('.wiz-thumb');
+        thumb.src = '';
+        thumb.hidden = true;
+        card.querySelector('.wizard-image-placeholder').classList.remove('d-none');
+        this._fetchedImages[i] = null;
+      }
 
-      const objUrl = URL.createObjectURL(blob);
-      img.src = objUrl;
-      img.hidden = false;
-      placeholder.classList.add('d-none');
-      btnUse.classList.remove('d-none');
-      btnRemove.classList.remove('d-none');
-      if (source) {
-        const tagNames = (item.tags || []).map(t => t.name).join(', ');
-        source.textContent = 'Source: waifu.im' + (tagNames ? ' (' + tagNames + ')' : '');
-        source.classList.remove('d-none');
+      // Fill in new images
+      let fetchIdx = 0;
+      for (const i of slotsToFetch) {
+        if (fetchIdx >= data.items.length) break;
+        const item = data.items[fetchIdx];
+        const imgResp = await fetch(item.url);
+        const blob = await imgResp.blob();
+        const objUrl = URL.createObjectURL(blob);
+        this._fetchedImages[i] = { blob, url: item.url, tags: (item.tags || []).map(t => t.name).join(', ') };
+        const card = document.querySelectorAll('.wizard-image-card')[i];
+        const thumb = card.querySelector('.wiz-thumb');
+        thumb.src = objUrl;
+        thumb.hidden = false;
+        card.querySelector('.wizard-image-placeholder').classList.add('d-none');
+        fetchIdx++;
+      }
+
+      // Update buttons based on current selection
+      if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
+        document.querySelector('#wizBtnUseImage').classList.remove('d-none');
+        document.querySelector('#wizBtnRemoveImage').classList.remove('d-none');
+        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>Refetch Others';
+      } else {
+        document.querySelector('#wizBtnUseImage').classList.add('d-none');
+        document.querySelector('#wizBtnRemoveImage').classList.add('d-none');
+        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>Fetch 3 Images';
       }
     } catch (e) {
       console.error('waifu.im fetch failed', e);
-      Ui.showToast('Failed to fetch image: ' + e.message, 'danger');
+      Ui.showToast('Failed to fetch images: ' + e.message, 'danger');
     } finally {
       btn.disabled = false;
       btn.innerHTML = origHtml;
@@ -293,28 +337,28 @@ const Wizard = {
   },
 
   async _useFetchedImage() {
-    if (!this._fetchedImageBlob) return;
+    if (this._selectedImageIdx < 0 || !this._fetchedImages[this._selectedImageIdx]) return;
     const card = window.AppState.activeCard;
     if (!card) {
       Ui.showToast('Create or select a card first', 'warning');
       return;
     }
-    await Editor.setAvatar(this._fetchedImageBlob);
+    await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob);
   },
 
   _removeFetchedImage() {
-    this._fetchedImageUrl = null;
-    this._fetchedImageBlob = null;
-    const img = document.querySelector('#wizImagePreviewImg');
-    const placeholder = document.querySelector('#wizImagePlaceholder');
-    const btnUse = document.querySelector('#wizBtnUseImage');
-    const btnRemove = document.querySelector('#wizBtnRemoveImage');
-    const source = document.querySelector('#wizImageSource');
-    if (img) { img.src = ''; img.hidden = true; }
-    if (placeholder) placeholder.classList.remove('d-none');
-    if (btnUse) btnUse.classList.add('d-none');
-    if (btnRemove) btnRemove.classList.add('d-none');
-    if (source) { source.textContent = ''; source.classList.add('d-none'); }
+    this._fetchedImages = [];
+    this._selectedImageIdx = -1;
+    document.querySelectorAll('.wizard-image-card').forEach(c => {
+      c.classList.remove('selected');
+      const thumb = c.querySelector('.wiz-thumb');
+      if (thumb) { thumb.src = ''; thumb.hidden = true; }
+      const ph = c.querySelector('.wizard-image-placeholder');
+      if (ph) ph.classList.remove('d-none');
+    });
+    document.querySelector('#wizBtnUseImage').classList.add('d-none');
+    document.querySelector('#wizBtnRemoveImage').classList.add('d-none');
+    document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>Fetch 3 Images';
   },
 
   // ─── GENERATE ───────────────────────────────────────
@@ -337,12 +381,12 @@ const Wizard = {
   async _generateWithAI() {
     this._collectStep(this._step);
     if (!AIService.hasApiKey()) {
-      Ui.showToast('Set your OpenRouter API key first (Settings)', 'warning');
+      Ui.showToast('Set your API key in Settings first', 'warning');
       return;
     }
     const modelId = document.querySelector('#aiModelSelect').value || document.querySelector('#navModelSelect').value;
     if (!modelId) {
-      Ui.showToast('Select a model from the navbar first', 'warning');
+      Ui.showToast('Select a model or set a custom model ID in Settings', 'warning');
       return;
     }
 

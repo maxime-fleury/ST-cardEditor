@@ -136,6 +136,19 @@ async function init() {
     $('#defaultModelSelect').value = defaultModel;
   }
 
+  // Restore custom provider
+  const provider = CardStorage.getProvider();
+  if (provider === 'custom') {
+    const customUrl = CardStorage.getCustomApiUrl();
+    const customKey = CardStorage.getCustomApiKey();
+    const customModel = CardStorage.getCustomModelId();
+    AIService.setProvider('custom', customUrl, customKey);
+    if (customModel) {
+      CardStorage.setDefaultModel(customModel);
+      $('#navModelSelect').value = customModel;
+    }
+  }
+
   const maxTokens = CardStorage.getMaxTokens();
   if (maxTokens > 0) $('#maxTokensInput').value = maxTokens;
   $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
@@ -218,6 +231,8 @@ function bindEvents(settingsModal) {
   $('#btnClearStorage').addEventListener('click', () => Settings.confirmClearStorage());
   $('#btnExportSettings').addEventListener('click', () => Settings.exportSettings());
   $('#btnImportSettings').addEventListener('click', () => Settings.importSettings());
+  $('#providerSelect').addEventListener('change', () => Settings.toggleProvider());
+  settingsModal._element.addEventListener('shown.bs.modal', () => Settings.openSettings());
   $('#navModelSelect').addEventListener('change', () => Settings.onNavModelChange());
   $('#aiModelSelect').addEventListener('change', () => {
     const val = $('#aiModelSelect').value;

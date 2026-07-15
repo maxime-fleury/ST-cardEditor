@@ -5,19 +5,41 @@
 const Settings = {
   saveSettings(modal) {
     const $ = (sel) => document.querySelector(sel);
+    const provider = $('#providerSelect').value;
     const apiKey = $('#apiKeyInput').value.trim();
     const defaultModel = $('#defaultModelSelect').value;
     const maxTokens = parseInt($('#maxTokensInput').value, 10) || 0;
-    CardStorage.setApiKey(apiKey);
-    AIService.setApiKey(apiKey);
-    CardStorage.setDefaultModel(defaultModel);
+    const customApiUrl = $('#customApiUrlInput').value.trim();
+    const customApiKey = $('#customApiKeyInput').value.trim();
+    const customModelId = $('#customModelInput').value.trim();
+
+    CardStorage.setProvider(provider);
+    CardStorage.setCustomApiUrl(customApiUrl);
+    CardStorage.setCustomApiKey(customApiKey);
+    CardStorage.setCustomModelId(customModelId);
+
+    if (provider === 'custom') {
+      AIService.setProvider('custom', customApiUrl, customApiKey);
+      CardStorage.setApiKey(customApiKey);
+      AIService.setApiKey(customApiKey);
+      if (customModelId) {
+        CardStorage.setDefaultModel(customModelId);
+        $('#navModelSelect').value = customModelId;
+        $('#aiModelSelect').value = customModelId;
+      }
+    } else {
+      CardStorage.setApiKey(apiKey);
+      AIService.setApiKey(apiKey);
+      AIService.setProvider('openrouter');
+      CardStorage.setDefaultModel(defaultModel);
+      $('#navModelSelect').value = defaultModel;
+      $('#aiModelSelect').value = defaultModel;
+    }
     CardStorage.setMaxTokens(maxTokens);
     CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
-    $('#navModelSelect').value = defaultModel;
-    $('#aiModelSelect').value = defaultModel;
     modal.hide();
     Ui.showToast('Settings saved!', 'success');
-    if (apiKey) { this.refreshCredits(); this.refreshModelsList(); }
+    if (provider === 'openrouter' && apiKey) { this.refreshCredits(); this.refreshModelsList(); }
   },
 
   toggleApiKeyVisibility() {
@@ -28,9 +50,31 @@ const Settings = {
     else { input.type = 'password'; icon.className = 'bi bi-eye-fill'; }
   },
 
+  toggleProvider() {
+    const $ = (sel) => document.querySelector(sel);
+    const provider = $('#providerSelect').value;
+    const isOpenRouter = provider === 'openrouter';
+    $('#openrouterSettings').classList.toggle('d-none', !isOpenRouter);
+    $('#customSettings').classList.toggle('d-none', isOpenRouter);
+    $('#openrouterExtras').classList.toggle('d-none', !isOpenRouter);
+  },
+
+  openSettings() {
+    const $ = (sel) => document.querySelector(sel);
+    const provider = CardStorage.getProvider() || 'openrouter';
+    $('#providerSelect').value = provider;
+    $('#apiKeyInput').value = CardStorage.getApiKey();
+    $('#customApiUrlInput').value = CardStorage.getCustomApiUrl();
+    $('#customApiKeyInput').value = CardStorage.getCustomApiKey();
+    $('#customModelInput').value = CardStorage.getCustomModelId();
+    $('#maxTokensInput').value = CardStorage.getMaxTokens() || '';
+    $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
+    this.toggleProvider();
+  },
+
   async refreshCredits() {
     const $ = (sel) => document.querySelector(sel);
-    if (!AIService.hasApiKey()) { this.updateStorageUsage(); return; }
+    if (!AIService.hasApiKey() || CardStorage.getProvider() === 'custom') { this.updateStorageUsage(); return; }
     try {
       const info = await AIService.fetchKeyInfo();
       $('#creditsBadge').classList.remove('d-none');
@@ -144,7 +188,13 @@ const Settings = {
     window.AppState.chatHistory = [];
     window.AppState.models = [];
     AIService.setApiKey('');
+    AIService.setProvider('openrouter');
     $('#apiKeyInput').value = '';
+    $('#providerSelect').value = 'openrouter';
+    $('#customApiUrlInput').value = '';
+    $('#customApiKeyInput').value = '';
+    $('#customModelInput').value = '';
+    this.toggleProvider();
     $('#navModelSelect').innerHTML = '<option value="">Select model...</option>';
     $('#defaultModelSelect').innerHTML = '<option value="">Browse models below...</option>';
     $('#aiModelSelect').innerHTML = '<option value="">Auto (use nav model)</option>';
@@ -158,9 +208,12 @@ const Settings = {
 
   exportSettings() {
     const settings = {
+      provider: CardStorage.getProvider(),
       defaultModel: CardStorage.getDefaultModel(),
       maxTokens: CardStorage.getMaxTokens(),
       injectCopyright: CardStorage.getInjectCopyright(),
+      customApiUrl: CardStorage.getCustomApiUrl(),
+      customModelId: CardStorage.getCustomModelId(),
     };
     Ui.downloadFile('st-card-editor-settings.json', JSON.stringify(settings, null, 2), 'application/json');
     Ui.showToast('Settings exported', 'success');
@@ -175,9 +228,12 @@ const Settings = {
       reader.onload = () => {
         try {
           const settings = JSON.parse(reader.result);
+          if (settings.provider) { CardStorage.setProvider(settings.provider); $('#providerSelect').value = settings.provider; this.toggleProvider(); }
           if (settings.defaultModel) { CardStorage.setDefaultModel(settings.defaultModel); $('#defaultModelSelect').value = settings.defaultModel; $('#navModelSelect').value = settings.defaultModel; $('#aiModelSelect').value = settings.defaultModel; }
           if (settings.maxTokens !== undefined) { CardStorage.setMaxTokens(settings.maxTokens); $('#maxTokensInput').value = settings.maxTokens || ''; }
           if (settings.injectCopyright !== undefined) { CardStorage.setInjectCopyright(settings.injectCopyright); $('#injectCopyrightToggle').checked = settings.injectCopyright; }
+          if (settings.customApiUrl) { CardStorage.setCustomApiUrl(settings.customApiUrl); $('#customApiUrlInput').value = settings.customApiUrl; }
+          if (settings.customModelId) { CardStorage.setCustomModelId(settings.customModelId); $('#customModelInput').value = settings.customModelId; }
           Ui.showToast('Settings imported!', 'success');
         } catch (err) {
           Ui.showToast('Invalid settings file', 'danger');

@@ -461,120 +461,177 @@
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <!-- API Key -->
+          <!-- Provider -->
           <div class="mb-4">
             <label class="form-label fw-semibold">
-              <i class="bi bi-key-fill me-2 text-accent"></i>OpenRouter API Key
+              <i class="bi bi-hdd-network me-2 text-accent"></i>Provider
             </label>
-            <div class="input-group">
-              <input type="password" class="form-control" id="apiKeyInput" 
-                     placeholder="sk-or-v1-...">
-              <button class="btn btn-outline-secondary" id="btnToggleApiKey" type="button">
-                <i class="bi bi-eye-fill"></i>
-              </button>
-            </div>
+            <select class="form-select" id="providerSelect">
+              <option value="openrouter">OpenRouter</option>
+              <option value="custom">Custom (OpenAI-compatible)</option>
+            </select>
             <small class="form-text text-muted">
-              <a href="https://openrouter.ai/keys" target="_blank" class="text-accent">
-                Get your API key from OpenRouter <i class="bi bi-box-arrow-up-right ms-1"></i>
-              </a>
-            </small>
-            <div class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mt-2 mb-0" style="font-size: 0.78rem;">
-              <i class="bi bi-exclamation-triangle-fill"></i>
-              <span>Your API key is stored locally in your browser's localStorage in plaintext. Do not use this app on shared devices.</span>
-            </div>
-          </div>
-          
-          <!-- Model Selection -->
-          <div class="mb-4">
-            <label class="form-label fw-semibold">
-              <i class="bi bi-cpu-fill me-2 text-accent"></i>Default Model
-            </label>
-            <div class="row g-2">
-              <div class="col-md-8">
-                <select class="form-select" id="defaultModelSelect">
-                  <option value="">Browse models below...</option>
-                </select>
-              </div>
-              <div class="col-md-4">
-                <button class="btn btn-outline-accent w-100" id="btnRefreshModels">
-                  <i class="bi bi-arrow-clockwise me-1"></i> Refresh Models
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Max Tokens -->
-          <div class="mb-4">
-            <label class="form-label fw-semibold">
-              <i class="bi bi-speedometer me-2 text-accent"></i>Max Output Tokens
-            </label>
-            <input type="number" class="form-control" id="maxTokensInput"
-                   min="0" step="1024" placeholder="0 = use model default">
-            <small class="form-text text-muted">
-              Override the max output tokens per request. Set to 0 to auto-use the selected model's limit (or 64k if unknown).
+              Use OpenRouter for hosted models, or a custom endpoint (LM Studio, Ollama, vLLM, etc.)
             </small>
           </div>
 
-          <!-- Copyright -->
-          <div class="mb-4">
-            <div class="form-check form-switch">
-              <input class="form-check-input" type="checkbox" id="injectCopyrightToggle" checked>
-              <label class="form-check-label fw-semibold">
-                <i class="bi bi-credit-card me-2 text-accent"></i>Inject editor credit on export
+          <!-- OpenRouter Settings -->
+          <div id="openrouterSettings">
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-key-fill me-2 text-accent"></i>OpenRouter API Key
               </label>
+              <div class="input-group">
+                <input type="password" class="form-control" id="apiKeyInput" 
+                       placeholder="sk-or-v1-...">
+                <button class="btn btn-outline-secondary" id="btnToggleApiKey" type="button">
+                  <i class="bi bi-eye-fill"></i>
+                </button>
+              </div>
+              <small class="form-text text-muted">
+                <a href="https://openrouter.ai/keys" target="_blank" class="text-accent">
+                  Get your API key from OpenRouter <i class="bi bi-box-arrow-up-right ms-1"></i>
+                </a>
+              </small>
+              <div class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mt-2 mb-0" style="font-size: 0.78rem;">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                <span>Your API key is stored locally in your browser's localStorage in plaintext. Do not use this app on shared devices.</span>
+              </div>
             </div>
-            <small class="form-text text-muted">
-              Adds a credit line to creator notes when exporting cards.
-            </small>
+          </div>
+
+          <!-- Custom Provider Settings -->
+          <div id="customSettings" class="d-none">
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-link-45deg me-2 text-accent"></i>API Base URL
+              </label>
+              <input type="text" class="form-control" id="customApiUrlInput"
+                     placeholder="http://localhost:1234/v1">
+              <small class="form-text text-muted">
+                The OpenAI-compatible endpoint. Examples: LM Studio <code>http://localhost:1234/v1</code>, Ollama <code>http://localhost:11434/v1</code>
+              </small>
+            </div>
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-key me-2 text-accent"></i>API Key <small class="text-muted fw-normal">(optional)</small>
+              </label>
+              <input type="password" class="form-control" id="customApiKeyInput"
+                     placeholder="Leave empty for local providers">
+              <small class="form-text text-muted">
+                Not needed for local servers like LM Studio or Ollama.
+              </small>
+            </div>
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-cpu me-2 text-accent"></i>Model ID
+              </label>
+              <input type="text" class="form-control" id="customModelInput"
+                     placeholder="e.g. llama-3.2-8b-instruct">
+              <small class="form-text text-muted">
+                The exact model ID your provider expects. Check your server's model list.
+              </small>
+            </div>
+            <div class="alert alert-info d-flex align-items-center gap-2 py-2 px-3 mb-0" style="font-size: 0.78rem;">
+              <i class="bi bi-info-circle-fill"></i>
+              <span>For local providers, click "Refresh Models" after saving to auto-detect available models.</span>
+            </div>
           </div>
           
-          <!-- Model List -->
-          <div class="mb-3">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <label class="form-label fw-semibold mb-0">Available Models</label>
-              <div class="input-group input-group-sm model-search-group">
-                <span class="input-group-text"><i class="bi bi-search"></i></span>
-                <input type="text" class="form-control" id="modelSearch" placeholder="Search models...">
+          <!-- OpenRouter-specific sections -->
+          <div id="openrouterExtras">
+            <!-- Model Selection -->
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-cpu-fill me-2 text-accent"></i>Default Model
+              </label>
+              <div class="row g-2">
+                <div class="col-md-8">
+                  <select class="form-select" id="defaultModelSelect">
+                    <option value="">Browse models below...</option>
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <button class="btn btn-outline-accent w-100" id="btnRefreshModels">
+                    <i class="bi bi-arrow-clockwise me-1"></i> Refresh Models
+                  </button>
+                </div>
               </div>
             </div>
-            <div class="model-list" id="modelList">
-              <div class="text-center text-muted py-4">
-                <i class="bi bi-cpu d-block mb-2" style="font-size: 2rem;"></i>
-                Enter your API key and refresh to load models
-              </div>
-            </div>
-          </div>
           
-          <!-- Credits Info -->
-          <div class="credits-section" id="creditsSection">
-            <h6 class="fw-semibold mb-3"><i class="bi bi-coin me-2 text-accent"></i>Credits & Usage</h6>
-            <div class="row g-3" id="creditsInfo">
-              <div class="col-md-3">
-                <div class="stat-card">
-                  <div class="stat-value" id="creditLimit">--</div>
-                  <div class="stat-label">Credit Limit</div>
+            <!-- Max Tokens -->
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-speedometer me-2 text-accent"></i>Max Output Tokens
+              </label>
+              <input type="number" class="form-control" id="maxTokensInput"
+                     min="0" step="1024" placeholder="0 = use model default">
+              <small class="form-text text-muted">
+                Override the max output tokens per request. Set to 0 to auto-use the selected model's limit (or 64k if unknown).
+              </small>
+            </div>
+
+            <!-- Copyright -->
+            <div class="mb-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="injectCopyrightToggle" checked>
+                <label class="form-check-label fw-semibold">
+                  <i class="bi bi-credit-card me-2 text-accent"></i>Inject editor credit on export
+                </label>
+              </div>
+              <small class="form-text text-muted">
+                Adds a credit line to creator notes when exporting cards.
+              </small>
+            </div>
+          
+            <!-- Model List -->
+            <div class="mb-3">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <label class="form-label fw-semibold mb-0">Available Models</label>
+                <div class="input-group input-group-sm model-search-group">
+                  <span class="input-group-text"><i class="bi bi-search"></i></span>
+                  <input type="text" class="form-control" id="modelSearch" placeholder="Search models...">
                 </div>
               </div>
-              <div class="col-md-3">
-                <div class="stat-card">
-                  <div class="stat-value" id="creditRemaining">--</div>
-                  <div class="stat-label">Remaining</div>
-                </div>
-              </div>
-              <div class="col-md-3">
-                <div class="stat-card">
-                  <div class="stat-value" id="creditUsage">--</div>
-                  <div class="stat-label">Used This Month</div>
-                </div>
-              </div>
-              <div class="col-md-3">
-                <div class="stat-card">
-                  <div class="stat-value" id="storageUsage">--</div>
-                  <div class="stat-label">Local Storage</div>
+              <div class="model-list" id="modelList">
+                <div class="text-center text-muted py-4">
+                  <i class="bi bi-cpu d-block mb-2" style="font-size: 2rem;"></i>
+                  Enter your API key and refresh to load models
                 </div>
               </div>
             </div>
-          </div>
+          
+            <!-- Credits Info -->
+            <div class="credits-section" id="creditsSection">
+              <h6 class="fw-semibold mb-3"><i class="bi bi-coin me-2 text-accent"></i>Credits & Usage</h6>
+              <div class="row g-3" id="creditsInfo">
+                <div class="col-md-3">
+                  <div class="stat-card">
+                    <div class="stat-value" id="creditLimit">--</div>
+                    <div class="stat-label">Credit Limit</div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="stat-card">
+                    <div class="stat-value" id="creditRemaining">--</div>
+                    <div class="stat-label">Remaining</div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="stat-card">
+                    <div class="stat-value" id="creditUsage">--</div>
+                    <div class="stat-label">Used This Month</div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="stat-card">
+                    <div class="stat-value" id="storageUsage">--</div>
+                    <div class="stat-label">Local Storage</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div><!-- end openrouterExtras -->
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-danger btn-sm me-auto" id="btnClearStorage">
@@ -773,26 +830,36 @@
 
             <div class="wizard-image-section">
               <label class="form-label field-label">Reference Image <small>(optional, from waifu.im)</small></label>
-              <div class="wizard-image-preview" id="wizImagePreview">
-                <img id="wizImagePreviewImg" src="" alt="" hidden>
-                <div class="wizard-image-placeholder" id="wizImagePlaceholder">
-                  <i class="bi bi-image"></i>
-                  <span>No image selected</span>
+              <div class="wizard-image-grid" id="wizImageGrid">
+                <div class="wizard-image-card" data-idx="0">
+                  <div class="wizard-image-preview">
+                    <img class="wiz-thumb" src="" alt="" hidden>
+                    <div class="wizard-image-placeholder"><i class="bi bi-image"></i></div>
+                  </div>
+                </div>
+                <div class="wizard-image-card" data-idx="1">
+                  <div class="wizard-image-preview">
+                    <img class="wiz-thumb" src="" alt="" hidden>
+                    <div class="wizard-image-placeholder"><i class="bi bi-image"></i></div>
+                  </div>
+                </div>
+                <div class="wizard-image-card" data-idx="2">
+                  <div class="wizard-image-preview">
+                    <img class="wiz-thumb" src="" alt="" hidden>
+                    <div class="wizard-image-placeholder"><i class="bi bi-image"></i></div>
+                  </div>
                 </div>
               </div>
               <div class="wizard-image-actions">
                 <button class="btn btn-sm btn-outline-accent" id="wizBtnFetchImage" type="button">
-                  <i class="bi bi-shuffle me-1"></i>Fetch Random
+                  <i class="bi bi-shuffle me-1"></i>Fetch 3 Images
                 </button>
                 <button class="btn btn-sm btn-accent d-none" id="wizBtnUseImage" type="button">
-                  <i class="bi bi-check-lg me-1"></i>Use This
+                  <i class="bi bi-check-lg me-1"></i>Use Selected
                 </button>
                 <button class="btn btn-sm btn-outline-secondary d-none" id="wizBtnRemoveImage" type="button">
-                  <i class="bi bi-x-lg me-1"></i>Remove
+                  <i class="bi bi-x-lg me-1"></i>Clear
                 </button>
-              </div>
-              <div class="wizard-image-tags" id="wizImageTags">
-                <small class="text-muted d-none" id="wizImageSource"></small>
               </div>
             </div>
 
