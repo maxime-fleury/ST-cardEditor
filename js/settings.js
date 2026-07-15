@@ -38,7 +38,7 @@ const Settings = {
     CardStorage.setMaxTokens(maxTokens);
     CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
     modal.hide();
-    Ui.showToast('Settings saved!', 'success');
+    Ui.showToast(I18n.t('toast.settingsSaved'), 'success');
     if (provider === 'openrouter' && apiKey) { this.refreshCredits(); this.refreshModelsList(); }
   },
 
@@ -87,10 +87,10 @@ const Settings = {
 
     if (isCustom) {
       $('#customModelInput').placeholder = 'e.g. llama-3.2-8b-instruct';
-      $('#modelIdHint').textContent = 'The exact model ID your server expects.';
+      $('#modelIdHint').textContent = I18n.t('settings.modelIdHint');
     } else if (isNamed) {
       $('#customModelInput').placeholder = 'e.g. ' + provider + '-latest';
-      $('#modelIdHint').textContent = 'Leave empty to use the provider default model.';
+      $('#modelIdHint').textContent = I18n.t('settings.modelIdHintNamed');
     }
   },
 
@@ -134,14 +134,14 @@ const Settings = {
       this.renderModelList();
     } catch (err) {
       console.error('Failed to fetch models:', err);
-      Ui.showToast('Failed to load models: ' + err.message, 'danger');
+      Ui.showToast(I18n.t('toast.modelsFailed', { error: err.message }), 'danger');
     }
   },
 
   populateModelSelects() {
     const $ = (sel) => document.querySelector(sel);
     const d = CardStorage.getDefaultModel();
-    const h = window.AppState.models.map(m => '<option value="' + Ui.escapeHtml(m.id) + '"' + (m.id === d ? ' selected' : '') + '>' + Ui.escapeHtml(m.name) + (m.is_free ? ' [FREE]' : '') + '</option>').join('');
+    const h = window.AppState.models.map(m => '<option value="' + Ui.escapeHtml(m.id) + '"' + (m.id === d ? ' selected' : '') + '>' + Ui.escapeHtml(m.name) + (m.is_free ? ' [' + I18n.t('gen.free') + ']' : '') + '</option>').join('');
     $('#navModelSelect').innerHTML = '<option value="">Auto</option>' + h;
     $('#defaultModelSelect').innerHTML = '<option value="">Auto</option>' + h;
     $('#aiModelSelect').innerHTML = '<option value="">Auto (use nav model)</option>' + h;
@@ -156,7 +156,7 @@ const Settings = {
     if (resetPage) this._modelPage = 1;
     const container = $('#modelList');
     const filtered = window.AppState.models.filter(m => !filter || m.name.toLowerCase().includes(filter) || m.id.toLowerCase().includes(filter) || m.provider.toLowerCase().includes(filter) || (m.description || '').toLowerCase().includes(filter));
-    if (!filtered.length) { container.innerHTML = '<div class="text-center text-muted py-4">No models found</div>'; return; }
+    if (!filtered.length) { container.innerHTML = '<div class="text-center text-muted py-4">' + I18n.t('settings.noModels') + '</div>'; return; }
     const d = CardStorage.getDefaultModel();
     const end = this._modelPage * this._modelPageSize;
     const shown = filtered.slice(0, end);
@@ -166,12 +166,12 @@ const Settings = {
       + '<div class="model-item-info"><div class="model-item-name">' + Ui.escapeHtml(m.name) + '</div>'
       + '<div class="model-item-provider">' + Ui.escapeHtml(m.provider) + ' · ' + (m.context_length ? Math.floor(m.context_length/1000) + 'k ctx' : '?')
       + (m.max_output_tokens ? ' · ' + Math.floor(m.max_output_tokens/1000) + 'k out' : '')
-      + (m.is_free ? ' · <span class="text-success">FREE</span>' : '') + '</div></div>'
-      + '<div class="model-item-pricing">' + (m.is_free ? '<span class="price-highlight">FREE</span>'
+      + (m.is_free ? ' · <span class="text-success">' + I18n.t('gen.free') + '</span>' : '') + '</div></div>'
+      + '<div class="model-item-pricing">' + (m.is_free ? '<span class="price-highlight">' + I18n.t('gen.free') + '</span>'
         : '<div>in: ' + AIService.formatPrice(m.pricing.prompt) + '</div><div>out: ' + AIService.formatPrice(m.pricing.completion) + '</div>') + '</div></div>'
     ).join('')
-    + (hasMore ? '<div class="text-center py-2"><button class="btn btn-outline-accent btn-sm" id="btnLoadMoreModels">Load more (' + (filtered.length - end) + ' remaining)</button></div>' : '')
-    + '<div class="text-center text-muted" style="font-size:0.7rem;">Showing ' + Math.min(end, filtered.length) + ' of ' + filtered.length + ' models</div>';
+    + (hasMore ? '<div class="text-center py-2"><button class="btn btn-outline-accent btn-sm" id="btnLoadMoreModels">' + I18n.t('settings.loadMore', { count: (filtered.length - end) }) + '</button></div>' : '')
+    + '<div class="text-center text-muted" style="font-size:0.7rem;">' + I18n.t('settings.showingModels', { shown: Math.min(end, filtered.length), total: filtered.length }) + '</div>';
 
     Anims.staggerFadeIn(container.querySelectorAll('.model-item'), { stagger: 15, duration: 150 });
 
@@ -183,7 +183,7 @@ const Settings = {
         $('#aiModelSelect').value = item.dataset.modelId;
         CardStorage.setDefaultModel(item.dataset.modelId);
         self.renderModelList(filter);
-        Ui.showToast('Model set: ' + item.dataset.modelId, 'info');
+        Ui.showToast(I18n.t('toast.modelSet', { model: item.dataset.modelId }), 'info');
       });
     });
     const loadMore = container.querySelector('#btnLoadMoreModels');
@@ -219,7 +219,7 @@ const Settings = {
 
   confirmClearStorage() {
     const $ = (sel) => document.querySelector(sel);
-    if (!confirm('Delete ALL cards, settings, and chat history? This cannot be undone.')) return;
+    if (!confirm(I18n.t('settings.clearConfirm'))) return;
     CardStorage.clearAll();
     window.AppState.cards = [];
     window.AppState.activeCard = null;
@@ -240,7 +240,7 @@ const Settings = {
     this.renderModelList();
     $('#creditsBadge').classList.add('d-none');
     $('#aiChatMessages').innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>AI Card Assistant</h6><p>Ask the AI to edit, translate, or enhance your character card.</p></div>';
-    Ui.showToast('All data cleared', 'warning');
+    Ui.showToast(I18n.t('toast.dataCleared'), 'warning');
   },
 
   exportSettings() {
@@ -254,7 +254,7 @@ const Settings = {
       customModelId: CardStorage.getCustomModelId(),
     };
     Ui.downloadFile('st-card-editor-settings.json', JSON.stringify(settings, null, 2), 'application/json');
-    Ui.showToast('Settings exported', 'success');
+    Ui.showToast(I18n.t('toast.settingsExported'), 'success');
   },
 
   importSettings() {
@@ -273,9 +273,9 @@ const Settings = {
           if (settings.customApiUrl) { CardStorage.setCustomApiUrl(settings.customApiUrl); $('#customApiUrlInput').value = settings.customApiUrl; }
           if (settings.customApiKey) { CardStorage.setCustomApiKey(settings.customApiKey); $('#namedApiKeyInput').value = settings.customApiKey; }
           if (settings.customModelId) { CardStorage.setCustomModelId(settings.customModelId); $('#customModelInput').value = settings.customModelId; }
-          Ui.showToast('Settings imported!', 'success');
+          Ui.showToast(I18n.t('toast.settingsImported'), 'success');
         } catch (err) {
-          Ui.showToast('Invalid settings file', 'danger');
+          Ui.showToast(I18n.t('toast.invalidFile'), 'danger');
         }
       };
       reader.readAsText(file);

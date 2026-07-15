@@ -9,12 +9,12 @@ const AiChat = {
     const prompt = input.value.trim();
     const { activeCard } = window.AppState;
     if (!prompt || window.AppState.isAiLoading) return;
-    if (!AIService.hasApiKey()) { Ui.showToast('Set your API key in Settings', 'warning'); return; }
+    if (!AIService.hasApiKey()) { Ui.showToast(I18n.t('toast.apiKey'), 'warning'); return; }
 
     const targetField = $('#aiTargetSelect').value;
     const modelId = $('#aiModelSelect').value || $('#navModelSelect').value;
     if (!modelId) {
-      Ui.showToast('Please select a model from the navbar or settings first.', 'warning');
+      Ui.showToast(I18n.t('toast.selectModel'), 'warning');
       return;
     }
 
@@ -52,10 +52,10 @@ const AiChat = {
       .catch(err => {
         streamingEl.remove();
         if (err && err.name === 'AbortError') {
-          this.addChatMessage('system', 'Generation stopped.');
+          this.addChatMessage('system', I18n.t('toast.genStopped'));
         } else {
           this.addChatMessage('system', 'Error: ' + err.message);
-          Ui.showToast('AI Error: ' + err.message, 'danger');
+          Ui.showToast(I18n.t('toast.aiError', { error: err.message }), 'danger');
         }
       })
       .finally(() => { window.AppState.isAiLoading = false; this.updateSendButton(); });
@@ -154,14 +154,14 @@ const AiChat = {
             Object.assign(activeCard, internal);
             Editor.populateEditor(activeCard);
             Editor.syncEditorToCard();
-            Ui.showToast('Card updated from AI response!', 'success');
+            Ui.showToast(I18n.t('toast.cardUpdatedAI'), 'success');
           });
         } catch (e) {
           console.error('Failed to parse AI JSON response', e);
-          Ui.showToast('Could not parse AI response as JSON. Check the chat.', 'warning');
+          Ui.showToast(I18n.t('toast.jsonParseFailed'), 'warning');
         }
       } else {
-        Ui.showToast('AI didn\'t return valid JSON. The response is in the chat — you can copy it manually.', 'info');
+        Ui.showToast(I18n.t('toast.jsonInvalid'), 'info');
       }
     } else if (activeCard[targetField] !== undefined) {
       let clean = content.replace(/```[\s\S]*?```/g, '').replace(/^\[.*?\]\s*/gm, '').trim();
@@ -171,7 +171,7 @@ const AiChat = {
           Editor.populateEditor(activeCard);
           Editor.syncEditorToCard();
           CardManager.renderCardList();
-          Ui.showToast('"' + targetField + '" updated!', 'success');
+          Ui.showToast(I18n.t('toast.fieldUpdated', { field: targetField }), 'success');
         });
       }
     }
@@ -216,8 +216,8 @@ const AiChat = {
       Wizard.show();
       return;
     }
-    if (!AIService.hasApiKey()) { Ui.showToast('Set your API key in Settings', 'warning'); return; }
-    if (!activeCard) { Ui.showToast('Select a card first', 'warning'); return; }
+    if (!AIService.hasApiKey()) { Ui.showToast(I18n.t('toast.apiKey'), 'warning'); return; }
+    if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
 
     const prompts = {
       translate: null,
@@ -320,22 +320,22 @@ const AiChat = {
     window.AppState.chatHistory = [];
     CardStorage.clearChatHistory(window.AppState.activeCard?._id);
     const $ = (sel) => document.querySelector(sel);
-    $('#aiChatMessages').innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>AI Card Assistant</h6><p>Ask the AI to edit, translate, or enhance your character card.</p><div class="quick-actions">'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="newcard"><i class="bi bi-magic me-1"></i> New Card</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="translate"><i class="bi bi-translate me-1"></i> Translate</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance"><i class="bi bi-stars me-1"></i> Enhance</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="shorten"><i class="bi bi-arrows-angle-contract me-1"></i> Shorten</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="tone"><i class="bi bi-palette me-1"></i> Change Tone</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="grammar"><i class="bi bi-check2-all me-1"></i> Fix Grammar</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="personality"><i class="bi bi-emoji-smile me-1"></i> Expand Personality</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="firstmes"><i class="bi bi-chat-dots me-1"></i> Improve First Message</button>'
+    $('#aiChatMessages').innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>' + I18n.t('ai.welcomeTitle') + '</h6><p>' + I18n.t('ai.welcomeText') + '</p><div class="quick-actions">'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="newcard"><i class="bi bi-magic me-1"></i> ' + I18n.t('ai.actionNewCard') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="translate"><i class="bi bi-translate me-1"></i> ' + I18n.t('ai.actionTranslate') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance"><i class="bi bi-stars me-1"></i> ' + I18n.t('ai.actionEnhance') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="shorten"><i class="bi bi-arrows-angle-contract me-1"></i> ' + I18n.t('ai.actionShorten') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="tone"><i class="bi bi-palette me-1"></i> ' + I18n.t('ai.actionTone') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="grammar"><i class="bi bi-check2-all me-1"></i> ' + I18n.t('ai.actionGrammar') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="personality"><i class="bi bi-emoji-smile me-1"></i> ' + I18n.t('ai.actionPersonality') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="firstmes"><i class="bi bi-chat-dots me-1"></i> ' + I18n.t('ai.actionFirstMes') + '</button>'
       + '</div></div>';
     const self = this;
     $('#aiChatMessages').querySelectorAll('.quick-action').forEach(btn => {
       btn.addEventListener('click', () => self.handleQuickAction(btn.dataset.action));
     });
     Anims.staggerFadeIn($('#aiChatMessages').querySelectorAll('.quick-action'), { stagger: 40, duration: 180 });
-    Ui.showToast('Chat cleared', 'info');
+    Ui.showToast(I18n.t('toast.chatCleared'), 'info');
   },
 
   updateSendButton() {
@@ -361,7 +361,7 @@ const AiChat = {
     if (!modelId) {
       bar.style.width = '0%';
       bar.classList.remove('warn', 'danger');
-      label.textContent = 'Select a model';
+      label.textContent = I18n.t('ai.selectModel');
       return;
     }
 

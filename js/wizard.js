@@ -30,7 +30,7 @@ const Wizard = {
 
   _resetImageUI() {
     const btnFetch = document.querySelector('#wizBtnFetchImage');
-    if (btnFetch) btnFetch.innerHTML = '<i class="bi bi-shuffle me-1"></i>Fetch 3 Images';
+    if (btnFetch) btnFetch.innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.fetchImages');
     document.querySelectorAll('.wizard-image-card').forEach(c => {
       c.classList.remove('selected');
       const thumb = c.querySelector('.wiz-thumb');
@@ -164,7 +164,7 @@ const Wizard = {
   _next() {
     this._collectStep(this._step);
     if (this._step === 1 && !this._answers.name) {
-      Ui.showToast('Please enter a character name', 'warning');
+      Ui.showToast(I18n.t('wizard.nameRequired'), 'warning');
       Anims.shakeElement(document.querySelector('#wizName'));
       document.querySelector('#wizName').focus();
       return;
@@ -195,12 +195,12 @@ const Wizard = {
 
     if (step === this._totalSteps) {
       document.querySelector('#wizBtnNext').classList.add('d-none');
-      document.querySelector('#wizStepLabel').textContent = 'Ready to generate!';
+      document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.ready');
       this._renderSummary();
     } else {
       document.querySelector('#wizBtnNext').classList.remove('d-none');
-      document.querySelector('#wizBtnNext').innerHTML = 'Next <i class="bi bi-arrow-right ms-1"></i>';
-      document.querySelector('#wizStepLabel').textContent = 'Step ' + step + ' of ' + this._totalSteps;
+      document.querySelector('#wizBtnNext').innerHTML = I18n.t('wizard.next') + ' <i class="bi bi-arrow-right ms-1"></i>';
+      document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.stepLabel', { step: step, total: this._totalSteps });
     }
 
     this._renderStepIndicator();
@@ -225,12 +225,12 @@ const Wizard = {
 
     if (step === this._totalSteps) {
       document.querySelector('#wizBtnNext').classList.add('d-none');
-      document.querySelector('#wizStepLabel').textContent = 'Ready to generate!';
+      document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.ready');
       this._renderSummary();
     } else {
       document.querySelector('#wizBtnNext').classList.remove('d-none');
-      document.querySelector('#wizBtnNext').innerHTML = 'Next <i class="bi bi-arrow-right ms-1"></i>';
-      document.querySelector('#wizStepLabel').textContent = 'Step ' + step + ' of ' + this._totalSteps;
+      document.querySelector('#wizBtnNext').innerHTML = I18n.t('wizard.next') + ' <i class="bi bi-arrow-right ms-1"></i>';
+      document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.stepLabel', { step: step, total: this._totalSteps });
     }
 
     this._renderStepIndicator();
@@ -238,7 +238,7 @@ const Wizard = {
   },
 
   _renderStepIndicator() {
-    const labels = ['Basics', 'Concept', 'Personality', 'Scenario', 'Generate'];
+    const labels = [I18n.t('wizard.step.basics'), I18n.t('wizard.step.concept'), I18n.t('wizard.step.personality'), I18n.t('wizard.step.scenario'), I18n.t('wizard.step.generate')];
     const container = document.querySelector('#wizardStepsIndicator');
     container.innerHTML = labels.map((label, i) => {
       const stepNum = i + 1;
@@ -268,19 +268,19 @@ const Wizard = {
     };
 
     let html = '<div class="wizard-summary-grid">';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">Name</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.name || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">Gender</span><span class="wizard-summary-value">' + Ui.escapeHtml(genderLabel || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">Type</span><span class="wizard-summary-value">' + Ui.escapeHtml(typeLabels[a.type] || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">Language</span><span class="wizard-summary-value">' + Ui.escapeHtml(langLabel || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">Tags</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.tags || []).join(', ') || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">Genres</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.genres || []).join(', ') || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">Mood</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.moods || []).join(', ') || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">Opening</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.openingVibe || []).join(', ') || '-') + '</span></div>';
-    if (a.personalityDesc) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">Personality</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.personalityDesc) + '</span></div>';
-    if (a.appearance) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">Appearance</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.appearance) + '</span></div>';
-    if (a.scenario) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">Scenario</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.scenario) + '</span></div>';
-    if (a.relationship) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">Relationship</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.relationship) + '</span></div>';
-    if (a.notes) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">Notes</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.notes) + '</span></div>';
+    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.name') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.name || '-') + '</span></div>';
+    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.gender') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(genderLabel || '-') + '</span></div>';
+    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.type') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(typeLabels[a.type] || '-') + '</span></div>';
+    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.language') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(langLabel || '-') + '</span></div>';
+    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.tags') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.tags || []).join(', ') || '-') + '</span></div>';
+    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.genres') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.genres || []).join(', ') || '-') + '</span></div>';
+    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.mood') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.moods || []).join(', ') || '-') + '</span></div>';
+    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.opening') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.openingVibe || []).join(', ') || '-') + '</span></div>';
+    if (a.personalityDesc) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">' + I18n.t('wizard.summary.personality') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.personalityDesc) + '</span></div>';
+    if (a.appearance) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">' + I18n.t('wizard.summary.appearance') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.appearance) + '</span></div>';
+    if (a.scenario) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">' + I18n.t('wizard.summary.scenario') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.scenario) + '</span></div>';
+    if (a.relationship) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">' + I18n.t('wizard.summary.relationship') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.relationship) + '</span></div>';
+    if (a.notes) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">' + I18n.t('wizard.summary.notes') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.notes) + '</span></div>';
     html += '</div>';
 
     document.querySelector('#wizardSummary').innerHTML = html;
@@ -301,7 +301,7 @@ const Wizard = {
         self._selectedImageIdx = idx;
         document.querySelector('#wizBtnUseImage').classList.remove('d-none');
         document.querySelector('#wizBtnRemoveImage').classList.remove('d-none');
-        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>Refetch Others';
+        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.refetchOthers');
       });
     });
   },
@@ -310,7 +310,7 @@ const Wizard = {
     const btn = document.querySelector('#wizBtnFetchImage');
     const origHtml = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Fetching...';
+    btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>' + I18n.t('wizard.fetching');
 
     try {
       // Determine which slots need new images (unselected ones)
@@ -359,15 +359,15 @@ const Wizard = {
       if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
         document.querySelector('#wizBtnUseImage').classList.remove('d-none');
         document.querySelector('#wizBtnRemoveImage').classList.remove('d-none');
-        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>Refetch Others';
+        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.refetchOthers');
       } else {
         document.querySelector('#wizBtnUseImage').classList.add('d-none');
         document.querySelector('#wizBtnRemoveImage').classList.add('d-none');
-        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>Fetch 3 Images';
+        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.fetchImages');
       }
     } catch (e) {
       console.error('waifu.im fetch failed', e);
-      Ui.showToast('Failed to fetch images: ' + e.message, 'danger');
+      Ui.showToast(I18n.t('toast.wizardFetchFailed', { error: e.message }), 'danger');
     } finally {
       btn.disabled = false;
       btn.innerHTML = origHtml;
@@ -378,7 +378,7 @@ const Wizard = {
     if (this._selectedImageIdx < 0 || !this._fetchedImages[this._selectedImageIdx]) return;
     const card = window.AppState.activeCard;
     if (!card) {
-      Ui.showToast('Create or select a card first', 'warning');
+      Ui.showToast(I18n.t('toast.createCardFirst'), 'warning');
       return;
     }
     await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob);
@@ -396,7 +396,7 @@ const Wizard = {
     });
     document.querySelector('#wizBtnUseImage').classList.add('d-none');
     document.querySelector('#wizBtnRemoveImage').classList.add('d-none');
-    document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>Fetch 3 Images';
+    document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.fetchImages');
   },
 
   // ─── GENERATE ───────────────────────────────────────
@@ -413,18 +413,18 @@ const Wizard = {
     CardManager.renderCardList();
     await CardManager.selectCard(card);
     document.querySelector('#editName').focus();
-    Ui.showToast('Card created! Start editing or use AI to fill in the details.', 'success');
+    Ui.showToast(I18n.t('toast.wizardCreated'), 'success');
   },
 
   async _generateWithAI() {
     this._collectStep(this._step);
     if (!AIService.hasApiKey()) {
-      Ui.showToast('Set your API key in Settings first', 'warning');
+      Ui.showToast(I18n.t('toast.wizardApi'), 'warning');
       return;
     }
     const modelId = document.querySelector('#aiModelSelect').value || document.querySelector('#navModelSelect').value;
     if (!modelId) {
-      Ui.showToast('Select a model or set a custom model ID in Settings', 'warning');
+      Ui.showToast(I18n.t('toast.wizardModel'), 'warning');
       return;
     }
 

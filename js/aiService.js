@@ -105,7 +105,7 @@ const AIService = {
     if (this._provider === 'custom') {
       return this._fetchCustomModels();
     }
-    if (!this._apiKey) throw new Error('API key not set');
+    if (!this._apiKey) throw new Error(I18n.t('error.apiKeyNotSet'));
     
     const resp = await fetch(`${this.BASE_URL}/models`, {
       headers: {
@@ -192,7 +192,7 @@ const AIService = {
    * Fetch API key info (credits, limits, usage).
    */
   async fetchKeyInfo() {
-    if (!this._apiKey) throw new Error('API key not set');
+    if (!this._apiKey) throw new Error(I18n.t('error.apiKeyNotSet'));
     
     const resp = await fetch(`${this.BASE_URL}/key`, {
       headers: {
@@ -227,7 +227,7 @@ const AIService = {
   async chat(prompt, systemPrompt = '', model = '') {
     const apiKey = this._getApiKeyForProvider();
     const info = this.getProviderInfo(this._provider);
-    if (!apiKey && info.requiresKey) throw new Error('API key not set');
+    if (!apiKey && info.requiresKey) throw new Error(I18n.t('error.apiKeyNotSet'));
     
     const messages = [];
     if (systemPrompt) {
@@ -237,7 +237,7 @@ const AIService = {
     
     const useModel = this._resolveModel(model);
     if (!useModel) {
-      throw new Error('No model selected. Please choose a model or set a model ID in Settings.');
+      throw new Error(I18n.t('error.noModel'));
     }
 
     const maxTokens = this.resolveMaxTokens(useModel, messages);
@@ -264,7 +264,7 @@ const AIService = {
     
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      if (resp.status === 402) throw new Error('Insufficient credits. Please top up your account.');
+      if (resp.status === 402) throw new Error(I18n.t('error.insufficientCredits'));
       throw new Error(err.error?.message || `HTTP ${resp.status}`);
     }
     
@@ -295,14 +295,14 @@ const AIService = {
   async chatStream(prompt, systemPrompt = '', model = '', onChunk, signal) {
     const apiKey = this._getApiKeyForProvider();
     const info = this.getProviderInfo(this._provider);
-    if (!apiKey && info.requiresKey) throw new Error('API key not set');
+    if (!apiKey && info.requiresKey) throw new Error(I18n.t('error.apiKeyNotSet'));
 
     const messages = [];
     if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
     messages.push({ role: 'user', content: prompt });
 
     const useModel = this._resolveModel(model);
-    if (!useModel) throw new Error('No model selected.');
+    if (!useModel) throw new Error(I18n.t('error.noModelSimple'));
 
     const maxTokens = this.resolveMaxTokens(useModel, messages);
     const baseUrl = this._getBaseUrl();
@@ -323,7 +323,7 @@ const AIService = {
 
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      if (resp.status === 402) throw new Error('Insufficient credits.');
+      if (resp.status === 402) throw new Error(I18n.t('error.insufficientCredits'));
       throw new Error(err.error?.message || `HTTP ${resp.status}`);
     }
 

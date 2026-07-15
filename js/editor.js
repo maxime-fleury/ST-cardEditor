@@ -50,7 +50,7 @@ const Editor = {
     const el = document.querySelector('#' + this._fieldToDomId(entry.field));
     if (el) el.value = entry.oldValue;
     Editor.syncEditorToCard();
-    Ui.showToast('Undid change to ' + entry.prop, 'info');
+    Ui.showToast(I18n.t('toast.undo') + ' ' + entry.prop, 'info');
   },
 
   redo() {
@@ -103,7 +103,7 @@ const Editor = {
     this.renderGreetings(card);
 
     const metaCreator = $('#metaCreator');
-    if (metaCreator) { metaCreator.textContent = card.creator ? 'By ' + card.creator : ''; safeStyle('#metaCreator', card.creator ? '' : 'none'); }
+    if (metaCreator) { metaCreator.textContent = card.creator ? I18n.t('gen.byCreator', { name: card.creator }) : ''; safeStyle('#metaCreator', card.creator ? '' : 'none'); }
     safeStyle('#metaVersion', card.character_version ? '' : 'none');
     const metaVersion = $('#metaVersion');
     if (metaVersion) { metaVersion.textContent = card.character_version ? 'v' + card.character_version : ''; }
@@ -159,7 +159,7 @@ const Editor = {
 
   async setAvatar(file) {
     const { activeCard } = window.AppState;
-    if (!activeCard) { Ui.showToast('Select a card first', 'warning'); return; }
+    if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
     try {
       const b64 = await CardEngine._blobToBase64(file);
       activeCard._imageBase64 = b64;
@@ -171,10 +171,10 @@ const Editor = {
       if (ph) ph.style.display = 'none';
       await CardStorage.saveImage(activeCard._id, b64);
       await this.syncEditorToCard();
-      Ui.showToast('Avatar updated', 'success');
+      Ui.showToast(I18n.t('toast.avatarUpdated'), 'success');
     } catch (e) {
       console.error('Avatar load failed', e);
-      Ui.showToast('Failed to load image', 'danger');
+      Ui.showToast(I18n.t('toast.imgFailed'), 'danger');
     }
   },
 
@@ -216,7 +216,7 @@ const Editor = {
     count.textContent = greetings.length ? '(' + greetings.length + ')' : '';
 
     if (!greetings.length) {
-      container.innerHTML = '<div class="text-muted" style="font-size:0.8rem;padding:0.5rem 0;">No alternate greetings yet.</div>';
+      container.innerHTML = '<div class="text-muted" style="font-size:0.8rem;padding:0.5rem 0;">' + I18n.t('editor.greetings') + '</div>';
       return;
     }
 
@@ -252,7 +252,7 @@ const Editor = {
           $('#editFirstMes').value = g;
           self.renderGreetings(window.AppState.activeCard);
           self.syncEditorToCard();
-          Ui.showToast('First message updated!', 'success');
+          Ui.showToast(I18n.t('toast.firstMesUpdated'), 'success');
         }
       });
     });
@@ -325,7 +325,7 @@ const Editor = {
     const searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : '';
 
     if (entries.length === 0) {
-      container.innerHTML = '<div class="text-muted text-center py-4" id="lorebookEmpty"><i class="bi bi-journal-text d-block mb-2" style="font-size: 2rem;"></i>No lorebook entries yet. Add one to get started.</div>';
+      container.innerHTML = '<div class="text-muted text-center py-4" id="lorebookEmpty"><i class="bi bi-journal-text d-block mb-2" style="font-size: 2rem;"></i>' + I18n.t('editor.lorebookEmpty') + '</div>';
       return;
     }
 

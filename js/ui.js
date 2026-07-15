@@ -155,6 +155,9 @@ async function init() {
   if (maxTokens > 0) $('#maxTokensInput').value = maxTokens;
   $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
 
+  // ─── I18n ────────────────────────────────────────────
+  I18n.init();
+
   const settingsModal = new bootstrap.Modal('#settingsModal');
 
   CardManager.renderCardList();
@@ -235,6 +238,11 @@ function bindEvents(settingsModal) {
   $('#btnExportSettings').addEventListener('click', () => Settings.exportSettings());
   $('#btnImportSettings').addEventListener('click', () => Settings.importSettings());
   $('#providerSelect').addEventListener('change', () => Settings.toggleProvider());
+  $('#languageSelect').addEventListener('change', (e) => {
+    I18n.setLanguage(e.target.value);
+    I18n.translateDOM();
+    Ui.showToast(I18n.t('settings.languageChanged'), 'success');
+  });
   settingsModal._element.addEventListener('shown.bs.modal', () => Settings.openSettings());
   $('#navModelSelect').addEventListener('change', () => Settings.onNavModelChange());
   $('#aiModelSelect').addEventListener('change', () => {

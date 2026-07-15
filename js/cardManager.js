@@ -42,7 +42,7 @@ const CardManager = {
       } catch (err) {
         console.error('Parse error:', file.name, err);
         errors++;
-        Ui.showToast('Failed: ' + file.name + ' — ' + err.message, 'danger');
+        Ui.showToast(I18n.t('toast.loadFailed', { name: file.name + ' — ' + err.message }), 'danger');
       }
     }
 
@@ -50,10 +50,10 @@ const CardManager = {
       window.AppState.cards = CardStorage.getCards();
       this.renderCardList();
       if (loaded === 1 && window.AppState.cards.length > 0) await this.selectCard(window.AppState.cards[0]);
-      Ui.showToast('Loaded ' + loaded + ' card' + (loaded !== 1 ? 's' : ''), 'success');
+      Ui.showToast(I18n.t('toast.loaded', { count: loaded }), 'success');
     }
     if (errors > 0 && loaded === 0)
-      Ui.showToast('No valid cards found. Drop PNG or JSON files.', 'warning');
+      Ui.showToast(I18n.t('toast.noValid'), 'warning');
   },
 
   _cardListBound: false,
@@ -74,15 +74,15 @@ const CardManager = {
     if (!toolbar) return;
     if (this._selectedIds.size >= 2) {
       toolbar.classList.remove('d-none');
-      count.textContent = this._selectedIds.size + ' selected';
+      count.textContent = I18n.t('left.selected', { count: this._selectedIds.size });
     } else {
       toolbar.classList.add('d-none');
     }
   },
 
   async batchDelete() {
-    if (this._selectedIds.size === 0) { Ui.showToast('No cards selected', 'info'); return; }
-    if (!confirm('Delete ' + this._selectedIds.size + ' cards? This cannot be undone.')) return;
+    if (this._selectedIds.size === 0) { Ui.showToast(I18n.t('toast.noSelected'), 'info'); return; }
+    if (!confirm(I18n.t('batch.deleteConfirm', { count: this._selectedIds.size }))) return;
     for (const id of this._selectedIds) await CardStorage.deleteCard(id);
     this._selectedIds.clear();
     this._updateBatchToolbar();
@@ -92,11 +92,11 @@ const CardManager = {
       Editor.hideEditor();
     }
     this.renderCardList();
-    Ui.showToast('Cards deleted', 'warning');
+    Ui.showToast(I18n.t('toast.cardsDeleted'), 'warning');
   },
 
   async batchExportJSON() {
-    if (this._selectedIds.size === 0) { Ui.showToast('No cards selected', 'info'); return; }
+    if (this._selectedIds.size === 0) { Ui.showToast(I18n.t('toast.noSelected'), 'info'); return; }
     const cards = [];
     for (const id of this._selectedIds) {
       const card = await CardStorage.getCard(id);
@@ -111,7 +111,7 @@ const CardManager = {
     } else {
       Ui.downloadFile('cards_export.json', JSON.stringify(cards, null, 2), 'application/json');
     }
-    Ui.showToast('Exported ' + cards.length + ' cards', 'success');
+    Ui.showToast(I18n.t('toast.exported', { count: cards.length }), 'success');
   },
 
   // ─── SORTING ──────────────────────────────────────────
@@ -156,7 +156,7 @@ const CardManager = {
     const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
 
     if (sortedTags.length === 0) {
-      tagCloudEl.innerHTML = '<span style="font-size:0.68rem;color:var(--text-muted);">No tags found</span>';
+      tagCloudEl.innerHTML = '<span style="font-size:0.68rem;color:var(--text-muted);">' + I18n.t('gen.untagged') + '</span>';
       return;
     }
 
@@ -188,7 +188,7 @@ const CardManager = {
     const emptyState = $('#emptyState');
     const searchWrap = $('#cardSearchWrap');
     const controlsWrap = $('#libraryControls');
-    $('#cardCount').textContent = cards.length + ' card' + (cards.length !== 1 ? 's' : '');
+    $('#cardCount').textContent = I18n.t('left.cards', { count: cards.length });
 
     if (searchWrap) searchWrap.style.display = cards.length > 3 ? '' : 'none';
     if (controlsWrap) controlsWrap.style.display = cards.length > 3 ? '' : 'none';
@@ -220,7 +220,7 @@ const CardManager = {
     filtered = this._sortCards(filtered);
 
     if (filtered.length === 0 && (this._searchQuery || this._activeTagFilters.size > 0)) {
-      container.innerHTML = '<div class="text-center text-muted py-4">No cards match your filters</div>';
+      container.innerHTML = '<div class="text-center text-muted py-4">' + I18n.t('gen.noMatch') + '</div>';
       emptyState.style.display = 'none';
       return;
     }
@@ -242,7 +242,7 @@ const CardManager = {
         + (thumb ? '<img src="' + Ui.escapeAttr(thumb) + '" alt="">' : '<i class="bi bi-person-fill"></i>')
         + '</div>'
         + '<div class="card-list-info">'
-        + '<div class="card-list-name">' + Ui.escapeHtml(card.name || 'Unnamed') + '</div>'
+        + '<div class="card-list-name">' + Ui.escapeHtml(card.name || I18n.t('gen.unnamed')) + '</div>'
         + '<div class="card-list-meta">'
         + (card.creator ? Ui.escapeHtml(card.creator) : '')
         + (card.creator && tags.length ? ' · ' : '')
@@ -254,8 +254,8 @@ const CardManager = {
         + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + '</span>' : '')
         + '<div class="card-preview-tooltip">'
         + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : '')
-        + '<div class="fw-semibold">' + Ui.escapeHtml(card.name || 'Unnamed') + '</div>'
-        + (card.creator ? '<div class="text-muted" style="font-size:0.7rem;">by ' + Ui.escapeHtml(card.creator) + '</div>' : '')
+        + '<div class="fw-semibold">' + Ui.escapeHtml(card.name || I18n.t('gen.unnamed')) + '</div>'
+        + (card.creator ? '<div class="text-muted" style="font-size:0.7rem;">' + I18n.t('gen.byCreator', { name: Ui.escapeHtml(card.creator) }) + '</div>' : '')
         + (desc ? '<div class="preview-desc">' + Ui.escapeHtml(desc) + '</div>' : '')
         + '</div></div>';
     }).join('');
@@ -387,22 +387,22 @@ const CardManager = {
     this.renderCardList();
     await this.selectCard(card);
     document.querySelector('#editName').focus();
-    Ui.showToast('New blank card created', 'success');
+    Ui.showToast(I18n.t('toast.newBlank'), 'success');
   },
 
   async saveCurrentCard() {
     const { activeCard } = window.AppState;
-    if (!activeCard) { Ui.showToast('No card to save', 'warning'); return; }
+    if (!activeCard) { Ui.showToast(I18n.t('toast.noCardSave'), 'warning'); return; }
     await Editor.syncEditorToCard();
     window.AppState._dirty = false;
     Ui.setDirty(false);
     this.renderCardList();
-    Ui.showToast('Card saved!', 'success');
+    Ui.showToast(I18n.t('toast.cardSaved'), 'success');
   },
 
   async duplicateCard() {
     const { activeCard } = window.AppState;
-    if (!activeCard) { Ui.showToast('No card to duplicate', 'warning'); return; }
+    if (!activeCard) { Ui.showToast(I18n.t('toast.noCardDup'), 'warning'); return; }
     await Editor.syncEditorToCard();
     const clone = JSON.parse(JSON.stringify(activeCard));
     clone._id = 'card_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
@@ -412,7 +412,7 @@ const CardManager = {
     window.AppState.cards = CardStorage.getCards();
     this.renderCardList();
     await this.selectCard(clone);
-    Ui.showToast('Card duplicated', 'success');
+    Ui.showToast(I18n.t('toast.cardDup'), 'success');
   },
 
   async deleteActiveCard() {
@@ -433,8 +433,8 @@ const CardManager = {
     toastEl.className = 'toast align-items-center border-0';
     toastEl.setAttribute('role', 'alert');
     toastEl.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2">'
-      + '<i class="bi bi-trash-fill text-danger"></i>Card "' + Ui.escapeHtml(snapshot.name || 'Unnamed') + '" deleted'
-      + '<button class="btn btn-sm btn-outline-accent ms-2" id="undoDeleteBtn">Undo</button>'
+      + '<i class="bi bi-trash-fill text-danger"></i>' + I18n.t('toast.cardDeleted', { name: Ui.escapeHtml(snapshot.name || I18n.t('gen.unnamed')) })
+      + '<button class="btn btn-sm btn-outline-accent ms-2" id="undoDeleteBtn">' + I18n.t('toast.undo') + '</button>'
       + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
     document.querySelector('#toastContainer').appendChild(toastEl);
     const toast = new bootstrap.Toast(toastEl, { delay: 8000 });
@@ -451,7 +451,7 @@ const CardManager = {
       window.AppState.cards = CardStorage.getCards();
       this.renderCardList();
       await this.selectCard(snapshot);
-      Ui.showToast('Card restored', 'success');
+      Ui.showToast(I18n.t('toast.cardRestored'), 'success');
     });
   },
 };
