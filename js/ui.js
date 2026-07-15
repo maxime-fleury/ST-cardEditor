@@ -168,7 +168,7 @@ async function init() {
     $('#apiKeyInput').value = apiKey;
   }
   if (defaultModel) {
-    $('#navModelSelect').value = defaultModel;
+    $('#aiModelSelect').value = defaultModel;
     $('#defaultModelSelect').value = defaultModel;
   }
 
@@ -182,7 +182,7 @@ async function init() {
       const customModel = CardStorage.getCustomModelId();
       if (customModel) {
         CardStorage.setDefaultModel(customModel);
-        $('#navModelSelect').value = customModel;
+        $('#aiModelSelect').value = customModel;
       }
     }
   }
@@ -262,7 +262,6 @@ function bindEvents(settingsModal) {
     }
   });
 
-  $('#btnNewCard').addEventListener('click', () => CardManager.createNewCard());
   $('#btnNewCardCenter').addEventListener('click', () => CardManager.createNewCard());
   $('#btnSaveCard').addEventListener('click', () => CardManager.saveCurrentCard());
   $('#btnSettings').addEventListener('click', () => settingsModal.show());
@@ -281,11 +280,10 @@ function bindEvents(settingsModal) {
     Ui.showToast(I18n.t('settings.languageChanged'), 'success');
   });
   settingsModal._element.addEventListener('shown.bs.modal', () => Settings.openSettings());
-  $('#navModelSelect').addEventListener('change', () => Settings.onNavModelChange());
   $('#aiModelSelect').addEventListener('change', () => {
     const val = $('#aiModelSelect').value;
     if (val) {
-      $('#navModelSelect').value = val;
+      $('#defaultModelSelect').value = val;
       CardStorage.setDefaultModel(val);
     }
   });
@@ -365,10 +363,10 @@ function bindEvents(settingsModal) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); AiChat.send(); }
   });
   $('#btnClearChat').addEventListener('click', () => AiChat.clearChat());
+  $('#btnChatHistory').addEventListener('click', () => AiChat.toggleHistory());
   $('#aiInput').addEventListener('input', Ui.debounce(() => AiChat.updateContextBar(), 400));
   $('#aiTargetSelect').addEventListener('change', () => AiChat.updateContextBar());
   $('#aiModelSelect').addEventListener('change', () => AiChat.updateContextBar());
-  $('#navModelSelect').addEventListener('change', () => AiChat.updateContextBar());
   const stopBtn = $('#btnAiStop');
   if (stopBtn) stopBtn.addEventListener('click', () => { if (AiChat._abortController) AiChat._abortController.abort(); });
 

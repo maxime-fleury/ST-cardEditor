@@ -3,27 +3,37 @@
    ============================================================ */
 
 const AiChat = {
-  send() {
+  send(retryPrompt) {
     const $ = (sel) => document.querySelector(sel);
     const input = $('#aiInput');
-    const prompt = input.value.trim();
+    const prompt = retryPrompt || input.value.trim();
     const { activeCard } = window.AppState;
     if (!prompt || window.AppState.isAiLoading) return;
+
+    // Close history panel if open
+    const histPanel = $('#aiHistoryPanel');
+    if (histPanel && histPanel.classList.contains('open')) {
+      this.toggleHistory(false);
+    }
     if (!AIService.hasApiKey()) { Ui.showToast(I18n.t('toast.apiKey'), 'warning'); return; }
 
     const targetField = $('#aiTargetSelect').value;
-    const modelId = $('#aiModelSelect').value || $('#navModelSelect').value;
+    const modelId = $('#aiModelSelect').value;
     if (!modelId) {
       Ui.showToast(I18n.t('toast.selectModel'), 'warning');
       return;
     }
 
-    input.value = '';
+    if (!retryPrompt) {
+      input.value = '';
+    }
     window.AppState.isAiLoading = true;
     this.updateSendButton();
 
-    this.addChatMessage('user', prompt);
-    window.AppState.chatHistory.push({ role: 'user', content: prompt });
+    if (!retryPrompt) {
+      this.addChatMessage('user', prompt);
+      window.AppState.chatHistory.push({ role: 'user', content: prompt });
+    }
     CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
 
     const streamingEl = this.createStreamingMessage();
@@ -43,6 +53,7 @@ const AiChat = {
         this.addChatMessage('assistant', result.content, result.usage);
         window.AppState.chatHistory.push({ role: 'assistant', content: result.content });
         CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
+        this._updateSession();
 
         if (['full','description','personality','first_mes','scenario','mes_example','system_prompt','post_history_instructions','creator_notes'].includes(targetField)) {
           this.tryApplyAIResponse(result.content, targetField);
@@ -287,9 +298,57 @@ const AiChat = {
     const el = document.createElement('div');
     el.className = 'ai-message ' + role;
     el.innerHTML = formatted + '<div class="text-muted mt-1" style="font-size:0.6rem;">' + time + '</div>' + usageInfo;
+
+    // Add retry button on assistant messages
+    if (role === 'assistant') {
+      const retryBtn = document.createElement('button');
+      retryBtn.className = 'ai-message-retry';
+      retryBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> ' + (I18n.t ? I18n.t('ai.retry') : 'Retry');
+      retryBtn.title = I18n.t ? I18n.t('ai.retryTitle') : 'Regenerate this response';
+      retryBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.retryLastMessage();
+      });
+      el.appendChild(retryBtn);
+    }
+
     container.appendChild(el);
     Anims.staggerFadeIn(el, { duration: 200, from: 10 });
     container.scrollTop = container.scrollHeight;
+  },
+
+  retryLastMessage() {
+    const { chatHistory } = window.AppState;
+    // Find the last user message (skip system messages)
+    let lastUserIdx = -1;
+    for (let i = chatHistory.length - 1; i >= 0; i--) {
+      if (chatHistory[i].role === 'user') {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    if (lastUserIdx < 0) return;
+
+    const lastUserPrompt = chatHistory[lastUserIdx].content;
+    // Remove the last user message and any messages after it
+    chatHistory.splice(lastUserIdx);
+    window.AppState.isAiLoading = false;
+
+    // Remove the last user+assistant pair from the DOM
+    const $ = (sel) => document.querySelector(sel);
+    const container = $('#aiChatMessages');
+    const allMsgs = container.querySelectorAll('.ai-message');
+    // Walk backwards through the DOM messages (only user/assistant, skip system)
+    let removed = 0;
+    for (let i = allMsgs.length - 1; i >= 0 && removed < 2; i--) {
+      const msg = allMsgs[i];
+      if (msg.classList.contains('system')) continue;
+      msg.remove();
+      removed++;
+    }
+
+    CardStorage.saveChatHistory(chatHistory, window.AppState.activeCard?._id);
+    this.send(lastUserPrompt);
   },
 
   createStreamingMessage() {
@@ -316,6 +375,112 @@ const AiChat = {
     if (welcome) welcome.remove();
     chatHistory.forEach(msg => this.addChatMessage(msg.role, msg.content));
     this._historyRendered = true;
+  },
+
+  // ─── Chat Sessions ───────────────────────────────────
+
+  _updateSession() {
+    const { chatHistory, activeCard } = window.AppState;
+    if (!chatHistory || chatHistory.length < 2) return; // at least one exchange
+    const cardId = activeCard?._id || 'global';
+    const sessions = CardStorage.getChatSessions(cardId);
+
+    // Find the first user message for the preview
+    const firstUser = chatHistory.find(m => m.role === 'user');
+    const preview = firstUser
+      ? (firstUser.content.length > 80 ? firstUser.content.slice(0, 80) + '...' : firstUser.content)
+      : 'Chat session';
+
+    const now = Date.now();
+    const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+
+    // Check if we should update the last session or create a new one
+    let currentSession = sessions.length > 0 ? sessions[0] : null;
+
+    if (currentSession && (now - (currentSession.lastUpdated || currentSession.created)) < SESSION_TIMEOUT) {
+      // Update existing session
+      currentSession.lastUpdated = now;
+      currentSession.preview = preview;
+      currentSession.messageCount = chatHistory.length;
+      CardStorage.saveChatSession(cardId, currentSession);
+    } else {
+      // Create a new session
+      const session = {
+        id: 'ses_' + now + '_' + Math.random().toString(36).slice(2, 7),
+        created: now,
+        lastUpdated: now,
+        preview: preview,
+        messageCount: chatHistory.length,
+      };
+      CardStorage.saveChatSession(cardId, session);
+    }
+  },
+
+  _renderHistoryList() {
+    const $ = (sel) => document.querySelector(sel);
+    const list = $('#aiHistoryList');
+    if (!list) return;
+    const cardId = window.AppState.activeCard?._id || 'global';
+    const sessions = CardStorage.getChatSessions(cardId);
+
+    if (sessions.length === 0) {
+      list.innerHTML = '<div class="ai-history-empty">' + (I18n.t ? I18n.t('ai.historyEmpty') : 'No conversations yet') + '</div>';
+      return;
+    }
+
+    list.innerHTML = sessions.map(s => {
+      const date = new Date(s.created);
+      const dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return '<div class="ai-history-item" data-session-id="' + Ui.escapeAttr(s.id) + '">'
+        + '<div class="ai-history-item-preview">' + Ui.escapeHtml(s.preview) + '</div>'
+        + '<div class="ai-history-item-meta">'
+        + '<span class="ai-history-item-time">' + dateStr + ' ' + timeStr + '</span>'
+        + '<span class="ai-history-item-count">' + (s.messageCount || '?') + ' msgs</span>'
+        + '</div></div>';
+    }).join('');
+
+    list.querySelectorAll('.ai-history-item').forEach(item => {
+      item.addEventListener('click', () => {
+        this._loadSession(item.dataset.sessionId);
+      });
+    });
+  },
+
+  _loadSession(sessionId) {
+    const cardId = window.AppState.activeCard?._id || 'global';
+    const sessions = CardStorage.getChatSessions(cardId);
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+
+    // Load the chat history and scroll to the session point
+    // Since we store flat history, we'll just show the full history
+    this._historyRendered = false;
+    this.toggleHistory(false);
+    this.renderChatHistory();
+
+    // Highlight the active session
+    this._renderHistoryList();
+    const $ = (sel) => document.querySelector(sel);
+    const item = $('#aiHistoryList')?.querySelector('[data-session-id="' + sessionId + '"]');
+    if (item) item.classList.add('active');
+  },
+
+  toggleHistory(forceState) {
+    const $ = (sel) => document.querySelector(sel);
+    const panel = $('#aiHistoryPanel');
+    const messages = $('#aiChatMessages');
+    const inputArea = $('.ai-input-area');
+    if (!panel) return;
+
+    const isOpen = forceState !== undefined ? forceState : !panel.classList.contains('open');
+    panel.classList.toggle('open', isOpen);
+    if (messages) messages.style.display = isOpen ? 'none' : '';
+    if (inputArea) inputArea.style.display = isOpen ? 'none' : '';
+
+    if (isOpen) {
+      this._renderHistoryList();
+    }
   },
 
   clearChat() {
@@ -356,7 +521,7 @@ const AiChat = {
     const label = $('#contextBarLabel');
     if (!bar || !label) return;
 
-    const modelId = $('#aiModelSelect').value || $('#navModelSelect').value;
+    const modelId = $('#aiModelSelect').value;
     const targetField = $('#aiTargetSelect').value;
     const prompt = $('#aiInput').value || '';
     const { activeCard } = window.AppState;

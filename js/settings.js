@@ -20,7 +20,6 @@ const Settings = {
       CardStorage.setApiKey(apiKey);
       AIService.setProvider('openrouter');
       CardStorage.setDefaultModel(defaultModel);
-      $('#navModelSelect').value = defaultModel;
       $('#aiModelSelect').value = defaultModel;
     } else {
       const info = AIService.getProviderInfo(provider);
@@ -31,7 +30,6 @@ const Settings = {
       AIService.setProvider(provider, customApiKey);
       if (customModelId) {
         CardStorage.setDefaultModel(customModelId);
-        $('#navModelSelect').value = customModelId;
         $('#aiModelSelect').value = customModelId;
       }
     }
@@ -149,9 +147,8 @@ const Settings = {
     const $ = (sel) => document.querySelector(sel);
     const d = CardStorage.getDefaultModel();
     const h = window.AppState.models.map(m => '<option value="' + Ui.escapeHtml(m.id) + '"' + (m.id === d ? ' selected' : '') + '>' + Ui.escapeHtml(m.name) + (m.is_free ? ' [' + I18n.t('gen.free') + ']' : '') + '</option>').join('');
-    $('#navModelSelect').innerHTML = '<option value="">Auto</option>' + h;
     $('#defaultModelSelect').innerHTML = '<option value="">Auto</option>' + h;
-    $('#aiModelSelect').innerHTML = '<option value="">Auto (use nav model)</option>' + h;
+    $('#aiModelSelect').innerHTML = '<option value="">Select model...</option>' + h;
   },
 
   _modelPageSize: 50,
@@ -186,7 +183,6 @@ const Settings = {
     container.querySelectorAll('.model-item').forEach(item => {
       item.addEventListener('click', () => {
         $('#defaultModelSelect').value = item.dataset.modelId;
-        $('#navModelSelect').value = item.dataset.modelId;
         $('#aiModelSelect').value = item.dataset.modelId;
         CardStorage.setDefaultModel(item.dataset.modelId);
         self.renderModelList(filter);
@@ -202,12 +198,7 @@ const Settings = {
     this.renderModelList($('#modelSearch').value, true);
   },
 
-  onNavModelChange() {
-    const $ = (sel) => document.querySelector(sel);
-    const val = $('#navModelSelect').value;
-    CardStorage.setDefaultModel(val);
-    if (val) $('#aiModelSelect').value = val;
-  },
+
 
   async updateStorageUsage() {
     const $ = (sel) => document.querySelector(sel);
@@ -240,9 +231,8 @@ const Settings = {
     $('#customApiKeyInput').value = '';
     $('#customModelInput').value = '';
     this.toggleProvider();
-    $('#navModelSelect').innerHTML = '<option value="">Select model...</option>';
     $('#defaultModelSelect').innerHTML = '<option value="">Browse models below...</option>';
-    $('#aiModelSelect').innerHTML = '<option value="">Auto (use nav model)</option>';
+    $('#aiModelSelect').innerHTML = '<option value="">Select model...</option>';
     Editor.hideEditor();
     CardManager.renderCardList();
     this.renderModelList();
@@ -275,7 +265,7 @@ const Settings = {
         try {
           const settings = JSON.parse(reader.result);
           if (settings.provider) { CardStorage.setProvider(settings.provider); $('#providerSelect').value = settings.provider; this.toggleProvider(); }
-          if (settings.defaultModel) { CardStorage.setDefaultModel(settings.defaultModel); $('#defaultModelSelect').value = settings.defaultModel; $('#navModelSelect').value = settings.defaultModel; $('#aiModelSelect').value = settings.defaultModel; }
+          if (settings.defaultModel) { CardStorage.setDefaultModel(settings.defaultModel); $('#defaultModelSelect').value = settings.defaultModel; $('#aiModelSelect').value = settings.defaultModel; }
           if (settings.maxTokens !== undefined) { CardStorage.setMaxTokens(settings.maxTokens); $('#maxTokensInput').value = settings.maxTokens || ''; }
           if (settings.injectCopyright !== undefined) { CardStorage.setInjectCopyright(settings.injectCopyright); $('#injectCopyrightToggle').checked = settings.injectCopyright; }
           if (settings.customApiUrl) { CardStorage.setCustomApiUrl(settings.customApiUrl); $('#customApiUrlInput').value = settings.customApiUrl; }

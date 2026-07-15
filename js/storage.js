@@ -339,6 +339,10 @@ const CardStorage = {
     return this.PREFIX + this._keys.aiChatHistory + '_' + (cardId || 'global');
   },
 
+  _sessionKey(cardId) {
+    return this.PREFIX + 'chatSessions_' + (cardId || 'global');
+  },
+
   getChatHistory(cardId) {
     try {
       const raw = localStorage.getItem(this._chatKey(cardId));
@@ -361,9 +365,42 @@ const CardStorage = {
   clearChatHistory(cardId) {
     if (cardId) {
       localStorage.removeItem(this._chatKey(cardId));
+      localStorage.removeItem(this._sessionKey(cardId));
     } else {
       localStorage.removeItem(this._chatKey('global'));
+      localStorage.removeItem(this._sessionKey('global'));
     }
+  },
+
+  // ─── Chat Sessions (grouped by time) ───────────────────
+
+  getChatSessions(cardId) {
+    try {
+      const raw = localStorage.getItem(this._sessionKey(cardId));
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  saveChatSession(cardId, session) {
+    try {
+      const sessions = this.getChatSessions(cardId);
+      const idx = sessions.findIndex(s => s.id === session.id);
+      if (idx >= 0) {
+        sessions[idx] = session;
+      } else {
+        sessions.unshift(session);
+      }
+      localStorage.setItem(this._sessionKey(cardId), JSON.stringify(sessions));
+    } catch { /* silently fail */ }
+  },
+
+  deleteChatSession(cardId, sessionId) {
+    try {
+      const sessions = this.getChatSessions(cardId).filter(s => s.id !== sessionId);
+      localStorage.setItem(this._sessionKey(cardId), JSON.stringify(sessions));
+    } catch { /* silently fail */ }
   },
 
   // ─── Utility ───────────────────────────────────────────

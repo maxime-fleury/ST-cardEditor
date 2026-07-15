@@ -456,7 +456,7 @@ const Wizard = {
       Ui.showToast(I18n.t('toast.wizardApi'), 'warning');
       return;
     }
-    const modelId = document.querySelector('#aiModelSelect').value || document.querySelector('#navModelSelect').value;
+    const modelId = document.querySelector('#aiModelSelect').value;
     if (!modelId) {
       Ui.showToast(I18n.t('toast.wizardModel'), 'warning');
       return;

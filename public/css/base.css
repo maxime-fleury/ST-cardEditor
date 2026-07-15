@@ -69,18 +69,6 @@ a:hover { color: var(--purple-400); text-decoration: underline; }
   padding: 0.25em 0.55em;
 }
 
-.model-select-nav {
-  background: var(--bg-surface);
-  border: 1px solid var(--surface-border);
-  color: var(--text-primary);
-  font-size: 0.8rem;
-  width: 200px;
-  border-radius: var(--radius-sm);
-}
-.model-select-nav:focus {
-  border-color: var(--border-accent);
-  box-shadow: 0 0 0 0.15rem var(--purple-glow);
-}
 
 .credits-badge {
   display: flex;
