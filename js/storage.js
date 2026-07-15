@@ -220,15 +220,10 @@ const CardStorage = {
   },
 
   /**
-   * Save all cards (replaces entire list).
+   * Save the card metadata index array (preserving sidebar card order).
    */
-  async saveCards(cards) {
+  saveCardIndex(index) {
     try {
-      const index = [];
-      for (const card of cards) {
-        await this.DB.set(this.DB.stores.cards, card._id, card);
-        index.push(this._extractMeta(card));
-      }
       localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
     } catch (e) {
       if (e.name === 'QuotaExceededError') {

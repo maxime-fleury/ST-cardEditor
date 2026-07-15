@@ -345,6 +345,7 @@ const Editor = {
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].content = ta.value;
           self.syncEditorToCard();
+          self.autoResizeTextareas();
         }
       }, 600));
     });

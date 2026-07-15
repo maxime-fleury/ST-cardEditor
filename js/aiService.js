@@ -243,13 +243,17 @@ const AIService = {
     let full = '';
     let usage = null;
 
+    let bufferStr = '';
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const text = decoder.decode(value, { stream: true });
-      for (const line of text.split('\n')) {
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
+      bufferStr += decoder.decode(value, { stream: true });
+      const lines = bufferStr.split('\n');
+      bufferStr = lines.pop();
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data: ')) continue;
+        const data = trimmed.slice(6).trim();
         if (data === '[DONE]') break;
         try {
           const parsed = JSON.parse(data);

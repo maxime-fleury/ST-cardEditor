@@ -220,7 +220,7 @@ const CardManager = {
         const [moved] = cards.splice(fromIdx, 1);
         const adjustedTo = toIdx > fromIdx ? toIdx - 1 : toIdx;
         cards.splice(adjustedTo, 0, moved);
-        CardStorage.saveCards(cards);
+        CardStorage.saveCardIndex(cards);
         this.renderCardList();
         dragId = null;
       });
