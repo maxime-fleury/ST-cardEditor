@@ -18,6 +18,7 @@ const Wizard = {
     this._answers = {};
     this._fetchedImageUrl = null;
     this._fetchedImageBlob = null;
+    this._autoFetched = false;
     this._resetFormUI();
     this._resetImageUI();
     this._renderStepIndicator();
@@ -217,6 +218,11 @@ const Wizard = {
       document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.stepLabel', { step: step, total: this._totalSteps });
     }
 
+    if (step === this._totalSteps && !this._autoFetched) {
+      this._autoFetched = true;
+      this._fetchImage();
+    }
+
     this._renderStepIndicator();
     this._updateProgressBar();
 
@@ -245,6 +251,11 @@ const Wizard = {
       document.querySelector('#wizBtnNext').classList.remove('d-none');
       document.querySelector('#wizBtnNext').innerHTML = I18n.t('wizard.next') + ' <i class="bi bi-arrow-right ms-1"></i>';
       document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.stepLabel', { step: step, total: this._totalSteps });
+    }
+
+    if (step === this._totalSteps && !this._autoFetched) {
+      this._autoFetched = true;
+      this._fetchImage();
     }
 
     this._renderStepIndicator();
@@ -336,7 +347,7 @@ const Wizard = {
       const needed = slotsToFetch.length;
       if (needed === 0) { btn.disabled = false; btn.innerHTML = origHtml; return; }
 
-      const resp = await fetch('https://api.waifu.im/images?included_tags=waifu&is_nsfw=false&page_size=' + needed);
+            const resp = await fetch('https://api.waifu.im/images?included_tags=waifu&is_nsfw=false&page_size=' + needed);
       if (!resp.ok) throw new Error('API returned ' + resp.status);
       const data = await resp.json();
       if (!data.items || !data.items.length) throw new Error('No images returned');

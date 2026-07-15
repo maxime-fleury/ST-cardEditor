@@ -209,7 +209,8 @@
 .wizard-image-card:hover { border-color: var(--border-default); }
 .wizard-image-card.selected {
   border-color: var(--purple-500);
-  box-shadow: 0 0 0 2px var(--purple-glow), 0 0 12px var(--purple-glow);
+  box-shadow: 0 0 0 3px var(--purple-500), 0 0 20px var(--purple-glow);
+  transform: scale(1.04);
 }
 .wizard-image-card.selected .wizard-image-selected {
   opacity: 1;
