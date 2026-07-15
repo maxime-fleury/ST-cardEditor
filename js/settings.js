@@ -13,6 +13,7 @@ const Settings = {
     CardStorage.setMaxTokens(maxTokens);
     CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
     $('#navModelSelect').value = defaultModel;
+    $('#aiModelSelect').value = defaultModel;
     modal.hide();
     Ui.showToast('Settings saved!', 'success');
     if (apiKey) { this.refreshCredits(); this.refreshModelsList(); }
@@ -96,6 +97,7 @@ const Settings = {
       item.addEventListener('click', () => {
         $('#defaultModelSelect').value = item.dataset.modelId;
         $('#navModelSelect').value = item.dataset.modelId;
+        $('#aiModelSelect').value = item.dataset.modelId;
         CardStorage.setDefaultModel(item.dataset.modelId);
         self.renderModelList(filter);
         Ui.showToast('Model set: ' + item.dataset.modelId, 'info');
@@ -112,7 +114,9 @@ const Settings = {
 
   onNavModelChange() {
     const $ = (sel) => document.querySelector(sel);
-    CardStorage.setDefaultModel($('#navModelSelect').value);
+    const val = $('#navModelSelect').value;
+    CardStorage.setDefaultModel(val);
+    if (val) $('#aiModelSelect').value = val;
   },
 
   updateStorageUsage() {
@@ -162,7 +166,7 @@ const Settings = {
       reader.onload = () => {
         try {
           const settings = JSON.parse(reader.result);
-          if (settings.defaultModel) { CardStorage.setDefaultModel(settings.defaultModel); $('#defaultModelSelect').value = settings.defaultModel; $('#navModelSelect').value = settings.defaultModel; }
+          if (settings.defaultModel) { CardStorage.setDefaultModel(settings.defaultModel); $('#defaultModelSelect').value = settings.defaultModel; $('#navModelSelect').value = settings.defaultModel; $('#aiModelSelect').value = settings.defaultModel; }
           if (settings.maxTokens !== undefined) { CardStorage.setMaxTokens(settings.maxTokens); $('#maxTokensInput').value = settings.maxTokens || ''; }
           if (settings.injectCopyright !== undefined) { CardStorage.setInjectCopyright(settings.injectCopyright); $('#injectCopyrightToggle').checked = settings.injectCopyright; }
           Ui.showToast('Settings imported!', 'success');

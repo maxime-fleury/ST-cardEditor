@@ -164,6 +164,13 @@ function bindEvents(settingsModal) {
   $('#btnExportSettings').addEventListener('click', () => Settings.exportSettings());
   $('#btnImportSettings').addEventListener('click', () => Settings.importSettings());
   $('#navModelSelect').addEventListener('change', () => Settings.onNavModelChange());
+  $('#aiModelSelect').addEventListener('change', () => {
+    const val = $('#aiModelSelect').value;
+    if (val) {
+      $('#navModelSelect').value = val;
+      CardStorage.setDefaultModel(val);
+    }
+  });
   $('#btnExportJson').addEventListener('click', () => ExportUtils.exportAsJSON());
   $('#btnExportPng').addEventListener('click', () => ExportUtils.exportAsPNG());
   $('#btnDeleteCard').addEventListener('click', () => CardManager.deleteActiveCard());
