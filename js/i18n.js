@@ -125,6 +125,8 @@ translations.en = {
   'ai.historyEmpty': 'No conversations yet',
   'ai.retry': 'Retry',
   'ai.retryTitle': 'Regenerate this response',
+  'ai.reapply': 'Re-apply',
+  'ai.reapplyTitle': 'Re-open diff to apply these changes',
   'ai.noCard': '(no card selected)',
   'ai.editing': 'Editing {{count}} field(s)...',
   'ai.streaming': 'streaming...',

@@ -7,6 +7,7 @@ const AiChat = {
   _historyRendered: false,
   _selectedFields: new Set(), // fields selected for editing
   _greetingCount: 3,
+  _applyStore: new Map(),     // msgId → { content, field } for re-apply
 
   FIELD_DEFS: [
     { id: 'description', labelKey: 'ai.target.description', icon: 'bi-card-text' },
@@ -430,7 +431,7 @@ const AiChat = {
     )
       .then(result => {
         streamingEl.remove();
-        this.addChatMessage('assistant', result.content, result.usage);
+        this.addChatMessage('assistant', result.content, result.usage, { content: result.content, field: 'full' });
         window.AppState.chatHistory.push({ role: 'assistant', content: result.content });
         CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
         this._updateSession();
@@ -440,7 +441,7 @@ const AiChat = {
       .catch(err => {
         streamingEl.remove();
         if (err && err.name === 'AbortError') {
-          this.addChatMessage('system', I18n.t('toast.genStopped'));
+          this.addChatMessage('system', I18n.t ? I18n.t('toast.genStopped') : 'Generation stopped.');
         } else {
           this.addChatMessage('system', 'Error: ' + err.message);
           Ui.showToast(I18n.t('toast.aiError', { error: err.message }), 'danger');
@@ -693,7 +694,7 @@ const AiChat = {
 
   // ─── CHAT MESSAGES ──────────────────────────────────
 
-  addChatMessage(role, content, usage) {
+  addChatMessage(role, content, usage, applyData) {
     const $ = (sel) => document.querySelector(sel);
     const container = $('#aiChatMessages');
     const welcome = container.querySelector('.ai-welcome');
@@ -724,6 +725,28 @@ const AiChat = {
     el.innerHTML = formatted + '<div class="text-muted mt-1" style="font-size:0.6rem;">' + time + '</div>' + usageInfo;
 
     if (role === 'assistant') {
+      const actionsWrap = document.createElement('div');
+      actionsWrap.className = 'ai-message-actions';
+
+      // Re-apply button — appears when there is pending apply data for this message
+      const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      if (applyData && applyData.content) {
+        this._applyStore.set(msgId, applyData);
+        el.setAttribute('data-apply-id', msgId);
+        const reapplyBtn = document.createElement('button');
+        reapplyBtn.className = 'ai-message-reapply';
+        reapplyBtn.innerHTML = '<i class="bi bi-check2-circle"></i> ' + (I18n.t ? I18n.t('ai.reapply') : 'Re-apply');
+        reapplyBtn.title = I18n.t ? I18n.t('ai.reapplyTitle') : 'Re-open diff to apply these changes';
+        reapplyBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const stored = this._applyStore.get(msgId);
+          if (stored) {
+            this.tryApplyAIResponse(stored.content, stored.field);
+          }
+        });
+        actionsWrap.appendChild(reapplyBtn);
+      }
+
       const retryBtn = document.createElement('button');
       retryBtn.className = 'ai-message-retry';
       retryBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> ' + (I18n.t ? I18n.t('ai.retry') : 'Retry');
@@ -732,7 +755,9 @@ const AiChat = {
         e.stopPropagation();
         this.retryLastMessage();
       });
-      el.appendChild(retryBtn);
+      actionsWrap.appendChild(retryBtn);
+
+      el.appendChild(actionsWrap);
     }
 
     container.appendChild(el);
@@ -899,6 +924,7 @@ const AiChat = {
   clearChat() {
     this._historyRendered = false;
     this._selectedFields.clear();
+    this._applyStore.clear();
     this._renderFieldChips();
     window.AppState.chatHistory = [];
     CardStorage.clearChatHistory(window.AppState.activeCard?._id);

@@ -591,11 +591,11 @@ const Wizard = {
 
     await CardStorage.upsertCard(card);
     window.AppState.cards = CardStorage.getCards();
-    CardManager.renderCardList();
     await CardManager.selectCard(card);
     if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
       try { await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob); } catch (_) {}
     }
+    CardManager.renderCardList();
     document.querySelector('#editName').focus();
     Ui.showToast(I18n.t('toast.wizardCreated'), 'success');
   },
@@ -669,11 +669,11 @@ const Wizard = {
     card.creator = a.creator || '';
     await CardStorage.upsertCard(card);
     window.AppState.cards = CardStorage.getCards();
-    CardManager.renderCardList();
     await CardManager.selectCard(card);
     if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
       try { await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob); } catch (_) {}
     }
+    CardManager.renderCardList();
 
     // Send to AI
     AiChat.send();

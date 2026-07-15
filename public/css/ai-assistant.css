@@ -9,6 +9,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  max-width: 250px;
 }
 
 .ai-welcome {
@@ -83,6 +84,10 @@
   color: var(--text-primary);
 }
 .ai-message.assistant:hover { border-color: var(--border-default); box-shadow: 0 4px 12px rgba(0,0,0,0.2); transform: translateY(-1px); }
+.ai-message-content {
+  max-width: 170px;
+  word-break: break-word;
+}
 .ai-message pre {
   background: var(--bg-deep);
   border: 1px solid var(--surface-border);
@@ -104,7 +109,14 @@
   font-style: italic;
 }
 /* Retry / Regenerate button on assistant messages */
-.ai-message-retry {
+.ai-message-actions {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  margin-top: 0.3rem;
+}
+.ai-message-retry,
+.ai-message-reapply {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -116,15 +128,20 @@
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
   transition: all var(--transition-fast);
-  margin-top: 0.3rem;
   opacity: 0.5;
 }
-.ai-message-retry:hover {
+.ai-message-retry:hover,
+.ai-message-reapply:hover {
   color: var(--text-accent);
   background: var(--bg-surface-hover);
   opacity: 1;
 }
-.ai-message.assistant:hover .ai-message-retry {
+.ai-message-reapply:hover {
+  color: var(--success);
+  border-color: var(--success);
+}
+.ai-message.assistant:hover .ai-message-retry,
+.ai-message.assistant:hover .ai-message-reapply {
   opacity: 0.8;
 }
 
