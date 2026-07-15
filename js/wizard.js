@@ -361,13 +361,62 @@ const Wizard = {
         this._fetchedImages[i] = null;
       }
 
+      // Derive relevant tags from wizard answers for better image selection
+      const genreMap = {
+        fantasy: 'waifu',
+        scifi: 'waifu',
+        modern: 'uniform',
+        historical: 'maid',
+        horror: 'waifu',
+        romance: 'waifu',
+        comedy: 'waifu',
+        'slice-of-life': 'maid',
+        adventure: 'waifu',
+        mystery: 'waifu',
+        cyberpunk: 'uniform',
+        'post-apocalyptic': 'waifu',
+        supernatural: 'waifu',
+        military: 'uniform',
+        surreal: 'waifu',
+      };
+      const a = this._answers;
+      const selectedGenres = a.genres || [];
+      // Pick the best tag: first matching genre, or fallback to waifu
+      let primaryTag = 'waifu';
+      for (const genre of selectedGenres) {
+        if (genreMap[genre]) {
+          primaryTag = genreMap[genre];
+          break;
+        }
+      }
+
+      // Also use the character type to influence tag choice
+      const typeTagMap = {
+        anime: 'waifu',
+        game: 'uniform',
+        vtuber: 'selfies',
+        historical: 'maid',
+        fanfic: 'waifu',
+      };
+      if (a.type && typeTagMap[a.type]) {
+        primaryTag = typeTagMap[a.type];
+      }
+
+      // Build a varied tag per slot for diversity
+      const sfwTags = ['waifu', 'maid', 'uniform', 'selfies'];
+
       await Promise.all(slotsToFetch.map(async (i) => {
         try {
-          const resp = await fetch('https://api.waifu.im/images?included_tags=waifu&is_nsfw=false');
+          // Use different tags per slot for variety, with fallback to waifu
+          const slotTag = sfwTags[(i + sfwTags.indexOf(primaryTag)) % sfwTags.length] || 'waifu';
+          const page = Math.max(1, Math.floor(Math.random() * 20));
+          const resp = await fetch('https://api.waifu.im/images?included_tags=' + slotTag + '&is_nsfw=false&page=' + page);
           if (!resp.ok) throw new Error('API returned ' + resp.status);
           const data = await resp.json();
-          const item = data.items && data.items[0];
-          if (!item) throw new Error('No image returned');
+          const items = data.items || [];
+          if (!items.length) throw new Error('No image returned for tag: ' + slotTag);
+          // Pick a random image from the page for variety
+          const item = items[Math.floor(Math.random() * items.length)];
           const imgResp = await fetch(item.url);
           const blob = await imgResp.blob();
           const objUrl = URL.createObjectURL(blob);

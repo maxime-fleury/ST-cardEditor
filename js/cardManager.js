@@ -376,7 +376,13 @@ const CardManager = {
   },
 
   async _doSelect(cardMeta) {
-    const { activeCard } = window.AppState;
+    const { activeCard, isAiLoading } = window.AppState;
+    // Abort any ongoing AI generation when switching cards
+    if (isAiLoading && AiChat._abortController) {
+      AiChat._abortController.abort();
+      window.AppState.isAiLoading = false;
+      AiChat.updateSendButton();
+    }
     if (activeCard && activeCard._id !== cardMeta._id) await Editor.syncEditorToCard();
     const fullCard = await CardStorage.getCard(cardMeta._id);
     if (!fullCard) return;
