@@ -338,21 +338,17 @@ const Wizard = {
     btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>' + I18n.t('wizard.fetching');
 
     try {
-      // Determine which slots need new images (unselected ones)
+      // Determine which slots need new images (unselected ones).
+      // waifu.im /images returns only a single image per request, so we fetch
+      // each needed slot with its own request (in parallel).
       const slotsToFetch = [];
       for (let i = 0; i < 3; i++) {
         if (i === this._selectedImageIdx) continue; // keep selected
         slotsToFetch.push(i);
       }
-      const needed = slotsToFetch.length;
-      if (needed === 0) { btn.disabled = false; btn.innerHTML = origHtml; return; }
+      if (!slotsToFetch.length) { btn.disabled = false; btn.innerHTML = origHtml; return; }
 
-            const resp = await fetch('https://api.waifu.im/images?included_tags=waifu&is_nsfw=false&page_size=' + needed);
-      if (!resp.ok) throw new Error('API returned ' + resp.status);
-      const data = await resp.json();
-      if (!data.items || !data.items.length) throw new Error('No images returned');
-
-      // Only clear unselected cards
+      // Clear unselected cards before fetching
       for (const i of slotsToFetch) {
         const card = document.querySelectorAll('.wizard-image-card')[i];
         card.classList.remove('selected');
@@ -360,27 +356,34 @@ const Wizard = {
         thumb.src = '';
         thumb.hidden = true;
         card.querySelector('.wizard-image-placeholder').classList.remove('d-none');
+        const prev = this._fetchedImages[i];
+        if (prev && prev._objUrl) URL.revokeObjectURL(prev._objUrl);
         this._fetchedImages[i] = null;
       }
 
-      // Fill in new images
-      let fetchIdx = 0;
-      for (const i of slotsToFetch) {
-        if (fetchIdx >= data.items.length) break;
-        const item = data.items[fetchIdx];
-        const imgResp = await fetch(item.url);
-        const blob = await imgResp.blob();
-        const objUrl = URL.createObjectURL(blob);
-        const prev = this._fetchedImages[i];
-        if (prev && prev._objUrl) URL.revokeObjectURL(prev._objUrl);
-        this._fetchedImages[i] = { blob, url: item.url, _objUrl: objUrl, tags: (item.tags || []).map(t => t.name).join(', ') };
-        const card = document.querySelectorAll('.wizard-image-card')[i];
-        const thumb = card.querySelector('.wiz-thumb');
-        thumb.src = objUrl;
-        thumb.hidden = false;
-        card.querySelector('.wizard-image-placeholder').classList.add('d-none');
-        fetchIdx++;
-      }
+      await Promise.all(slotsToFetch.map(async (i) => {
+        try {
+          const resp = await fetch('https://api.waifu.im/images?included_tags=waifu&is_nsfw=false');
+          if (!resp.ok) throw new Error('API returned ' + resp.status);
+          const data = await resp.json();
+          const item = data.items && data.items[0];
+          if (!item) throw new Error('No image returned');
+          const imgResp = await fetch(item.url);
+          const blob = await imgResp.blob();
+          const objUrl = URL.createObjectURL(blob);
+          this._fetchedImages[i] = { blob, url: item.url, _objUrl: objUrl, tags: (item.tags || []).map(t => t.name).join(', ') };
+          const card = document.querySelectorAll('.wizard-image-card')[i];
+          const thumb = card.querySelector('.wiz-thumb');
+          thumb.src = objUrl;
+          thumb.hidden = false;
+          card.querySelector('.wizard-image-placeholder').classList.add('d-none');
+        } catch (e) {
+          console.error('waifu.im slot ' + i + ' fetch failed', e);
+        }
+      }));
+
+      const ok = slotsToFetch.some(i => this._fetchedImages[i]);
+      if (!ok) throw new Error('All requests failed');
 
       // Update buttons based on current selection
       if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
