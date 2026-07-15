@@ -79,7 +79,7 @@
 .drop-zone {
   margin: 0.65rem;
   padding: 1.5rem 1rem;
-  border: 2px dashed var(--border-default);
+  border: 2px dashed var(--border-default);px dashed var(--border-default);
   border-radius: var(--radius-md);
   text-align: center;
   transition: all var(--transition-normal);

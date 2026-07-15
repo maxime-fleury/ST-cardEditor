@@ -179,7 +179,7 @@ const CardEngine = {
 
   createEmptyCard(name) {
     name = name || 'New Character';
-    return {
+    const card = {
       _id: 'card_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9),
       _filename: name + '.json', _hasImage: false, _imageBase64: null,
       _createdAt: Date.now(), _fileSize: 0,
@@ -191,6 +191,8 @@ const CardEngine = {
       creator: '', character_version: '1.0',
       character_book: { entries: [] }, extensions: {},
     };
+    card._fileSize = JSON.stringify(card).length;
+    return card;
   },
 
   toJSON(card) {

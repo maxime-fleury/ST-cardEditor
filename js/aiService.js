@@ -227,7 +227,7 @@ const AIService = {
    * @param {string} model - Model ID
    * @returns {Promise<object>} { content, usage, model }
    */
-  async chat(prompt, systemPrompt = '', model = '') {
+  async chat(prompt, systemPrompt = '', model = '', signal) {
     const apiKey = this._getApiKeyForProvider();
     const info = this.getProviderInfo(this._provider);
     if (!apiKey && info.requiresKey) throw new Error(I18n.t('error.apiKeyNotSet'));
@@ -263,7 +263,7 @@ const AIService = {
         max_tokens: maxTokens,
         stream: false,
       }),
-      signal: AbortSignal.timeout(120000),
+      signal: signal || AbortSignal.timeout(120000),
     });
     
     if (!resp.ok) {

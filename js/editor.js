@@ -36,7 +36,7 @@ const Editor = {
     this._redoStack = [];
   },
 
-  undo() {
+  async undo() {
     if (!this._undoStack.length) return;
     const { activeCard } = window.AppState;
     if (!activeCard) return;
@@ -45,14 +45,14 @@ const Editor = {
     activeCard[entry.prop] = entry.oldValue;
     const el = document.querySelector('#' + this._fieldToDomId(entry.field));
     if (el) el.value = entry.oldValue;
-    Editor.syncEditorToCard();
+    await Editor.syncEditorToCard();
     this.updateCharCounts();
     this.autoResizeTextareas();
     AiChat.updateContextBar();
     Ui.showToast(I18n.t('toast.undo') + ' ' + entry.prop, 'info');
   },
 
-  redo() {
+  async redo() {
     if (!this._redoStack.length) return;
     const { activeCard } = window.AppState;
     if (!activeCard) return;
@@ -61,7 +61,7 @@ const Editor = {
     activeCard[entry.prop] = entry.newValue;
     const el = document.querySelector('#' + this._fieldToDomId(entry.field));
     if (el) el.value = entry.newValue;
-    Editor.syncEditorToCard();
+    await Editor.syncEditorToCard();
     this.updateCharCounts();
     this.autoResizeTextareas();
     AiChat.updateContextBar();
@@ -161,6 +161,7 @@ const Editor = {
   },
 
   async setAvatar(file) {
+    const $ = (sel) => document.querySelector(sel);
     const { activeCard } = window.AppState;
     if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
     try {
@@ -240,57 +241,57 @@ const Editor = {
 
     const self = this;
     container.querySelectorAll('.greeting-delete').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         window.AppState.activeCard.alternate_greetings.splice(parseInt(btn.dataset.idx), 1);
         self.renderGreetings(window.AppState.activeCard);
-        self.syncEditorToCard();
+        await self.syncEditorToCard();
       });
     });
 
     container.querySelectorAll('.greeting-set-default').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const g = window.AppState.activeCard.alternate_greetings[parseInt(btn.dataset.idx)];
         if (g) {
           window.AppState.activeCard.first_mes = g;
           $('#editFirstMes').value = g;
           self.renderGreetings(window.AppState.activeCard);
-          self.syncEditorToCard();
+          await self.syncEditorToCard();
           Ui.showToast(I18n.t('toast.firstMesUpdated'), 'success');
         }
       });
     });
 
     container.querySelectorAll('.greeting-up').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const idx = parseInt(btn.dataset.idx);
         if (idx > 0) {
           const arr = window.AppState.activeCard.alternate_greetings;
           [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
           self.renderGreetings(window.AppState.activeCard);
-          self.syncEditorToCard();
+          await self.syncEditorToCard();
         }
       });
     });
 
     container.querySelectorAll('.greeting-down').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const idx = parseInt(btn.dataset.idx);
         const arr = window.AppState.activeCard.alternate_greetings;
         if (idx < arr.length - 1) {
           [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
           self.renderGreetings(window.AppState.activeCard);
-          self.syncEditorToCard();
+          await self.syncEditorToCard();
         }
       });
     });
 
     container.querySelectorAll('.greeting-textarea').forEach(ta => {
-      ta.addEventListener('input', Ui.debounce(() => {
+      ta.addEventListener('input', Ui.debounce(async () => {
         const idx = parseInt(ta.dataset.greetingIdx);
         if (window.AppState.activeCard.alternate_greetings[idx] !== undefined) {
           window.AppState.activeCard.alternate_greetings[idx] = ta.value;
         }
-        self.syncEditorToCard();
+        await self.syncEditorToCard();
       }, 500));
     });
   },
@@ -305,14 +306,14 @@ const Editor = {
     activeCard.alternate_greetings = greetings;
   },
 
-  addGreeting() {
+  async addGreeting() {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
     const $ = (sel) => document.querySelector(sel);
     if (!activeCard.alternate_greetings) activeCard.alternate_greetings = [];
     activeCard.alternate_greetings.push('');
     this.renderGreetings(activeCard);
-    this.syncEditorToCard();
+    await this.syncEditorToCard();
     const allTas = $('#greetingsList').querySelectorAll('.greeting-textarea');
     const last = allTas[allTas.length - 1];
     if (last) last.focus();
@@ -402,97 +403,97 @@ const Editor = {
 
     const self = this;
     container.querySelectorAll('.lorebook-delete-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         window.AppState.activeCard.character_book.entries.splice(parseInt(btn.dataset.idx), 1);
         self.renderLorebook(window.AppState.activeCard);
-        self.syncEditorToCard();
+        await self.syncEditorToCard();
       });
     });
     container.querySelectorAll('textarea[data-lore-idx]').forEach(ta => {
-      ta.addEventListener('input', Ui.debounce(() => {
+      ta.addEventListener('input', Ui.debounce(async () => {
         const idx = parseInt(ta.dataset.loreIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].content = ta.value;
-          self.syncEditorToCard();
+          await self.syncEditorToCard();
           self.autoResizeTextareas();
         }
       }, 600));
     });
     container.querySelectorAll('input[data-lore-key-idx]').forEach(input => {
-      input.addEventListener('input', Ui.debounce(() => {
+      input.addEventListener('input', Ui.debounce(async () => {
         const idx = parseInt(input.dataset.loreKeyIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].key = input.value.trim();
-          self.syncEditorToCard();
+          await self.syncEditorToCard();
         }
       }, 600));
     });
     container.querySelectorAll('input[data-lore-secondary-idx]').forEach(input => {
-      input.addEventListener('input', Ui.debounce(() => {
+      input.addEventListener('input', Ui.debounce(async () => {
         const idx = parseInt(input.dataset.loreSecondaryIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].keysecondary = input.value.split(',').map(s => s.trim()).filter(Boolean);
-          self.syncEditorToCard();
+          await self.syncEditorToCard();
         }
       }, 600));
     });
     container.querySelectorAll('input[data-lore-comment-idx]').forEach(input => {
-      input.addEventListener('input', Ui.debounce(() => {
+      input.addEventListener('input', Ui.debounce(async () => {
         const idx = parseInt(input.dataset.loreCommentIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].comment = input.value;
-          self.syncEditorToCard();
+          await self.syncEditorToCard();
         }
       }, 600));
     });
     container.querySelectorAll('input[data-lore-order-idx]').forEach(input => {
-      input.addEventListener('input', Ui.debounce(() => {
+      input.addEventListener('input', Ui.debounce(async () => {
         const idx = parseInt(input.dataset.loreOrderIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           const parsed = parseInt(input.value, 10);
           window.AppState.activeCard.character_book.entries[idx].order = Number.isNaN(parsed) ? 100 : parsed;
-          self.syncEditorToCard();
+          await self.syncEditorToCard();
         }
       }, 600));
     });
     container.querySelectorAll('input[data-lore-constant-idx]').forEach(cb => {
-      cb.addEventListener('change', () => {
+      cb.addEventListener('change', async () => {
         const idx = parseInt(cb.dataset.loreConstantIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].constant = cb.checked;
-          self.syncEditorToCard();
+          await self.syncEditorToCard();
         }
       });
     });
     container.querySelectorAll('input[data-lore-selective-idx]').forEach(cb => {
-      cb.addEventListener('change', () => {
+      cb.addEventListener('change', async () => {
         const idx = parseInt(cb.dataset.loreSelectiveIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].selective = cb.checked;
-          self.syncEditorToCard();
+          await self.syncEditorToCard();
         }
       });
     });
     container.querySelectorAll('select[data-lore-position-idx]').forEach(sel => {
-      sel.addEventListener('change', () => {
+      sel.addEventListener('change', async () => {
         const idx = parseInt(sel.dataset.lorePositionIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].position = sel.value;
-          self.syncEditorToCard();
+          await self.syncEditorToCard();
         }
       });
     });
   },
 
-  addLorebookEntry() {
+  async addLorebookEntry() {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
     if (!activeCard.character_book) activeCard.character_book = { entries: [] };
     if (!activeCard.character_book.entries) activeCard.character_book.entries = [];
     activeCard.character_book.entries.push({ key: 'New Entry', content: '', keysecondary: [], constant: false, selective: false, position: 'after_char', order: 100, comment: '' });
     this.renderLorebook(activeCard);
-    this.syncEditorToCard();
+    await this.syncEditorToCard();
   },
 };
 

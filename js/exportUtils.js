@@ -17,11 +17,11 @@ const ExportUtils = {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
     await Editor.syncEditorToCard();
-    if (!activeCard.name) Ui.showToast('Warning: Card has no name. File will be saved as "character.json".', 'warning');
+    if (!activeCard.name) Ui.showToast(I18n.t('toast.noNameWarning'), 'warning');
     const clone = JSON.parse(JSON.stringify(activeCard));
     if (CardStorage.getInjectCopyright()) this.injectCopyright(clone);
     Ui.downloadFile((activeCard.name || 'character') + '.json', CardEngine.toJSON(clone), 'application/json');
-    Ui.showToast('Exported as JSON!', 'success');
+    Ui.showToast(I18n.t('toast.exportedJson'), 'success');
   },
 
   async exportAsPNG() {
@@ -44,10 +44,10 @@ const ExportUtils = {
       }
       const blob = new Blob([this.embedCharaChunk(pngBytes, json)], { type: 'image/png' });
       Ui.downloadBlob(blob, (activeCard.name || 'character') + '.png');
-      Ui.showToast('Exported as PNG with card data!', 'success');
+      Ui.showToast(I18n.t('toast.exportedPng'), 'success');
     } catch (err) {
       console.error('PNG export failed:', err);
-      Ui.showToast('Image export failed. Falling back to JSON.', 'warning');
+      Ui.showToast(I18n.t('toast.exportFailed'), 'warning');
       this.exportAsJSON();
     }
   },

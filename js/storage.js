@@ -300,11 +300,13 @@ const CardStorage = {
   /**
    * Delete a card by ID.
    */
-  deleteCard(id) {
+  async deleteCard(id) {
     const index = this.getCards().filter(c => c._id !== id);
     localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
-    this.deleteImage(id).catch(() => {});
-    this.DB.delete(this.DB.stores.cards, id).catch(() => {});
+    await Promise.all([
+      this.deleteImage(id).catch(() => {}),
+      this.DB.delete(this.DB.stores.cards, id).catch(() => {}),
+    ]);
     if (this.getActiveCardId() === id) {
       this.setActiveCardId(null);
     }

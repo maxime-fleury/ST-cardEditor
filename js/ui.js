@@ -14,6 +14,7 @@ window.Ui = {
     type = type || 'info';
     const icons = { success: 'bi-check-circle-fill text-success', danger: 'bi-exclamation-triangle-fill text-danger', warning: 'bi-exclamation-circle-fill text-warning', info: 'bi-info-circle-fill text-info' };
     const container = document.querySelector('#toastContainer');
+    if (!container) return;
     while (container.children.length >= 3) container.firstChild.remove();
     const el = document.createElement('div');
     el.className = 'toast align-items-center border-0';
@@ -218,6 +219,7 @@ async function init() {
       Editor.syncEditorToCard();
       e.preventDefault();
       e.returnValue = '';
+      return e.returnValue;
     }
   });
   window.addEventListener('storage', handleStorageChange);

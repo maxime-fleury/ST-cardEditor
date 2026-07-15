@@ -347,6 +347,7 @@ translations.en = {
   'toast.exportedJson': 'Exported as JSON!',
   'toast.exportedPng': 'Exported as PNG with card data!',
   'toast.exportFailed': 'Image export failed. Falling back to JSON.',
+  'toast.noNameWarning': 'Warning: Card has no name. File will be saved as "character.json".',
   'toast.chatCleared': 'Chat cleared',
   'toast.undo': 'Undo',
   'toast.redo': 'Redo',

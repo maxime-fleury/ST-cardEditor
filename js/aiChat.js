@@ -38,6 +38,7 @@ const AiChat = {
 
     const streamingEl = this.createStreamingMessage();
     this._abortController = new AbortController();
+
     AIService.chatStream(prompt, this.buildSystemPrompt(targetField), modelId, (fullText) => {
       streamingEl.querySelector('.ai-message-content').innerHTML = Ui.escapeHtml(fullText)
         .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')

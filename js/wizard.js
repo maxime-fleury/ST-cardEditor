@@ -286,16 +286,11 @@ const Wizard = {
     const a = this._answers;
     const genderLabel = a.gender === 'other' ? a.genderCustom : a.gender;
     const langLabel = a.language === 'other' ? a.languageCustom : a.language;
-    const typeLabels = {
-      original: 'Original Character', fanfic: 'Fan Fiction', game: 'Game Character',
-      anime: 'Anime / Manga', book: 'Book / Movie / Show', historical: 'Historical Figure',
-      mythological: 'Mythological / Folklore', vtuber: 'VTuber / Streamer', other: 'Other'
-    };
 
     let html = '<div class="wizard-summary-grid">';
     html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.name') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.name || '-') + '</span></div>';
     html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.gender') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(genderLabel || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.type') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(typeLabels[a.type] || '-') + '</span></div>';
+    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.type') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.type ? I18n.t('wizard.type.' + a.type) : '-') + '</span></div>';
     html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.language') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(langLabel || '-') + '</span></div>';
     html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.tags') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.tags || []).join(', ') || '-') + '</span></div>';
     html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.genres') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.genres || []).join(', ') || '-') + '</span></div>';

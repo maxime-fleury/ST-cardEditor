@@ -9,8 +9,8 @@
   animation: slideInUp 0.3s ease, toastSlide 0.35s ease-out;
 }
 @keyframes toastSlide {
-  from { transform: translateX(40px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 .toast .toast-header {
   background: transparent;
