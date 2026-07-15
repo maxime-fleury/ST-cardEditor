@@ -20,7 +20,7 @@ window.Ui = {
     el.className = 'toast align-items-center border-0';
     el.setAttribute('role', 'alert');
     const toastLabel = (I18n && I18n.t) ? I18n.t('gen.toastAutoHide', { s: 10 }) : 'Auto-hides in 10s';
-    el.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2 w-100"><div class="flex-grow-1 d-flex align-items-center gap-2"><i class="bi ' + (icons[type] || icons.info) + '"></i>' + this.escapeHtml(msg) + '</div><div class="toast-timer text-muted" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">' + toastLabel + '</div><button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
+    el.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2 w-100"><div class="flex-grow-1 d-flex align-items-center gap-2"><i class="bi ' + (icons[type] || icons.info) + '"></i>' + this.escapeHtml(msg) + '</div><div class="toast-timer" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">' + toastLabel + '</div><button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
     document.querySelector('#toastContainer').appendChild(el);
     const DURATION = 10000;
     const toast = new bootstrap.Toast(el, { delay: DURATION });

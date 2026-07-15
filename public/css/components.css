@@ -21,6 +21,9 @@
   color: var(--text-secondary);
   font-size: 0.85rem;
 }
+.toast-timer {
+  color: var(--text-secondary) !important;
+}
 
 /* ============================================================
    LOREBOOK â€” Accordion
