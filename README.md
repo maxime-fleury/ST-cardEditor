@@ -4,7 +4,7 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 
 ### **[Try it now](https://maxime-fleury.github.io/ST-cardEditor/)**
 
-![Version](https://img.shields.io/badge/version-2.0.0-purple)
+![Version](https://img.shields.io/badge/version-2.1.0-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-000?logo=bun)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![Live Demo](https://img.shields.io/badge/demo-gh--pages-9147ff?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/)
