@@ -8,12 +8,13 @@ const CardManager = {
     for (const meta of all) {
       const full = await CardStorage.getCard(meta._id);
       if (!full || !full._imageBase64) continue;
-      try {
-        await CardStorage.saveImage(full._id, full._imageBase64);
-        full._thumbnail = full._thumbnail || await CardEngine._createThumbnail(full._imageBase64);
-        delete full._imageBase64;
-        await CardStorage.upsertCard(full);
-      } catch (e) {
+        try {
+          await CardStorage.saveImage(full._id, full._imageBase64);
+          full._thumbnail = full._thumbnail || await CardEngine._createThumbnail(full._imageBase64);
+          full._hasImage = true;
+          delete full._imageBase64;
+          await CardStorage.upsertCard(full);
+        } catch (e) {
         console.error('Image migration failed for', full._id, e);
       }
     }
@@ -27,7 +28,7 @@ const CardManager = {
 
   async processFiles(fileList) {
     const validExts = ['png', 'webp', 'json'];
-    let loaded = 0, errors = 0;
+    let loaded = 0, errors = 0, lastCardId = null;
 
     for (const file of fileList) {
       const ext = file.name.split('.').pop().toLowerCase();
@@ -38,6 +39,7 @@ const CardManager = {
           await CardStorage.saveImage(card._id, card._imageBase64);
         }
         await CardStorage.upsertCard(card);
+        lastCardId = card._id;
         loaded++;
       } catch (err) {
         console.error('Parse error:', file.name, err);
@@ -49,7 +51,10 @@ const CardManager = {
     if (loaded > 0) {
       window.AppState.cards = CardStorage.getCards();
       this.renderCardList();
-      if (loaded === 1 && window.AppState.cards.length > 0) await this.selectCard(window.AppState.cards[0]);
+      if (loaded === 1 && lastCardId) {
+        const meta = window.AppState.cards.find(c => c._id === lastCardId);
+        if (meta) await this.selectCard(meta);
+      }
       Ui.showToast(I18n.t('toast.loaded', { count: loaded }), 'success');
     }
     if (errors > 0 && loaded === 0)
@@ -332,6 +337,13 @@ const CardManager = {
         const item = e.target.closest('.card-list-item');
         if (item) item.classList.remove('drag-over');
         if (!dragId || !item) return;
+        // Reordering by DOM position corrupts order when a filter/search is active,
+        // so only allow it on the full, unfiltered list.
+        if (this._searchQuery || this._activeTagFilters.size > 0) {
+          Ui.showToast(I18n.t('toast.reorderFiltered'), 'info');
+          dragId = null;
+          return;
+        }
         const dropId = item.dataset.cardId;
         if (dragId === dropId) return;
         const cards = window.AppState.cards;
@@ -353,8 +365,17 @@ const CardManager = {
     }
   },
 
+  _switchPromise: Promise.resolve(),
+
   async selectCard(cardMeta) {
     if (!cardMeta || !cardMeta._id) return;
+    const run = () => this._doSelect(cardMeta);
+    const next = this._switchPromise.then(run, run);
+    this._switchPromise = next.catch(() => {});
+    return next;
+  },
+
+  async _doSelect(cardMeta) {
     const { activeCard } = window.AppState;
     if (activeCard && activeCard._id !== cardMeta._id) await Editor.syncEditorToCard();
     const fullCard = await CardStorage.getCard(cardMeta._id);
@@ -370,6 +391,7 @@ const CardManager = {
     }
 
     window.AppState.chatHistory = CardStorage.getChatHistory(fullCard._id);
+    AiChat._historyRendered = false;
     AiChat.renderChatHistory();
     Editor.populateEditor(fullCard);
     this.renderCardList();
@@ -418,6 +440,7 @@ const CardManager = {
   async deleteActiveCard() {
     const { activeCard, cards } = window.AppState;
     if (!activeCard) return;
+    await Editor.syncEditorToCard();
     const snapshot = { ...activeCard };
     const snapshotIndex = cards.findIndex(c => c._id === activeCard._id);
 
@@ -448,6 +471,9 @@ const CardManager = {
       undone = true;
       toast.hide();
       await CardStorage.upsertCard(snapshot);
+      if (snapshot._imageBase64) {
+        await CardStorage.saveImage(snapshot._id, snapshot._imageBase64);
+      }
       window.AppState.cards = CardStorage.getCards();
       this.renderCardList();
       await this.selectCard(snapshot);

@@ -4,7 +4,7 @@
 
 const CardStorage = {
   PREFIX: 'stce_',
-  CHAT_HISTORY_LIMIT: 50,
+  CHAT_HISTORY_LIMIT: 100,
 
   /**
    * IndexedDB wrapper for storing large card data and images.
@@ -225,6 +225,8 @@ const CardStorage = {
       tags: card.tags,
       spec_version: card.spec_version,
       _thumbnail: card._thumbnail,
+      _createdAt: card._createdAt || 0,
+      _fileSize: card._fileSize || 0,
     };
   },
 
@@ -348,6 +350,9 @@ const CardStorage = {
 
   saveChatHistory(messages, cardId) {
     try {
+      if (messages.length > this.CHAT_HISTORY_LIMIT) {
+        console.warn('Chat history truncated to last ' + this.CHAT_HISTORY_LIMIT + ' messages for card ' + (cardId || 'global'));
+      }
       const trimmed = messages.slice(-this.CHAT_HISTORY_LIMIT);
       localStorage.setItem(this._chatKey(cardId), JSON.stringify(trimmed));
     } catch { /* silently fail */ }

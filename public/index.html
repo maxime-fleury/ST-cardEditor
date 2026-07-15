@@ -61,8 +61,8 @@
         </button>
         
         <!-- Save card -->
-        <button class="btn btn-accent btn-sm" id="btnSaveCard" title="Save card">
-          <i class="bi bi-check-lg me-1"></i> <span data-i18n="nav.save">Save</span>
+         <button class="btn btn-accent btn-sm" id="btnSaveCard" title="Save card" data-i18n-title="nav.save">
+           <i class="bi bi-check-lg me-1"></i> <span data-i18n="nav.save">Save</span>
         </button>
         
         <!-- Theme toggle -->
@@ -440,7 +440,7 @@
       
        <!-- AI Input -->
        <div class="ai-input-area">
-         <div class="context-bar" id="contextBar" title="Estimated tokens used vs. model context limit">
+          <div class="context-bar" id="contextBar" title="Estimated tokens used vs. model context limit" data-i18n-title="ai.contextTitle">
            <div class="context-bar-fill" id="contextBarFill"></div>
            <span class="context-bar-label" id="contextBarLabel">— / — tokens</span>
          </div>
@@ -491,7 +491,7 @@
           <!-- Language -->
           <div class="mb-4">
             <label class="form-label fw-semibold">
-              <i class="bi bi-translate me-2 text-accent"></i><span data-i18n="settings.language">Language</span>
+               <i class="bi bi-translate me-2 text-accent"></i><span data-i18n="settings.languageLabel">Language</span>
             </label>
             <select class="form-select" id="languageSelect">
               <option value="en">English</option>

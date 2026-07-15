@@ -18,6 +18,7 @@ const Wizard = {
     this._answers = {};
     this._fetchedImageUrl = null;
     this._fetchedImageBlob = null;
+    this._resetFormUI();
     this._resetImageUI();
     this._renderStepIndicator();
     this._showStep(1);
@@ -26,6 +27,16 @@ const Wizard = {
       const step1 = document.querySelector('.wizard-step[data-step="1"]');
       if (step1) Anims.staggerFadeIn(step1.querySelectorAll('.mb-3, .mb-4'), { stagger: 30, duration: 200 });
     }, 100);
+  },
+
+  _resetFormUI() {
+    const body = document.querySelector('#wizardModal .modal-body');
+    if (!body) return;
+    body.querySelectorAll('input[type="text"], textarea').forEach(el => { el.value = ''; });
+    body.querySelectorAll('select').forEach(el => { el.selectedIndex = 0; });
+    body.querySelectorAll('.wizard-chip.active').forEach(c => c.classList.remove('active'));
+    const gc = document.querySelector('#wizGenderCustom'); if (gc) { gc.value = ''; gc.classList.add('d-none'); }
+    const lc = document.querySelector('#wizLanguageCustom'); if (lc) { lc.value = ''; lc.classList.add('d-none'); }
   },
 
   _resetImageUI() {
@@ -84,6 +95,9 @@ const Wizard = {
     document.querySelector('#btnWizardNav').addEventListener('click', () => self.show());
     const centerBtn = document.querySelector('#btnWizard');
     if (centerBtn) centerBtn.addEventListener('click', () => self.show());
+
+    // Image selection (waifu.im fetched thumbnails)
+    self._bindImageEvents();
   },
 
   _collectStep(step) {
@@ -322,7 +336,7 @@ const Wizard = {
       const needed = slotsToFetch.length;
       if (needed === 0) { btn.disabled = false; btn.innerHTML = origHtml; return; }
 
-      const resp = await fetch('https://api.waifu.im/images?IncludedTags=waifu&IsNsfw=False&PageSize=' + needed);
+      const resp = await fetch('https://api.waifu.im/images?included_tags=waifu&is_nsfw=false&page_size=' + needed);
       if (!resp.ok) throw new Error('API returned ' + resp.status);
       const data = await resp.json();
       if (!data.items || !data.items.length) throw new Error('No images returned');
@@ -346,7 +360,9 @@ const Wizard = {
         const imgResp = await fetch(item.url);
         const blob = await imgResp.blob();
         const objUrl = URL.createObjectURL(blob);
-        this._fetchedImages[i] = { blob, url: item.url, tags: (item.tags || []).map(t => t.name).join(', ') };
+        const prev = this._fetchedImages[i];
+        if (prev && prev._objUrl) URL.revokeObjectURL(prev._objUrl);
+        this._fetchedImages[i] = { blob, url: item.url, _objUrl: objUrl, tags: (item.tags || []).map(t => t.name).join(', ') };
         const card = document.querySelectorAll('.wizard-image-card')[i];
         const thumb = card.querySelector('.wiz-thumb');
         thumb.src = objUrl;
@@ -385,6 +401,7 @@ const Wizard = {
   },
 
   _removeFetchedImage() {
+    this._fetchedImages.forEach(img => { if (img && img._objUrl) URL.revokeObjectURL(img._objUrl); });
     this._fetchedImages = [];
     this._selectedImageIdx = -1;
     document.querySelectorAll('.wizard-image-card').forEach(c => {
@@ -412,6 +429,9 @@ const Wizard = {
     window.AppState.cards = CardStorage.getCards();
     CardManager.renderCardList();
     await CardManager.selectCard(card);
+    if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
+      try { await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob); } catch (_) {}
+    }
     document.querySelector('#editName').focus();
     Ui.showToast(I18n.t('toast.wizardCreated'), 'success');
   },
@@ -427,6 +447,7 @@ const Wizard = {
       Ui.showToast(I18n.t('toast.wizardModel'), 'warning');
       return;
     }
+    document.querySelector('#aiModelSelect').value = modelId;
 
     this._modal.hide();
     const a = this._answers;
@@ -484,6 +505,9 @@ const Wizard = {
     window.AppState.cards = CardStorage.getCards();
     CardManager.renderCardList();
     await CardManager.selectCard(card);
+    if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
+      try { await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob); } catch (_) {}
+    }
 
     // Send to AI
     AiChat.send();

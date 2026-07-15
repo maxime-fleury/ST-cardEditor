@@ -163,7 +163,8 @@ const AiChat = {
       } else {
         Ui.showToast(I18n.t('toast.jsonInvalid'), 'info');
       }
-    } else if (activeCard[targetField] !== undefined) {
+    } else if (activeCard[targetField] !== undefined
+      || ['description', 'personality', 'first_mes', 'scenario', 'mes_example', 'system_prompt', 'post_history_instructions', 'creator_notes'].includes(targetField)) {
       let clean = content.replace(/```[\s\S]*?```/g, '').replace(/^\[.*?\]\s*/gm, '').trim();
       if (clean) {
         showPreview(activeCard[targetField] || '', clean, () => {
@@ -306,17 +307,19 @@ const AiChat = {
   },
 
   renderChatHistory() {
+    if (this._historyRendered) return;
     const { chatHistory } = window.AppState;
     const $ = (sel) => document.querySelector(sel);
     const container = $('#aiChatMessages');
     if (chatHistory.length === 0) return;
     const welcome = container.querySelector('.ai-welcome');
     if (welcome) welcome.remove();
-    if (container.querySelector('.ai-message')) return;
     chatHistory.forEach(msg => this.addChatMessage(msg.role, msg.content));
+    this._historyRendered = true;
   },
 
   clearChat() {
+    this._historyRendered = false;
     window.AppState.chatHistory = [];
     CardStorage.clearChatHistory(window.AppState.activeCard?._id);
     const $ = (sel) => document.querySelector(sel);
@@ -372,7 +375,7 @@ const AiChat = {
     if (!inputText && !activeCard) inputText = '(no card selected)';
 
     const inputTokens = await Tokenizer.count(inputText + '\n' + prompt);
-    const maxOut = AIService.resolveMaxTokens(modelId, [{ role: 'system', content: inputText }, { role: 'user', content: prompt }]);
+    const maxOut = await AIService.resolveMaxTokens(modelId, [{ role: 'system', content: inputText }, { role: 'user', content: prompt }]);
     const total = inputTokens + maxOut;
     const ratio = ctx > 0 ? total / ctx : 0;
     const pct = Math.min(100, Math.round(ratio * 100));

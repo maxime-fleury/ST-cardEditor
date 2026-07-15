@@ -10,7 +10,8 @@ const Settings = {
     const defaultModel = $('#defaultModelSelect').value;
     const maxTokens = parseInt($('#maxTokensInput').value, 10) || 0;
     const customApiUrl = $('#customApiUrlInput').value.trim();
-    const customApiKey = $('#namedApiKeyInput').value.trim();
+    const keyInput = provider === 'custom' ? $('#customApiKeyInput') : $('#namedApiKeyInput');
+    const customApiKey = keyInput.value.trim();
     const customModelId = $('#customModelInput').value.trim();
 
     CardStorage.setProvider(provider);
@@ -27,7 +28,7 @@ const Settings = {
       CardStorage.setCustomApiUrl(url);
       CardStorage.setCustomApiKey(customApiKey);
       CardStorage.setCustomModelId(customModelId);
-      AIService.setProvider(provider, url, customApiKey);
+      AIService.setProvider(provider, customApiKey);
       if (customModelId) {
         CardStorage.setDefaultModel(customModelId);
         $('#navModelSelect').value = customModelId;
@@ -37,6 +38,11 @@ const Settings = {
 
     CardStorage.setMaxTokens(maxTokens);
     CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
+
+    // Avoid leaving a stale key for the provider we're not using.
+    if (provider === 'openrouter') CardStorage.setCustomApiKey('');
+    else CardStorage.setApiKey('');
+
     modal.hide();
     Ui.showToast(I18n.t('toast.settingsSaved'), 'success');
     if (provider === 'openrouter' && apiKey) { this.refreshCredits(); this.refreshModelsList(); }
@@ -100,6 +106,7 @@ const Settings = {
     $('#providerSelect').value = provider;
     $('#apiKeyInput').value = CardStorage.getApiKey();
     $('#namedApiKeyInput').value = CardStorage.getCustomApiKey();
+    $('#customApiKeyInput').value = CardStorage.getCustomApiKey();
     $('#customApiUrlInput').value = CardStorage.getCustomApiUrl();
     $('#customModelInput').value = CardStorage.getCustomModelId();
     $('#maxTokensInput').value = CardStorage.getMaxTokens() || '';
@@ -168,7 +175,7 @@ const Settings = {
       + (m.max_output_tokens ? ' · ' + Math.floor(m.max_output_tokens/1000) + 'k out' : '')
       + (m.is_free ? ' · <span class="text-success">' + I18n.t('gen.free') + '</span>' : '') + '</div></div>'
       + '<div class="model-item-pricing">' + (m.is_free ? '<span class="price-highlight">' + I18n.t('gen.free') + '</span>'
-        : '<div>in: ' + AIService.formatPrice(m.pricing.prompt) + '</div><div>out: ' + AIService.formatPrice(m.pricing.completion) + '</div>') + '</div></div>'
+        : '<div>in: ' + AIService.formatPrice(m.pricing ? m.pricing.prompt : null) + '</div><div>out: ' + AIService.formatPrice(m.pricing ? m.pricing.completion : null) + '</div>') + '</div></div>'
     ).join('')
     + (hasMore ? '<div class="text-center py-2"><button class="btn btn-outline-accent btn-sm" id="btnLoadMoreModels">' + I18n.t('settings.loadMore', { count: (filtered.length - end) }) + '</button></div>' : '')
     + '<div class="text-center text-muted" style="font-size:0.7rem;">' + I18n.t('settings.showingModels', { shown: Math.min(end, filtered.length), total: filtered.length }) + '</div>';
@@ -230,6 +237,7 @@ const Settings = {
     $('#providerSelect').value = 'openrouter';
     $('#customApiUrlInput').value = '';
     $('#namedApiKeyInput').value = '';
+    $('#customApiKeyInput').value = '';
     $('#customModelInput').value = '';
     this.toggleProvider();
     $('#navModelSelect').innerHTML = '<option value="">Select model...</option>';
@@ -271,7 +279,7 @@ const Settings = {
           if (settings.maxTokens !== undefined) { CardStorage.setMaxTokens(settings.maxTokens); $('#maxTokensInput').value = settings.maxTokens || ''; }
           if (settings.injectCopyright !== undefined) { CardStorage.setInjectCopyright(settings.injectCopyright); $('#injectCopyrightToggle').checked = settings.injectCopyright; }
           if (settings.customApiUrl) { CardStorage.setCustomApiUrl(settings.customApiUrl); $('#customApiUrlInput').value = settings.customApiUrl; }
-          if (settings.customApiKey) { CardStorage.setCustomApiKey(settings.customApiKey); $('#namedApiKeyInput').value = settings.customApiKey; }
+          if (settings.customApiKey) { CardStorage.setCustomApiKey(settings.customApiKey); $('#namedApiKeyInput').value = settings.customApiKey; $('#customApiKeyInput').value = settings.customApiKey; }
           if (settings.customModelId) { CardStorage.setCustomModelId(settings.customModelId); $('#customModelInput').value = settings.customModelId; }
           Ui.showToast(I18n.t('toast.settingsImported'), 'success');
         } catch (err) {

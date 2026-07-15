@@ -4,7 +4,7 @@
 
 const AIService = {
   DEFAULT_TEMPERATURE: 0.7,
-  DEFAULT_MAX_TOKENS: 65536,
+  DEFAULT_MAX_TOKENS: 8192,
 
   PROVIDERS: {
     openrouter: { name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', requiresKey: true },
@@ -30,7 +30,7 @@ const AIService = {
   /**
    * Set the active provider.
    */
-  setProvider(provider, customUrl, customKey) {
+  setProvider(provider, customKey) {
     this._provider = provider || 'openrouter';
     this._apiKey = customKey || '';
   },
@@ -105,13 +105,14 @@ const AIService = {
     if (this._provider === 'custom') {
       return this._fetchCustomModels();
     }
-    if (!this._apiKey) throw new Error(I18n.t('error.apiKeyNotSet'));
-    
+    if (!this._getApiKeyForProvider()) throw new Error(I18n.t('error.apiKeyNotSet'));
+
     const resp = await fetch(`${this._getBaseUrl()}/models`, {
       headers: {
-        'Authorization': `Bearer ${this._apiKey}`,
+        'Authorization': `Bearer ${this._getApiKeyForProvider()}`,
         'Content-Type': 'application/json',
       },
+      signal: AbortSignal.timeout(30000),
     });
     
     if (!resp.ok) {
@@ -155,7 +156,8 @@ const AIService = {
   async _fetchCustomModels() {
     const baseUrl = this._getBaseUrl();
     const headers = { 'Content-Type': 'application/json' };
-    if (this._apiKey) headers['Authorization'] = 'Bearer ' + this._apiKey;
+    const apiKey = this._getApiKeyForProvider();
+    if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
 
     const resp = await fetch(baseUrl + '/models', { headers });
     if (!resp.ok) {
@@ -192,13 +194,14 @@ const AIService = {
    * Fetch API key info (credits, limits, usage).
    */
   async fetchKeyInfo() {
-    if (!this._apiKey) throw new Error(I18n.t('error.apiKeyNotSet'));
+    if (!this._getApiKeyForProvider()) throw new Error(I18n.t('error.apiKeyNotSet'));
     
     const resp = await fetch(`${this._getBaseUrl()}/key`, {
       headers: {
-        'Authorization': `Bearer ${this._apiKey}`,
+        'Authorization': `Bearer ${this._getApiKeyForProvider()}`,
         'Content-Type': 'application/json',
       },
+      signal: AbortSignal.timeout(30000),
     });
     
     if (!resp.ok) {
@@ -240,16 +243,16 @@ const AIService = {
       throw new Error(I18n.t('error.noModel'));
     }
 
-    const maxTokens = this.resolveMaxTokens(useModel, messages);
+    const maxTokens = await this.resolveMaxTokens(useModel, messages);
     const baseUrl = this._getBaseUrl();
-    
+
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
     if (this._provider === 'openrouter') {
       headers['HTTP-Referer'] = 'https://github.com/st-card-editor';
       headers['X-Title'] = 'ST Card Editor';
     }
-    
+
     const resp = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers,
@@ -260,6 +263,7 @@ const AIService = {
         max_tokens: maxTokens,
         stream: false,
       }),
+      signal: AbortSignal.timeout(120000),
     });
     
     if (!resp.ok) {
@@ -304,7 +308,7 @@ const AIService = {
     const useModel = this._resolveModel(model);
     if (!useModel) throw new Error(I18n.t('error.noModelSimple'));
 
-    const maxTokens = this.resolveMaxTokens(useModel, messages);
+    const maxTokens = await this.resolveMaxTokens(useModel, messages);
     const baseUrl = this._getBaseUrl();
 
     const headers = { 'Content-Type': 'application/json' };
@@ -317,7 +321,7 @@ const AIService = {
     const resp = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ model: useModel, messages, temperature: this.DEFAULT_TEMPERATURE, max_tokens: maxTokens, stream: true }),
+      body: JSON.stringify({ model: useModel, messages, temperature: this.DEFAULT_TEMPERATURE, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true } }),
       signal,
     });
 
@@ -327,10 +331,13 @@ const AIService = {
       throw new Error(err.error?.message || `HTTP ${resp.status}`);
     }
 
+    if (!resp.body) throw new Error('Empty response from API (no body)');
+
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let full = '';
     let usage = null;
+    let eventType = '';
 
     let bufferStr = '';
     while (true) {
@@ -341,15 +348,25 @@ const AIService = {
       bufferStr = lines.pop();
       for (const line of lines) {
         const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (trimmed.startsWith('event: ')) { eventType = trimmed.slice(7).trim(); continue; }
+        if (trimmed.startsWith(':')) continue; // SSE comment (e.g. : ping)
         if (!trimmed.startsWith('data: ')) continue;
         const data = trimmed.slice(6).trim();
-        if (data === '[DONE]') break;
+        if (data === '[DONE]') { eventType = ''; break; }
         try {
           const parsed = JSON.parse(data);
           const delta = parsed.choices?.[0]?.delta?.content;
           if (delta) { full += delta; onChunk(full, delta); }
           if (parsed.usage) usage = parsed.usage;
-        } catch (_) {}
+          if (eventType === 'error') {
+            const msg = parsed.error?.message || parsed.detail || data;
+            throw new Error(msg);
+          }
+        } catch (e) {
+          if (e instanceof Error) throw e;
+          console.warn('aiService: dropped unparseable SSE chunk:', data);
+        }
       }
     }
 
@@ -361,7 +378,7 @@ const AIService = {
         total_tokens: usage.total_tokens || 0,
         cost: usage.cost || 0,
       } : null,
-      model,
+      model: useModel,
     };
   },
 
@@ -370,9 +387,22 @@ const AIService = {
    * Caps output so that input + max_tokens <= context_length,
    * reserving 20 % of context for input (safe for all languages).
    */
-  resolveMaxTokens(modelId, messages = []) {
+  async resolveMaxTokens(modelId, messages = []) {
     const ctxLength = this._getContextLength(modelId);
-    const available = Math.max(1024, Math.floor(ctxLength * 0.8));
+
+    let inputTokens = 0;
+    try {
+      if (window.Tokenizer && typeof window.Tokenizer.count === 'function') {
+        const counts = await Promise.all((messages || []).map(m => window.Tokenizer.count(m.content || '')));
+        inputTokens = counts.reduce((sum, n) => sum + (n || 0), 0);
+      }
+    } catch (_) { inputTokens = 0; }
+    if (!inputTokens && messages?.length) {
+      inputTokens = (messages || []).reduce((sum, m) => sum + Math.ceil((m.content || '').length / 4), 0);
+    }
+
+    const safetyMargin = Math.max(512, Math.floor(ctxLength * 0.05));
+    const available = Math.max(512, ctxLength - inputTokens - safetyMargin);
 
     const userMax = CardStorage.getMaxTokens();
     if (userMax > 0) return Math.min(userMax, available);

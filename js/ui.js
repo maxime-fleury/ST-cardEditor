@@ -78,7 +78,7 @@ window.Ui = {
   // ─── Markdown Renderer ──────────────────────────────────
   renderMarkdown(text) {
     if (!text) return '';
-    if (typeof marked === 'undefined') return this.escapeHtml(text);
+    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') return this.escapeHtml(text);
 
     // Configure marked
     if (marked.setOptions) {
@@ -87,10 +87,8 @@ window.Ui = {
 
     let html = typeof marked.parse === 'function' ? marked.parse(text) : marked(text);
 
-    // Sanitize if DOMPurify is available
-    if (typeof DOMPurify !== 'undefined') {
-      html = DOMPurify.sanitize(html, { ADD_TAGS: ['span', 'strong', 'em'] });
-    }
+    // Sanitize first, then add our own controlled dialogue highlights.
+    html = DOMPurify.sanitize(html, { ADD_TAGS: ['span', 'strong', 'em'] });
 
     // Color dialogue lines: {{char}}: and {{user}}:
     html = html.replace(/({{char}})\s*:/g,
@@ -179,7 +177,7 @@ async function init() {
   if (provider && provider !== 'openrouter') {
     const customUrl = CardStorage.getCustomApiUrl();
     const customKey = CardStorage.getCustomApiKey();
-    AIService.setProvider(provider, customUrl, customKey);
+    AIService.setProvider(provider, customKey);
     if (provider === 'custom') {
       const customModel = CardStorage.getCustomModelId();
       if (customModel) {
@@ -419,17 +417,18 @@ function bindEvents(settingsModal) {
 
   const themeToggle = $('#btnThemeToggle');
   const savedTheme = localStorage.getItem(CardStorage.PREFIX + 'theme') || 'dark';
-  if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); themeToggle.innerHTML = '<i class="bi bi-sun-fill"></i>'; }
-    if (themeToggle) {
-      themeToggle.addEventListener('click', () => {
-        const current = document.documentElement.getAttribute('data-theme');
-        const next = current === 'light' ? 'dark' : 'light';
-        document.documentElement.setAttribute('data-theme', next);
-        localStorage.setItem(CardStorage.PREFIX + 'theme', next);
-        Anims.iconSpin(themeToggle.querySelector('i'));
-        themeToggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
-      });
-    }
+  if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); }
+  if (themeToggle) {
+    themeToggle.innerHTML = savedTheme === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
+    themeToggle.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem(CardStorage.PREFIX + 'theme', next);
+      Anims.iconSpin(themeToggle.querySelector('i'));
+      themeToggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
+    });
+  }
 
   // Brand icon float
   const brandIcon = $('.brand-icon');
@@ -492,31 +491,33 @@ function bindEvents(settingsModal) {
 // ─── KEYBOARD SHORTCUTS ───────────────────────────────
 
 function handleKeyboardShortcuts(e) {
+  const inField = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable;
+
+  // Inside a text field: only intercept Save; let native undo/redo work.
+  if (inField) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      CardManager.saveCurrentCard();
+    }
+    return;
+  }
+
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     e.preventDefault(); Editor.undo(); return;
   }
   if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
     e.preventDefault(); Editor.redo(); return;
   }
-
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-      e.preventDefault();
-      CardManager.saveCurrentCard();
-      return;
-    }
-    return;
-  }
-
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
     CardManager.saveCurrentCard();
+    return;
   }
   if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
     e.preventDefault();
     CardManager.createNewCard();
   }
-  if (e.key === '?' && !e.target.matches('input,textarea,[contenteditable]')) {
+  if (e.key === '?') {
     const modal = new bootstrap.Modal('#shortcutsModal');
     modal.show();
   }
@@ -528,6 +529,7 @@ async function handleStorageChange(e) {
   CardManager.renderCardList();
   if (window.AppState.activeCard) {
     const active = document.activeElement;
+    if (window.AppState._dirty) return;
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
     try {
       const updated = await CardStorage.getCard(window.AppState.activeCard._id);

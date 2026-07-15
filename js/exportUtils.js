@@ -32,9 +32,12 @@ const ExportUtils = {
     if (CardStorage.getInjectCopyright()) this.injectCopyright(clone);
     const json = CardEngine.toJSON(clone);
     try {
-      let pngBytes;
+      let pngBytes = null;
       if (activeCard._imageBase64) {
         pngBytes = await this.imageBase64ToPNGBytes(activeCard._imageBase64);
+        if (!pngBytes) {
+          pngBytes = this._dataUrlToBytes(activeCard._imageBase64);
+        }
       }
       if (!pngBytes) {
         pngBytes = await this.createMinimalPNGBytes();
@@ -87,6 +90,20 @@ const ExportUtils = {
     }
   },
 
+  _dataUrlToBytes(dataUrl) {
+    try {
+      const comma = dataUrl.indexOf(',');
+      if (comma < 0) return null;
+      const bin = atob(dataUrl.slice(comma + 1));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    } catch (e) {
+      console.error('Failed to decode data URL:', e);
+      return null;
+    }
+  },
+
   async createMinimalPNGBytes() {
     const canvas = document.createElement('canvas');
     canvas.width = 64; canvas.height = 64;
@@ -114,7 +131,10 @@ const ExportUtils = {
       if (type === 'IEND') { iendPos = offset; break; }
       offset += 12 + length;
     }
-    if (iendPos < 0) return bytes;
+    if (iendPos < 0) {
+      console.warn('exportUtils: PNG missing IEND chunk — card data was not embedded');
+      return bytes;
+    }
 
     const keyword = 'chara';
     const utf8Bytes = new TextEncoder().encode(jsonStr);

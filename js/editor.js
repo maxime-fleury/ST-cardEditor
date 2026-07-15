@@ -17,10 +17,6 @@ const Editor = {
   },
 
   _toCardProp(field) { return this._FIELD_MAP[field] || field; },
-  _toDomId(cardProp) {
-    for (const [k, v] of Object.entries(this._FIELD_MAP)) { if (v === cardProp) return k; }
-    return cardProp;
-  },
   _fieldToDomId(field) {
     const map = {
       name: 'editName', description: 'editDescription', personality: 'editPersonality',
@@ -45,11 +41,14 @@ const Editor = {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
     const entry = this._undoStack.pop();
-    this._redoStack.push({ ...entry, oldValue: activeCard[entry.prop] || '', newValue: entry.oldValue });
+    this._redoStack.push({ ...entry, oldValue: entry.oldValue, newValue: activeCard[entry.prop] || '' });
     activeCard[entry.prop] = entry.oldValue;
     const el = document.querySelector('#' + this._fieldToDomId(entry.field));
     if (el) el.value = entry.oldValue;
     Editor.syncEditorToCard();
+    this.updateCharCounts();
+    this.autoResizeTextareas();
+    AiChat.updateContextBar();
     Ui.showToast(I18n.t('toast.undo') + ' ' + entry.prop, 'info');
   },
 
@@ -63,7 +62,10 @@ const Editor = {
     const el = document.querySelector('#' + this._fieldToDomId(entry.field));
     if (el) el.value = entry.newValue;
     Editor.syncEditorToCard();
-    Ui.showToast('Redid change to ' + entry.prop, 'info');
+    this.updateCharCounts();
+    this.autoResizeTextareas();
+    AiChat.updateContextBar();
+    Ui.showToast(I18n.t('toast.redo') + ' ' + entry.prop, 'info');
   },
   populateEditor(card) {
     const $ = (sel) => document.querySelector(sel);
@@ -311,7 +313,8 @@ const Editor = {
     activeCard.alternate_greetings.push('');
     this.renderGreetings(activeCard);
     this.syncEditorToCard();
-    const last = $('#greetingsList').querySelector('.greeting-textarea:last-of-type');
+    const allTas = $('#greetingsList').querySelectorAll('.greeting-textarea');
+    const last = allTas[allTas.length - 1];
     if (last) last.focus();
   },
 
@@ -372,7 +375,7 @@ const Editor = {
           + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">Primary Keywords</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.key || '') + '" placeholder="Primary keywords — comma separated" data-lore-key-idx="' + idx + '"></div>'
           + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">Secondary Keywords</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(', ')) + '" placeholder="Secondary keywords" data-lore-secondary-idx="' + idx + '"></div>'
           + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">Comment</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || '') + '" placeholder="Comment" data-lore-comment-idx="' + idx + '"></div>'
-          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">Order</label><input type="number" class="form-control form-control-sm" value="' + (entry.order || 100) + '" placeholder="Order" data-lore-order-idx="' + idx + '"></div>'
+          + '           <div class="col-6"><label class="form-label" style="font-size:0.72rem;">Order</label><input type="number" class="form-control form-control-sm" value="' + (entry.order ?? 100) + '" placeholder="Order" data-lore-order-idx="' + idx + '"></div>'
           + '</div>'
           + '<div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">'
           + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? ' checked' : '') + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">Constant</label></div>'
@@ -447,7 +450,8 @@ const Editor = {
       input.addEventListener('input', Ui.debounce(() => {
         const idx = parseInt(input.dataset.loreOrderIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
-          window.AppState.activeCard.character_book.entries[idx].order = parseInt(input.value) || 100;
+          const parsed = parseInt(input.value, 10);
+          window.AppState.activeCard.character_book.entries[idx].order = Number.isNaN(parsed) ? 100 : parsed;
           self.syncEditorToCard();
         }
       }, 600));

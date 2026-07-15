@@ -6,7 +6,6 @@ const CardEngine = {
   _utf8Decoder: new TextDecoder('utf-8'),
   THUMBNAIL_MAX_SIZE: 128,
   THUMBNAIL_JPEG_QUALITY: 0.8,
-  STABLE_ID_DESC_PREFIX_LENGTH: 200,
 
   async parseFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
@@ -16,7 +15,7 @@ const CardEngine = {
     }
     if (ext === 'png') {
       const buffer = await file.arrayBuffer();
-      const card = this.parsePNG(buffer, file.name);
+      const card = await this.parsePNG(buffer, file.name);
       if (!card._imageBase64) {
         const blob = new Blob([buffer], { type: 'image/png' });
         card._imageBase64 = await this._blobToBase64(blob);
@@ -37,14 +36,11 @@ const CardEngine = {
     throw new Error('Unsupported file type: .' + ext);
   },
 
-  generateStableId(card) {
-    const key = (card.name || '') + '|' + (card.creator || '') + '|' + ((card.description || '').slice(0, this.STABLE_ID_DESC_PREFIX_LENGTH));
-    let hash = 0;
-    for (let i = 0; i < key.length; i++) {
-      hash = ((hash << 5) - hash) + key.charCodeAt(i);
-      hash = hash & hash;
+  _uniqueId() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return 'card_' + crypto.randomUUID();
     }
-    return 'card_' + Math.abs(hash).toString(36);
+    return 'card_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
   },
 
   parseJSON(jsonStr, filename) {
@@ -55,7 +51,7 @@ const CardEngine = {
     return this.normalize(raw, filename);
   },
 
-  parsePNG(buffer, filename) {
+  async parsePNG(buffer, filename) {
     filename = filename || 'untitled.png';
     const bytes = new Uint8Array(buffer);
     const sig = [137, 80, 78, 71, 13, 10, 26, 10];
@@ -85,6 +81,33 @@ const CardEngine = {
             ccv3Raw = chunkData.slice(nullIdx + 1);
           }
         }
+      } else if (type === 'iTXt' || type === 'zTXt') {
+        const chunkData = bytes.slice(offset, offset + len);
+        const nullIdx = chunkData.indexOf(0);
+        if (nullIdx >= 0) {
+          const keyword = this._utf8Decoder.decode(chunkData.slice(0, nullIdx)).toLowerCase();
+          let valueBytes = null;
+          if (type === 'iTXt') {
+            let p = nullIdx + 1;
+            const compressionFlag = chunkData[p]; p += 1;
+            p += 1; // compression method (unused)
+            const langEnd = chunkData.indexOf(0, p);
+            if (langEnd < 0) { offset += len + 4; continue; }
+            p = langEnd + 1;
+            const transEnd = chunkData.indexOf(0, p);
+            if (transEnd < 0) { offset += len + 4; continue; }
+            p = transEnd + 1;
+            valueBytes = chunkData.slice(p);
+            if (compressionFlag === 1) valueBytes = await this._inflate(valueBytes);
+          } else { // zTXt
+            const p = nullIdx + 2; // skip compression method byte
+            valueBytes = await this._inflate(chunkData.slice(p));
+          }
+          if (valueBytes) {
+            if (keyword === 'chara') charaRaw = valueBytes;
+            else if (keyword === 'ccv3') ccv3Raw = valueBytes;
+          }
+        }
       } else if (type === 'IEND') {
         break;
       }
@@ -101,6 +124,21 @@ const CardEngine = {
     }
 
     return this._createEmptyCard(filename);
+  },
+
+  async _inflate(bytes) {
+    try {
+      if (typeof DecompressionStream === 'undefined') return null;
+      const ds = new DecompressionStream('zlib');
+      const writer = ds.writable.getWriter();
+      writer.write(bytes);
+      writer.close();
+      const ab = await new Response(ds.readable).arrayBuffer();
+      return new Uint8Array(ab);
+    } catch (e) {
+      console.error('zlib inflate failed', e);
+      return null;
+    }
   },
 
   normalize(raw, filename) {
@@ -133,7 +171,9 @@ const CardEngine = {
     if (!card.character_book || !card.character_book.entries) {
       card.character_book = { entries: [] };
     }
-    card._id = this.generateStableId(card);
+    card._id = this._uniqueId();
+    card._createdAt = Date.now();
+    card._fileSize = JSON.stringify(card).length;
     return card;
   },
 
@@ -142,6 +182,7 @@ const CardEngine = {
     return {
       _id: 'card_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9),
       _filename: name + '.json', _hasImage: false, _imageBase64: null,
+      _createdAt: Date.now(), _fileSize: 0,
       spec: 'chara_card_v2', spec_version: '2.0',
       name: name, description: '', personality: '', scenario: '',
       first_mes: '', mes_example: '', creator_notes: '',

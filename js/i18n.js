@@ -344,6 +344,8 @@ translations.en = {
   'toast.exportFailed': 'Image export failed. Falling back to JSON.',
   'toast.chatCleared': 'Chat cleared',
   'toast.undo': 'Undo',
+  'toast.redo': 'Redo',
+  'toast.reorderFiltered': 'Turn off search and filters to reorder cards.',
   'error.apiKeyNotSet': 'API key not set',
   'error.noModel': 'No model selected. Please choose a model or set a model ID in Settings.',
   'error.noModelSimple': 'No model selected.',
@@ -3557,11 +3559,12 @@ const I18n = {
       str = translations.en && translations.en[key];
     }
     if (str === undefined) {
+      console.warn('[i18n] Missing translation key: ' + key);
       return key;
     }
     if (vars && typeof str === 'string') {
       Object.keys(vars).forEach(function(k) {
-        str = str.replace(new RegExp('\\{\\{' + k + '\\}\\}', 'g'), vars[k]);
+        str = str.replace(new RegExp('\\{\\{' + k + '\\}\\}', 'g'), function () { return vars[k]; });
       });
     }
     return str;
