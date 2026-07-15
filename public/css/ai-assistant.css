@@ -452,6 +452,8 @@
   padding: 0.5rem 0.7rem;
   border-bottom: 1px solid var(--surface-border);
   transition: background var(--transition-fast);
+  overflow-x: hidden;
+  max-width: 100%;
 }
 .multi-field-section:last-child { border-bottom: none; }
 .multi-field-section.streaming { background: rgba(145, 71, 255, 0.03); }
@@ -478,7 +480,77 @@
   word-break: break-word;
   max-height: 200px;
   overflow-y: auto;
+  overflow-x: hidden;
+  max-width: 100%;
 }
+
+/* Collapsed state — truncated preview */
+.multi-field-content.collapsed {
+  max-height: 5.4em;
+  overflow-y: hidden;
+  cursor: pointer;
+  position: relative;
+}
+.multi-field-content.collapsed:hover {
+  background: rgba(145, 71, 255, 0.03);
+  border-radius: var(--radius-sm);
+}
+.multi-field-content.collapsed::after {
+  content: 'Click to expand';
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  font-size: 0.6rem;
+  color: var(--text-accent);
+  background: var(--bg-deep);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  pointer-events: none;
+  border: 1px solid var(--surface-border);
+  line-height: 1.4;
+}
+.multi-field-content.collapsed:hover::after {
+  opacity: 0.85;
+}
+
+/* Expand / View button */
+.multi-field-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.65rem;
+  color: var(--text-accent);
+  background: transparent;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  padding: 0.15rem 0.5rem;
+  transition: all var(--transition-fast);
+  margin-top: 0.4rem;
+}
+.multi-field-expand-btn:hover {
+  background: rgba(145, 71, 255, 0.1);
+  border-color: var(--border-accent);
+}
+.multi-field-expand-btn .bi {
+  font-size: 0.7rem;
+}
+/* Result modal body */
+.ai-result-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  max-height: 70vh;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  background: var(--bg-deep);
+  border-radius: var(--radius-sm);
+  padding: 1rem;
+}
+
 .multi-field-content pre {
   background: var(--bg-deep);
   border: 1px solid var(--surface-border);
@@ -494,6 +566,7 @@
   display: flex;
   gap: 0.35rem;
   margin-top: 0.4rem;
+  flex-wrap: wrap;
 }
 .multi-field-actions .btn {
   font-size: 0.65rem;

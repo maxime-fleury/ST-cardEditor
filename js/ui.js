@@ -19,11 +19,33 @@ window.Ui = {
     const el = document.createElement('div');
     el.className = 'toast align-items-center border-0';
     el.setAttribute('role', 'alert');
-    el.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2"><i class="bi ' + (icons[type] || icons.info) + '"></i>' + this.escapeHtml(msg) + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
+    const toastLabel = (I18n && I18n.t) ? I18n.t('gen.toastAutoHide', { s: 10 }) : 'Auto-hides in 10s';
+    el.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2 w-100"><div class="flex-grow-1 d-flex align-items-center gap-2"><i class="bi ' + (icons[type] || icons.info) + '"></i>' + this.escapeHtml(msg) + '</div><div class="toast-timer text-muted" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">' + toastLabel + '</div><button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
     document.querySelector('#toastContainer').appendChild(el);
-    const toast = new bootstrap.Toast(el, { delay: 10000 });
+    const DURATION = 10000;
+    const toast = new bootstrap.Toast(el, { delay: DURATION });
     toast.show();
-    el.addEventListener('hidden.bs.toast', () => el.remove());
+    // Live countdown timer
+    const timerEl = el.querySelector('.toast-timer');
+    if (timerEl) {
+      const interval = 200;
+      let remaining = DURATION;
+      const tick = () => {
+        remaining -= interval;
+        if (remaining <= 0) { timerEl.textContent = ''; return; }
+        const secs = Math.ceil(remaining / 1000);
+        timerEl.textContent = (I18n && I18n.t)
+          ? I18n.t('gen.toastAutoHide', { s: secs })
+          : 'Auto-hides in ' + secs + 's';
+      };
+      const timer = setInterval(tick, interval);
+      el.addEventListener('hidden.bs.toast', () => {
+        clearInterval(timer);
+        el.remove();
+      });
+    } else {
+      el.addEventListener('hidden.bs.toast', () => el.remove());
+    }
   },
 
   downloadFile(filename, content, mimeType) {

@@ -170,8 +170,8 @@ const AiChat = {
           section.classList.add('error');
           section.classList.remove('streaming');
           const label = section.querySelector('.multi-field-label');
-          if (label) label.innerHTML = label.innerHTML.replace('streaming...', 'failed');
-          contentEl.textContent = err.name === 'AbortError' ? 'Cancelled.' : 'Error: ' + err.message;
+          if (label) label.innerHTML = label.innerHTML.replace(I18n.t ? I18n.t('ai.streaming') : 'streaming...', I18n.t ? I18n.t('ai.failed') : 'failed');
+          contentEl.textContent = err.name === 'AbortError' ? (I18n.t ? I18n.t('ai.cancelled') : 'Cancelled.') : 'Error: ' + err.message;
 
           completedCount++;
           if (completedCount === selectedFields.length) {
@@ -236,7 +236,7 @@ const AiChat = {
     const el = document.createElement('div');
     el.className = 'ai-message assistant multi-field';
     el.innerHTML = '<div class="multi-field-header">'
-      + '<i class="bi bi-robot"></i> Editing ' + fields.length + ' field' + (fields.length > 1 ? 's' : '') + '...'
+      + '<i class="bi bi-robot"></i> ' + (I18n.t ? I18n.t('ai.editing', { count: fields.length }) : 'Editing ' + fields.length + ' field' + (fields.length > 1 ? 's' : '') + '...')
       + '</div>';
     container.appendChild(el);
     Anims.staggerFadeIn(el, { duration: 200, from: 10 });
@@ -250,7 +250,7 @@ const AiChat = {
     section.setAttribute('data-field', field);
     section.innerHTML = '<div class="multi-field-label">'
       + '<i class="bi bi-hourglass-split"></i> ' + Ui.escapeHtml(label)
-      + '<span class="multi-field-status"><span class="spinner-border spinner-border-sm text-accent"></span> streaming...</span>'
+      + '<span class="multi-field-status"><span class="spinner-border spinner-border-sm text-accent"></span> ' + (I18n.t ? I18n.t('ai.streaming') : 'streaming...') + '</span>'
       + '</div>'
       + '<div class="multi-field-content"></div>'
       + '<div class="multi-field-actions" style="display:none;"></div>';
@@ -269,13 +269,46 @@ const AiChat = {
       if (status) status.remove();
     }
 
+    // Truncate long content — collapse to compact preview with modal expand
+    const contentEl = section.querySelector('.multi-field-content');
+    if (contentEl && content.length > 300) {
+      contentEl.classList.add('collapsed');
+      // Click on collapsed content toggles expand inline
+      contentEl.addEventListener('click', function onClickExpand() {
+        this.classList.toggle('collapsed');
+        // Update the expand button icon/text to reflect state
+        const viewBtn = section.querySelector('.multi-field-expand-btn');
+        if (viewBtn) {
+          const isCollapsed = this.classList.contains('collapsed');
+          viewBtn.innerHTML = isCollapsed
+            ? '<i class="bi bi-arrows-expand"></i> ' + (I18n.t ? I18n.t('ai.viewFullResult') : 'View full result')
+            : '<i class="bi bi-arrows-collapse"></i> ' + (I18n.t ? I18n.t('ai.showLess') : 'Show less');
+        }
+      });
+    }
+
     const actions = section.querySelector('.multi-field-actions');
     if (actions) {
       actions.style.display = 'flex';
+      const self = this;
+
+      // "View full result" button — opens modal
+      if (content.length > 300) {
+        const viewBtn = document.createElement('button');
+        viewBtn.className = 'multi-field-expand-btn';
+        viewBtn.type = 'button';
+        viewBtn.innerHTML = '<i class="bi bi-arrows-expand"></i> ' + (I18n.t ? I18n.t('ai.viewFullResult') : 'View full result');
+        viewBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          self._showResultModal(field, content);
+        });
+        actions.appendChild(viewBtn);
+      }
+
+      // "Review & Apply" button — opens diff modal
       const btn = document.createElement('button');
       btn.className = 'btn btn-outline-accent btn-sm';
-      btn.innerHTML = '<i class="bi bi-eye me-1"></i> Review & Apply';
-      const self = this;
+      btn.innerHTML = '<i class="bi bi-eye me-1"></i> ' + (I18n.t ? I18n.t('ai.reviewApply') : 'Review & Apply');
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         self.tryApplyAIResponse(content, field);
@@ -284,13 +317,64 @@ const AiChat = {
     }
   },
 
+  // ─── SHOW FULL RESULT IN MODAL ──────────────────────
+
+  _showResultModal(field, content) {
+    const $ = (sel) => document.querySelector(sel);
+    const fieldLabel = I18n.t
+      ? I18n.t(this.FIELD_DEFS.find(d => d.id === field)?.labelKey || field)
+      : field;
+
+    const modalEl = $('#aiResultModal');
+    if (!modalEl) return;
+
+    const titleEl = modalEl.querySelector('.modal-title');
+    const bodyEl = modalEl.querySelector('.modal-body');
+    if (titleEl) titleEl.innerHTML = '<i class="bi bi-file-text me-2 text-accent"></i>' + Ui.escapeHtml(fieldLabel);
+    if (bodyEl) bodyEl.textContent = content;
+
+    const modal = new bootstrap.Modal(modalEl);
+
+    // Wire up copy button
+    const copyBtn = modalEl.querySelector('#btnCopyResult');
+    if (copyBtn) {
+      // Reset button text on every open
+      const copyLabel = () => '<i class="bi bi-clipboard me-1"></i>' + (I18n.t ? I18n.t('ai.copy') : 'Copy');
+      copyBtn.innerHTML = copyLabel();
+      let copyTimeout = null;
+      const cleanupCopy = () => {
+        copyBtn.removeEventListener('click', copyHandler);
+        if (copyTimeout) { clearTimeout(copyTimeout); copyTimeout = null; }
+      };
+      const copyHandler = () => {
+        navigator.clipboard.writeText(content).then(() => {
+          copyBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>' + (I18n.t ? I18n.t('ai.copied') : 'Copied!');
+          copyTimeout = setTimeout(() => {
+            copyBtn.innerHTML = copyLabel();
+          }, 2000);
+        }).catch(() => {
+          copyBtn.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>' + (I18n.t ? I18n.t('ai.copyFailed') : 'Failed');
+        });
+      };
+      copyBtn.addEventListener('click', copyHandler);
+      modalEl.addEventListener('hidden.bs.modal', cleanupCopy, { once: true });
+    }
+
+    modal.show();
+  },
+
   _finalizeGroupedCard(groupedCard, total) {
     const header = groupedCard.querySelector('.multi-field-header');
     if (header) {
       const done = groupedCard.querySelectorAll('.multi-field-section.done').length;
       const errs = groupedCard.querySelectorAll('.multi-field-section.error').length;
-      let msg = done + '/' + total + ' field' + (total > 1 ? 's' : '') + ' done';
-      if (errs > 0) msg += ' · ' + errs + ' failed';
+      let msg;
+      if (I18n.t) {
+        msg = I18n.t('ai.doneSummary', { done: done, total: total, errs: errs });
+      } else {
+        msg = done + '/' + total + ' field' + (total > 1 ? 's' : '') + ' done';
+        if (errs > 0) msg += ' · ' + errs + ' failed';
+      }
       header.textContent = msg;
     }
   },

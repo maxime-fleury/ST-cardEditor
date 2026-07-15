@@ -225,7 +225,7 @@ const Editor = {
     count.textContent = greetings.length ? '(' + greetings.length + ')' : '';
 
     if (!greetings.length) {
-      container.innerHTML = '<div style="font-size:0.82rem;padding:0.5rem 0;color:var(--text-secondary);"><i class="bi bi-info-circle me-1" style="color:var(--purple-400);"></i>No greetings yet. Click <strong>Add Greeting</strong> or use AI to generate some.</div>';
+      container.innerHTML = '<div style="font-size:0.82rem;padding:0.5rem 0;color:var(--text-secondary);"><i class="bi bi-info-circle me-1" style="color:var(--purple-400);"></i>' + (I18n.t ? I18n.t('editor.noGreetings') : 'No greetings yet. Click <strong>Add Greeting</strong> or use AI to generate some.') + '</div>';
       return;
     }
 
@@ -353,7 +353,7 @@ const Editor = {
     }
 
     if (filteredEntries.length === 0) {
-      container.innerHTML = '<div class="text-muted text-center py-3">No entries match "' + Ui.escapeHtml(searchQuery) + '"</div>';
+      container.innerHTML = '<div class="text-muted text-center py-3">' + (I18n.t ? I18n.t('editor.noEntriesMatch', { query: Ui.escapeHtml(searchQuery) }) : 'No entries match "' + Ui.escapeHtml(searchQuery) + '"') + '</div>';
       return;
     }
 

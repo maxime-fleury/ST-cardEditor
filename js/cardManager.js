@@ -434,7 +434,7 @@ const CardManager = {
     await Editor.syncEditorToCard();
     const clone = JSON.parse(JSON.stringify(activeCard));
     clone._id = 'card_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
-    clone.name = (clone.name || 'Unnamed') + ' (Copy)';
+    clone.name = (clone.name || (I18n.t ? I18n.t('gen.unnamed') : 'Unnamed')) + (I18n.t ? I18n.t('gen.copySuffix') : ' (Copy)');
     await CardStorage.upsertCard(clone);
     if (clone._imageBase64) await CardStorage.saveImage(clone._id, clone._imageBase64);
     window.AppState.cards = CardStorage.getCards();
