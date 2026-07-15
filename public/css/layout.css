@@ -25,11 +25,14 @@
   background: var(--glass-bg);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+  flex-shrink: 0;
+  order: 1;
 }
 
 .panel-center {
   flex: 1;
   min-width: 0;
+  order: 2;
 }
 
 .panel-right {
@@ -40,6 +43,8 @@
   background: var(--glass-bg);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+  flex-shrink: 0;
+  order: 3;
 }
 
 /* Panel resizers */
