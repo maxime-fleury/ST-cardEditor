@@ -330,7 +330,7 @@ const Editor = {
     const searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : '';
 
     if (entries.length === 0) {
-      container.innerHTML = '<div class="text-muted text-center py-4" id="lorebookEmpty"><i class="bi bi-journal-text d-block mb-2" style="font-size: 2rem;"></i>' + I18n.t('editor.lorebookEmpty') + '</div>';
+      container.innerHTML = '<div class="text-center py-4" id="lorebookEmpty" style="color:var(--text-secondary);"><i class="bi bi-journal-text d-block mb-2" style="font-size: 2.5rem;color:var(--purple-400);"></i><span style="font-size:0.85rem;">' + I18n.t('editor.lorebookEmpty') + '</span></div>';
       return;
     }
 

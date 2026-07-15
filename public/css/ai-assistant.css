@@ -349,3 +349,162 @@
   gap: 0.25rem;
   flex-shrink: 0;
 }
+
+/* ============================================================
+   FIELD CHIP SELECTOR
+   ============================================================ */
+.ai-field-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+.ai-field-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.18rem 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 500;
+  border-radius: 100px;
+  border: 1px solid var(--surface-border);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+  white-space: nowrap;
+}
+.ai-field-chip:hover {
+  border-color: var(--purple-500);
+  color: var(--text-accent);
+  background: rgba(145, 71, 255, 0.08);
+}
+.ai-field-chip.active {
+  background: var(--purple-600);
+  border-color: var(--purple-400);
+  color: #fff;
+  box-shadow: 0 0 8px var(--purple-glow);
+}
+.ai-field-chip.all-fields {
+  border-color: var(--purple-600);
+  font-weight: 600;
+}
+.ai-field-chip.all-fields.active {
+  background: var(--accent-gradient);
+}
+
+/* Greeting count control */
+.ai-greeting-count {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  animation: fadeIn 0.2s ease;
+}
+.ai-greeting-count-label {
+  font-size: 0.68rem;
+  color: var(--text-accent);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ai-greeting-count-input {
+  width: 52px;
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-accent) !important;
+  color: var(--text-primary) !important;
+  font-size: 0.72rem !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 0.15rem 0.35rem !important;
+  text-align: center;
+}
+.ai-greeting-count-input:focus {
+  box-shadow: 0 0 0 0.15rem var(--purple-glow) !important;
+}
+
+/* ============================================================
+   GROUPED MULTI-FIELD RESPONSE CARD
+   ============================================================ */
+.ai-message.multi-field {
+  max-width: 95%;
+  padding: 0;
+  overflow: hidden;
+}
+.multi-field-header {
+  padding: 0.45rem 0.7rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-accent);
+  background: rgba(145, 71, 255, 0.08);
+  border-bottom: 1px solid var(--surface-border);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.multi-field-header .bi { font-size: 0.75rem; }
+
+.multi-field-section {
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--surface-border);
+  transition: background var(--transition-fast);
+}
+.multi-field-section:last-child { border-bottom: none; }
+.multi-field-section.streaming { background: rgba(145, 71, 255, 0.03); }
+.multi-field-section.done { background: rgba(34, 197, 94, 0.04); }
+.multi-field-section.error { background: rgba(239, 68, 68, 0.05); }
+
+.multi-field-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.multi-field-section.done .multi-field-label { color: var(--success); }
+.multi-field-section.error .multi-field-label { color: var(--danger); }
+
+.multi-field-content {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.multi-field-content pre {
+  background: var(--bg-deep);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  margin: 0.25rem 0;
+  white-space: pre-wrap;
+}
+
+.multi-field-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+.multi-field-actions .btn {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.5rem;
+}
+
+.multi-field-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+.multi-field-status .spinner-border {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
+}

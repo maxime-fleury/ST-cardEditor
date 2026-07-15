@@ -1,8 +1,92 @@
 /* ============================================================
-   aiChat.js — AI Chat UI, Quick Actions, Message Rendering
+   aiChat.js — AI Chat UI, Multi-Field Parallel Requests
    ============================================================ */
 
 const AiChat = {
+  _abortControllers: [],      // per-field controllers for parallel requests
+  _historyRendered: false,
+  _selectedFields: new Set(), // fields selected for editing
+  _greetingCount: 3,
+
+  FIELD_DEFS: [
+    { id: 'description', labelKey: 'ai.target.description', icon: 'bi-card-text' },
+    { id: 'personality', labelKey: 'ai.target.personality', icon: 'bi-brain' },
+    { id: 'first_mes', labelKey: 'ai.target.first_mes', icon: 'bi-chat-dots' },
+    { id: 'scenario', labelKey: 'ai.target.scenario', icon: 'bi-geo-alt' },
+    { id: 'mes_example', labelKey: 'ai.target.mes_example', icon: 'bi-chat-square-text' },
+    { id: 'alternate_greetings', labelKey: 'ai.target.alternate_greetings', icon: 'bi-list-ol', hasCount: true },
+    { id: 'system_prompt', labelKey: 'ai.target.system_prompt', icon: 'bi-terminal' },
+    { id: 'post_history_instructions', labelKey: 'ai.target.post_history_instructions', icon: 'bi-arrow-repeat' },
+    { id: 'creator_notes', labelKey: 'ai.target.creator_notes', icon: 'bi-pencil' },
+  ],
+
+  _renderFieldChips() {
+    const $ = (sel) => document.querySelector(sel);
+    const container = $('#aiFieldChips');
+    if (!container) return;
+
+    const chipHtml = this.FIELD_DEFS.map(f => {
+      const isActive = this._selectedFields.has(f.id);
+      const label = I18n.t ? I18n.t(f.labelKey) : f.id;
+      return '<span class="ai-field-chip' + (isActive ? ' active' : '') + '" data-field="' + f.id + '">'
+        + '<i class="bi ' + f.icon + '"></i>' + Ui.escapeHtml(label)
+        + '</span>';
+    }).join('');
+
+    const allActive = this._selectedFields.size >= this.FIELD_DEFS.length;
+    const allChip = '<span class="ai-field-chip all-fields' + (allActive ? ' active' : '') + '" data-field="__all__">'
+      + '<i class="bi bi-stars"></i>' + (I18n.t ? I18n.t('ai.target.full') : 'All Fields')
+      + '</span>';
+
+    container.innerHTML = allChip + chipHtml;
+
+    const self = this;
+    container.querySelectorAll('.ai-field-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const field = chip.dataset.field;
+        self._toggleFieldChip(field);
+        self._renderFieldChips();
+        self.updateContextBar();
+      });
+    });
+
+    // Show/hide greeting count input
+    const countWrap = document.querySelector('#aiGreetingCount');
+    if (countWrap) {
+      countWrap.style.display = this._selectedFields.has('alternate_greetings') ? 'flex' : 'none';
+    }
+
+    // Sync greeting count from DOM
+    const countInput = document.querySelector('#aiGreetingCountInput');
+    if (countInput) {
+      this._greetingCount = parseInt(countInput.value) || 3;
+    }
+  },
+
+  _toggleFieldChip(field) {
+    if (field === '__all__') {
+      const allSelected = this._selectedFields.size >= this.FIELD_DEFS.length;
+      if (allSelected) {
+        this._selectedFields.clear();
+      } else {
+        this.FIELD_DEFS.forEach(f => this._selectedFields.add(f.id));
+      }
+      return;
+    }
+    if (this._selectedFields.has(field)) {
+      this._selectedFields.delete(field);
+    } else {
+      this._selectedFields.add(field);
+    }
+  },
+
+  getSelectedFields() {
+    if (this._selectedFields.size === 0) {
+      return ['description'];
+    }
+    return [...this._selectedFields];
+  },
+
   send(retryPrompt) {
     const $ = (sel) => document.querySelector(sel);
     const input = $('#aiInput');
@@ -10,14 +94,20 @@ const AiChat = {
     const { activeCard } = window.AppState;
     if (!prompt || window.AppState.isAiLoading) return;
 
-    // Close history panel if open
+    if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
+
+    const selectedFields = this.getSelectedFields();
+    if (selectedFields.length === 0) {
+      Ui.showToast(I18n.t('toast.selectField'), 'info');
+      return;
+    }
+
     const histPanel = $('#aiHistoryPanel');
     if (histPanel && histPanel.classList.contains('open')) {
       this.toggleHistory(false);
     }
     if (!AIService.hasApiKey()) { Ui.showToast(I18n.t('toast.apiKey'), 'warning'); return; }
 
-    const targetField = $('#aiTargetSelect').value;
     const modelId = $('#aiModelSelect').value;
     if (!modelId) {
       Ui.showToast(I18n.t('toast.selectModel'), 'warning');
@@ -36,29 +126,229 @@ const AiChat = {
     }
     CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
 
-    const streamingEl = this.createStreamingMessage();
-    this._abortController = new AbortController();
+    const groupedCard = this._createGroupedCard(selectedFields);
+    this._abortAll();
 
-    AIService.chatStream(prompt, this.buildSystemPrompt(targetField), modelId, (fullText) => {
-      streamingEl.querySelector('.ai-message-content').innerHTML = Ui.escapeHtml(fullText)
-        .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        .replace(/\n/g, '<br>');
-      const container = document.querySelector('#aiChatMessages');
-      container.scrollTop = container.scrollHeight;
-    }, this._abortController.signal)
+    // Capture greeting count now to prevent TOCTOU
+    const capturedGreetingCount = this._greetingCount;
+
+    const fieldLabel = (f) => I18n.t ? I18n.t(this.FIELD_DEFS.find(d => d.id === f)?.labelKey || '') : f;
+    let completedCount = 0;
+    let combinedContent = '';
+
+    selectedFields.forEach(field => {
+      const controller = new AbortController();
+      this._abortControllers.push(controller);
+
+      const section = this._addFieldSection(groupedCard, field, fieldLabel(field));
+      const contentEl = section.querySelector('.multi-field-content');
+
+      AIService.chatStream(prompt, this.buildSystemPrompt(field, capturedGreetingCount), modelId,
+        (fullText) => {
+          contentEl.textContent = fullText;
+          const container = document.querySelector('#aiChatMessages');
+          container.scrollTop = container.scrollHeight;
+        },
+        controller.signal
+      )
+        .then(result => {
+          this._finalizeFieldSection(section, field, result.content);
+          completedCount++;
+          combinedContent += '\n\n[' + fieldLabel(field) + ']\n' + result.content;
+
+          if (completedCount === selectedFields.length) {
+            this._finalizeGroupedCard(groupedCard, selectedFields.length);
+            window.AppState.chatHistory.push({ role: 'assistant', content: combinedContent });
+            CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
+            this._updateSession();
+            window.AppState.isAiLoading = false;
+            this.updateSendButton();
+            Settings.refreshCredits();
+          }
+        })
+        .catch(err => {
+          section.classList.add('error');
+          section.classList.remove('streaming');
+          const label = section.querySelector('.multi-field-label');
+          if (label) label.innerHTML = label.innerHTML.replace('streaming...', 'failed');
+          contentEl.textContent = err.name === 'AbortError' ? 'Cancelled.' : 'Error: ' + err.message;
+
+          completedCount++;
+          if (completedCount === selectedFields.length) {
+            this._finalizeGroupedCard(groupedCard, selectedFields.length);
+            window.AppState.isAiLoading = false;
+            this.updateSendButton();
+          }
+        });
+    });
+  },
+
+  buildSystemPrompt(targetField, greetingCountOverride) {
+    const { activeCard } = window.AppState;
+    const greetingCount = greetingCountOverride || this._greetingCount;
+    const fieldLabel = I18n.t
+      ? I18n.t(this.FIELD_DEFS.find(d => d.id === targetField)?.labelKey || targetField)
+      : targetField;
+
+    const cardForPrompt = activeCard ? { ...activeCard } : CardEngine.createEmptyCard();
+    delete cardForPrompt._id; delete cardForPrompt._filename; delete cardForPrompt._hasImage;
+    delete cardForPrompt._imageBase64; delete cardForPrompt._thumbnail;
+    delete cardForPrompt._createdAt; delete cardForPrompt._fileSize;
+
+    const parts = [
+      'You are an AI assistant helping edit SillyTavern character cards.',
+      'SillyTavern is an AI roleplay frontend. Cards define character personalities.',
+      '',
+      'Here is the FULL character card for context:',
+      '```json',
+      CardEngine.toJSON(cardForPrompt),
+      '```',
+      '',
+    ];
+
+    if (targetField === 'alternate_greetings') {
+      const existing = (activeCard && activeCard.alternate_greetings) || [];
+      parts.push('The user wants you to generate ALTERNATE GREETINGS for this character.');
+      parts.push('Current greetings: ' + (existing.length ? JSON.stringify(existing) : '(none)'));
+      parts.push('Generate exactly ' + greetingCount + ' new greeting' + (greetingCount > 1 ? 's' : '') + '.');
+      parts.push('Respond with ONLY a valid JSON array of greeting strings. No explanations, no markdown.');
+      parts.push('Example response format: ["Greeting one...", "Greeting two...", "Greeting three..."]');
+      parts.push('Each greeting should be an in-character opening message that could start a conversation with {{user}}.');
+    } else {
+      parts.push('The user wants you to edit the "' + fieldLabel + '" field of this card.');
+      parts.push('Below is the current content of that field:');
+      parts.push('[' + fieldLabel + ']');
+      parts.push(activeCard && activeCard[targetField] !== undefined ? (activeCard[targetField] || '(empty)') : '(empty)');
+      parts.push('');
+      parts.push('Respond with ONLY the new content for this field. Do not include explanations, JSON wrapping, or markdown fences unless the original content uses them.');
+    }
+    return parts.join('\n');
+  },
+
+  // ─── GROUPED MULTI-FIELD CARD ───────────────────────
+
+  _createGroupedCard(fields) {
+    const $ = (sel) => document.querySelector(sel);
+    const container = $('#aiChatMessages');
+    const welcome = container.querySelector('.ai-welcome');
+    if (welcome) welcome.remove();
+
+    const el = document.createElement('div');
+    el.className = 'ai-message assistant multi-field';
+    el.innerHTML = '<div class="multi-field-header">'
+      + '<i class="bi bi-robot"></i> Editing ' + fields.length + ' field' + (fields.length > 1 ? 's' : '') + '...'
+      + '</div>';
+    container.appendChild(el);
+    Anims.staggerFadeIn(el, { duration: 200, from: 10 });
+    container.scrollTop = container.scrollHeight;
+    return el;
+  },
+
+  _addFieldSection(groupedCard, field, label) {
+    const section = document.createElement('div');
+    section.className = 'multi-field-section streaming';
+    section.setAttribute('data-field', field);
+    section.innerHTML = '<div class="multi-field-label">'
+      + '<i class="bi bi-hourglass-split"></i> ' + Ui.escapeHtml(label)
+      + '<span class="multi-field-status"><span class="spinner-border spinner-border-sm text-accent"></span> streaming...</span>'
+      + '</div>'
+      + '<div class="multi-field-content"></div>'
+      + '<div class="multi-field-actions" style="display:none;"></div>';
+    groupedCard.appendChild(section);
+    return section;
+  },
+
+  _finalizeFieldSection(section, field, content) {
+    section.classList.remove('streaming');
+    section.classList.add('done');
+    const label = section.querySelector('.multi-field-label');
+    if (label) {
+      const icon = label.querySelector('.bi');
+      if (icon) { icon.className = 'bi bi-check-circle-fill'; }
+      const status = label.querySelector('.multi-field-status');
+      if (status) status.remove();
+    }
+
+    const actions = section.querySelector('.multi-field-actions');
+    if (actions) {
+      actions.style.display = 'flex';
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-outline-accent btn-sm';
+      btn.innerHTML = '<i class="bi bi-eye me-1"></i> Review & Apply';
+      const self = this;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        self.tryApplyAIResponse(content, field);
+      });
+      actions.appendChild(btn);
+    }
+  },
+
+  _finalizeGroupedCard(groupedCard, total) {
+    const header = groupedCard.querySelector('.multi-field-header');
+    if (header) {
+      const done = groupedCard.querySelectorAll('.multi-field-section.done').length;
+      const errs = groupedCard.querySelectorAll('.multi-field-section.error').length;
+      let msg = done + '/' + total + ' field' + (total > 1 ? 's' : '') + ' done';
+      if (errs > 0) msg += ' · ' + errs + ' failed';
+      header.textContent = msg;
+    }
+  },
+
+  _abortAll() {
+    this._abortControllers.forEach(c => c.abort());
+    this._abortControllers = [];
+  },
+
+  // ─── SINGLE FULL-CARD REQUEST (translate, wizard) ────
+
+  _sendFullCard(prompt) {
+    const $ = (sel) => document.querySelector(sel);
+    const { activeCard } = window.AppState;
+    const modelId = $('#aiModelSelect').value;
+    if (!modelId) { Ui.showToast(I18n.t('toast.selectModel'), 'warning'); return; }
+
+    const input = $('#aiInput');
+    input.value = '';
+    window.AppState.isAiLoading = true;
+    this.updateSendButton();
+
+    this.addChatMessage('user', prompt);
+    window.AppState.chatHistory.push({ role: 'user', content: prompt });
+    CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
+
+    const streamingEl = this.createStreamingMessage();
+
+    const systemPrompt = [
+      'You are an AI assistant helping edit SillyTavern character cards.',
+      'SillyTavern is an AI roleplay frontend. Cards define character personalities.',
+      'The user wants you to edit or generate the FULL card as JSON.',
+      'Respond with ONLY the updated JSON card. Keep the exact JSON structure.',
+    ].join('\n');
+
+    const controller = new AbortController();
+    this._abortControllers.push(controller);
+
+    AIService.chatStream(prompt, systemPrompt, modelId,
+      (fullText) => {
+        streamingEl.querySelector('.ai-message-content').innerHTML = Ui.escapeHtml(fullText)
+          .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')
+          .replace(/`([^`]+)`/g, '<code>$1</code>')
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.+?)\*/g, '<em>$1</em>')
+          .replace(/\n/g, '<br>');
+        const container = document.querySelector('#aiChatMessages');
+        container.scrollTop = container.scrollHeight;
+      },
+      controller.signal
+    )
       .then(result => {
         streamingEl.remove();
         this.addChatMessage('assistant', result.content, result.usage);
         window.AppState.chatHistory.push({ role: 'assistant', content: result.content });
-        CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
+        CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
         this._updateSession();
-
-        if (['full','description','personality','first_mes','scenario','mes_example','system_prompt','post_history_instructions','creator_notes'].includes(targetField)) {
-          this.tryApplyAIResponse(result.content, targetField);
-        }
+        this.tryApplyAIResponse(result.content, 'full');
         Settings.refreshCredits();
       })
       .catch(err => {
@@ -73,36 +363,8 @@ const AiChat = {
       .finally(() => { window.AppState.isAiLoading = false; this.updateSendButton(); });
   },
 
-  buildSystemPrompt(targetField) {
-    const { activeCard } = window.AppState;
-    let parts = [
-      'You are an AI assistant helping edit SillyTavern character cards.',
-      'SillyTavern is an AI roleplay frontend. Cards define character personalities.',
-    ];
-
-    if (targetField === 'full') {
-      parts.push('The user will ask you to modify the entire card. Here is the current card content:');
-      parts.push('```json');
-      const cardForPrompt = activeCard ? { ...activeCard } : CardEngine.createEmptyCard();
-      delete cardForPrompt._id; delete cardForPrompt._filename; delete cardForPrompt._hasImage;
-      delete cardForPrompt._imageBase64; delete cardForPrompt._thumbnail;
-      parts.push(CardEngine.toJSON(cardForPrompt));
-      parts.push('```');
-      parts.push('When the user asks for changes, respond with the FULL updated JSON card. Keep all the structure intact.');
-    } else if (activeCard) {
-      parts.push('The user wants you to edit the card\'s "' + targetField + '" field.');
-      parts.push('Here is the current content:');
-      parts.push('[' + targetField + ']');
-      parts.push(activeCard[targetField] || '(empty)');
-      parts.push('');
-      parts.push('Respond with ONLY the new content for this field. Do not include explanations or JSON wrapping unless asked.');
-    } else {
-      parts.push('No card is currently selected. Help the user with their request about character cards.');
-    }
-    return parts.join('\n');
-  },
-
   // ─── SIDE-BY-SIDE DIFF ──────────────────────────────
+
   _renderDiff(oldText, newText) {
     const oldEl = document.querySelector('#aiDiffOld');
     const newEl = document.querySelector('#aiDiffNew');
@@ -142,7 +404,6 @@ const AiChat = {
     const showPreview = (oldVal, newVal, applyFn) => {
       const modal = new bootstrap.Modal('#aiPreviewModal');
 
-      // Render side-by-side diff
       this._renderDiff(oldVal || '', newVal);
 
       const acceptBtn = document.querySelector('#btnAcceptAI');
@@ -175,6 +436,22 @@ const AiChat = {
       } else {
         Ui.showToast(I18n.t('toast.jsonInvalid'), 'info');
       }
+    } else if (targetField === 'alternate_greetings') {
+      // Parse JSON array of greetings
+      const greetings = this._extractJSONArray(content);
+      if (greetings && greetings.length > 0) {
+        const oldVal = JSON.stringify((activeCard.alternate_greetings || []), null, 2);
+        const newVal = JSON.stringify(greetings, null, 2);
+        showPreview(oldVal, newVal, () => {
+          // Replace greetings (not append)
+          activeCard.alternate_greetings = greetings;
+          Editor.renderGreetings(activeCard);
+          Editor.syncEditorToCard();
+          Ui.showToast(I18n.t('toast.greetingsUpdated', { count: greetings.length }), 'success');
+        });
+      } else {
+        Ui.showToast(I18n.t('toast.greetingsParseFailed'), 'warning');
+      }
     } else if (activeCard[targetField] !== undefined
       || ['description', 'personality', 'first_mes', 'scenario', 'mes_example', 'system_prompt', 'post_history_instructions', 'creator_notes'].includes(targetField)) {
       let clean = content.replace(/```[\s\S]*?```/g, '').replace(/^\[.*?\]\s*/gm, '').trim();
@@ -188,6 +465,47 @@ const AiChat = {
         });
       }
     }
+  },
+
+  _extractJSONArray(text) {
+    if (!text) return null;
+    // Use bracket-depth counting for robust [ ] matching
+    const start = text.indexOf('[');
+    if (start < 0) return null;
+    let depth = 0, inStr = false, esc = false;
+    for (let i = start; i < text.length; i++) {
+      const c = text[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === '\\') esc = true;
+        else if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') inStr = true;
+      else if (c === '[') depth++;
+      else if (c === ']') {
+        depth--;
+        if (depth === 0) {
+          const candidate = text.slice(start, i + 1);
+          try {
+            const parsed = JSON.parse(candidate);
+            if (Array.isArray(parsed) && parsed.every(item => typeof item === 'string')) {
+              return parsed;
+            }
+          } catch (_) { /* keep looking for another array */ }
+          // Continue scanning for another array
+          depth = 0;
+        }
+      }
+    }
+    // Fallback: try parsing full text
+    try {
+      const parsed = JSON.parse(text.trim());
+      if (Array.isArray(parsed) && parsed.every(item => typeof item === 'string')) {
+        return parsed;
+      }
+    } catch (_) {}
+    return null;
   },
 
   _extractJSON(text) {
@@ -221,7 +539,8 @@ const AiChat = {
     return null;
   },
 
-  // ─── QUICK ACTIONS (Expanded) ───────────────────────
+  // ─── QUICK ACTIONS ──────────────────────────────────
+
   handleQuickAction(action) {
     const $ = (sel) => document.querySelector(sel);
     const { activeCard } = window.AppState;
@@ -257,18 +576,32 @@ const AiChat = {
     const aiPrompt = action === 'translate' ? prompts.translate : prompts[action];
     if (!aiPrompt) return;
 
-    if (action === 'translate') $('#aiTargetSelect').value = 'full';
-    else if (action === 'personality') $('#aiTargetSelect').value = 'personality';
-    else if (action === 'firstmes') $('#aiTargetSelect').value = 'first_mes';
-    else if (action === 'enhance') $('#aiTargetSelect').value = 'description';
-    else if (action === 'shorten') $('#aiTargetSelect').value = 'description';
-    else if (action === 'tone') $('#aiTargetSelect').value = 'description';
-    else if (action === 'grammar') $('#aiTargetSelect').value = 'description';
-    else $('#aiTargetSelect').value = 'full';
+    this._selectedFields.clear();
+    const fieldMap = {
+      translate: null,
+      personality: 'personality',
+      firstmes: 'first_mes',
+      enhance: 'description',
+      shorten: 'description',
+      tone: 'description',
+      grammar: 'description',
+    };
 
+    if (action === 'translate') {
+      this._renderFieldChips();
+      $('#aiInput').value = aiPrompt;
+      this._sendFullCard(aiPrompt);
+      return;
+    } else if (fieldMap[action]) {
+      this._selectedFields.add(fieldMap[action]);
+    }
+
+    this._renderFieldChips();
     $('#aiInput').value = aiPrompt;
     this.send();
   },
+
+  // ─── CHAT MESSAGES ──────────────────────────────────
 
   addChatMessage(role, content, usage) {
     const $ = (sel) => document.querySelector(sel);
@@ -300,7 +633,6 @@ const AiChat = {
     el.className = 'ai-message ' + role;
     el.innerHTML = formatted + '<div class="text-muted mt-1" style="font-size:0.6rem;">' + time + '</div>' + usageInfo;
 
-    // Add retry button on assistant messages
     if (role === 'assistant') {
       const retryBtn = document.createElement('button');
       retryBtn.className = 'ai-message-retry';
@@ -320,7 +652,6 @@ const AiChat = {
 
   retryLastMessage() {
     const { chatHistory } = window.AppState;
-    // Find the last user message (skip system messages)
     let lastUserIdx = -1;
     for (let i = chatHistory.length - 1; i >= 0; i--) {
       if (chatHistory[i].role === 'user') {
@@ -331,15 +662,12 @@ const AiChat = {
     if (lastUserIdx < 0) return;
 
     const lastUserPrompt = chatHistory[lastUserIdx].content;
-    // Remove the last user message and any messages after it
     chatHistory.splice(lastUserIdx);
     window.AppState.isAiLoading = false;
 
-    // Remove the last user+assistant pair from the DOM
     const $ = (sel) => document.querySelector(sel);
     const container = $('#aiChatMessages');
     const allMsgs = container.querySelectorAll('.ai-message');
-    // Walk backwards through the DOM messages (only user/assistant, skip system)
     let removed = 0;
     for (let i = allMsgs.length - 1; i >= 0 && removed < 2; i--) {
       const msg = allMsgs[i];
@@ -378,34 +706,28 @@ const AiChat = {
     this._historyRendered = true;
   },
 
-  // ─── Chat Sessions ───────────────────────────────────
-
   _updateSession() {
     const { chatHistory, activeCard } = window.AppState;
-    if (!chatHistory || chatHistory.length < 2) return; // at least one exchange
+    if (!chatHistory || chatHistory.length < 2) return;
     const cardId = activeCard?._id || 'global';
     const sessions = CardStorage.getChatSessions(cardId);
 
-    // Find the first user message for the preview
     const firstUser = chatHistory.find(m => m.role === 'user');
     const preview = firstUser
       ? (firstUser.content.length > 80 ? firstUser.content.slice(0, 80) + '...' : firstUser.content)
       : 'Chat session';
 
     const now = Date.now();
-    const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+    const SESSION_TIMEOUT = 30 * 60 * 1000;
 
-    // Check if we should update the last session or create a new one
     let currentSession = sessions.length > 0 ? sessions[0] : null;
 
     if (currentSession && (now - (currentSession.lastUpdated || currentSession.created)) < SESSION_TIMEOUT) {
-      // Update existing session
       currentSession.lastUpdated = now;
       currentSession.preview = preview;
       currentSession.messageCount = chatHistory.length;
       CardStorage.saveChatSession(cardId, currentSession);
     } else {
-      // Create a new session
       const session = {
         id: 'ses_' + now + '_' + Math.random().toString(36).slice(2, 7),
         created: now,
@@ -454,13 +776,10 @@ const AiChat = {
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
 
-    // Load the chat history and scroll to the session point
-    // Since we store flat history, we'll just show the full history
     this._historyRendered = false;
     this.toggleHistory(false);
     this.renderChatHistory();
 
-    // Highlight the active session
     this._renderHistoryList();
     const $ = (sel) => document.querySelector(sel);
     const item = $('#aiHistoryList')?.querySelector('[data-session-id="' + sessionId + '"]');
@@ -486,6 +805,8 @@ const AiChat = {
 
   clearChat() {
     this._historyRendered = false;
+    this._selectedFields.clear();
+    this._renderFieldChips();
     window.AppState.chatHistory = [];
     CardStorage.clearChatHistory(window.AppState.activeCard?._id);
     const $ = (sel) => document.querySelector(sel);
@@ -523,7 +844,6 @@ const AiChat = {
     if (!bar || !label) return;
 
     const modelId = $('#aiModelSelect').value;
-    const targetField = $('#aiTargetSelect').value;
     const prompt = $('#aiInput').value || '';
     const { activeCard } = window.AppState;
 
@@ -535,10 +855,7 @@ const AiChat = {
     }
 
     const ctx = AIService.getContextLength(modelId);
-    let inputText = '';
-    if (targetField === 'full') inputText = CardEngine.getTextContent(activeCard);
-    else if (activeCard && activeCard[targetField] !== undefined) inputText = activeCard[targetField] || '';
-    if (!inputText && !activeCard) inputText = '(no card selected)';
+    const inputText = CardEngine.getTextContent(activeCard);
 
     const inputTokens = await Tokenizer.count(inputText + '\n' + prompt);
     const maxOut = await AIService.resolveMaxTokens(modelId, [{ role: 'system', content: inputText }, { role: 'user', content: prompt }]);

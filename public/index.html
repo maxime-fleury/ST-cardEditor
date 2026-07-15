@@ -345,7 +345,7 @@
                 </div>
               </div>
               <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="editor.greetings">Alternate Greetings</span> <span class="greeting-count" id="greetingCount"></span></label>
+                <label class="form-label fw-semibold" style="font-size:0.85rem;color:var(--text-accent);"><span data-i18n="editor.greetings">Alternate Greetings</span> <span class="greeting-count" id="greetingCount"></span></label>
                 <div class="greetings-list" id="greetingsList"></div>
                 <button class="btn btn-outline-accent btn-sm mt-2" id="btnAddGreeting">
                   <i class="bi bi-plus-lg me-1"></i> <span data-i18n="editor.addGreeting">Add Greeting</span>
@@ -370,9 +370,9 @@
                 </div>
               </div>
               <div id="lorebookEntries">
-                <div class="text-muted text-center py-4" id="lorebookEmpty">
-                  <i class="bi bi-journal-text d-block mb-2" style="font-size: 2rem;"></i>
-                  <span data-i18n="editor.lorebookEmpty">No lorebook entries yet. Add one to get started.</span>
+                <div class="text-center py-4" id="lorebookEmpty" style="color:var(--text-secondary);">
+                  <i class="bi bi-journal-text d-block mb-2" style="font-size: 2.5rem;color:var(--purple-400);"></i>
+                  <span data-i18n="editor.lorebookEmpty" style="font-size:0.85rem;">No lorebook entries yet. Add one to get started.</span>
                 </div>
               </div>
             </div>
@@ -463,20 +463,11 @@
              <select class="form-select form-select-sm ai-model-select" id="aiModelSelect">
                <option value="" data-i18n="nav.selectModel">Select model...</option>
              </select>
-             <div class="ai-target-group">
-               <span class="ai-target-label" data-i18n="ai.target">Target:</span>
-               <select class="form-select form-select-sm ai-target-select" id="aiTargetSelect">
-                 <option value="full" data-i18n="ai.target.full">Full Card</option>
-                 <option value="description" data-i18n="ai.target.description">Description</option>
-                 <option value="personality" data-i18n="ai.target.personality">Personality</option>
-                 <option value="first_mes" data-i18n="ai.target.first_mes">First Message</option>
-                 <option value="scenario" data-i18n="ai.target.scenario">Scenario</option>
-                 <option value="mes_example" data-i18n="ai.target.mes_example">Example Messages</option>
-                 <option value="system_prompt" data-i18n="ai.target.system_prompt">System Prompt</option>
-                 <option value="post_history_instructions" data-i18n="ai.target.post_history_instructions">Post-History Instructions</option>
-                 <option value="creator_notes" data-i18n="ai.target.creator_notes">Creator Notes</option>
-               </select>
-             </div>
+           </div>
+           <div class="ai-field-chips" id="aiFieldChips"></div>
+           <div class="ai-greeting-count" id="aiGreetingCount" style="display:none;">
+             <label class="ai-greeting-count-label"><i class="bi bi-list-ol"></i> Count:</label>
+             <input type="number" class="ai-greeting-count-input" id="aiGreetingCountInput" value="3" min="1" max="20">
            </div>
        </div>
     </aside>

@@ -212,6 +212,7 @@ async function init() {
   bindEvents(settingsModal);
   AiChat.updateContextBar();
   Wizard.init();
+  AiChat._renderFieldChips();
   initFloatingLabels();
   window.addEventListener('beforeunload', (e) => {
     if (window.AppState.activeCard && window.AppState._dirty) {
@@ -367,10 +368,18 @@ function bindEvents(settingsModal) {
   $('#btnClearChat').addEventListener('click', () => AiChat.clearChat());
   $('#btnChatHistory').addEventListener('click', () => AiChat.toggleHistory());
   $('#aiInput').addEventListener('input', Ui.debounce(() => AiChat.updateContextBar(), 400));
-  $('#aiTargetSelect').addEventListener('change', () => AiChat.updateContextBar());
+
   $('#aiModelSelect').addEventListener('change', () => AiChat.updateContextBar());
   const stopBtn = $('#btnAiStop');
-  if (stopBtn) stopBtn.addEventListener('click', () => { if (AiChat._abortController) AiChat._abortController.abort(); });
+  if (stopBtn) stopBtn.addEventListener('click', () => { AiChat._abortAll(); });
+
+  // Greeting count input
+  const greetingCountInput = $('#aiGreetingCountInput');
+  if (greetingCountInput) {
+    greetingCountInput.addEventListener('change', () => {
+      AiChat._greetingCount = parseInt(greetingCountInput.value) || 3;
+    });
+  }
 
   $$('.quick-action').forEach(btn => {
     btn.addEventListener('click', () => AiChat.handleQuickAction(btn.dataset.action));
