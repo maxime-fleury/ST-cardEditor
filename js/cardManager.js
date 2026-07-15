@@ -378,8 +378,8 @@ const CardManager = {
   async _doSelect(cardMeta) {
     const { activeCard, isAiLoading } = window.AppState;
     // Abort any ongoing AI generation when switching cards
-    if (isAiLoading && AiChat._abortController) {
-      AiChat._abortController.abort();
+    if (isAiLoading) {
+      AiChat._abortAll();
       window.AppState.isAiLoading = false;
       AiChat.updateSendButton();
     }

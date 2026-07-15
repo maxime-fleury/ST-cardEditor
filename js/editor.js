@@ -148,6 +148,11 @@ const Editor = {
     activeCard.creator = $('#editCreator').value.trim();
     activeCard.character_version = $('#editVersion').value.trim();
     activeCard.tags = $('#editTags').value.split(',').map(s => s.trim()).filter(Boolean);
+    // Compute file size without image data to keep it accurate
+    const sizeCard = { ...activeCard };
+    delete sizeCard._imageBase64;
+    delete sizeCard._thumbnail;
+    activeCard._fileSize = JSON.stringify(sizeCard).length;
     await CardStorage.upsertCard(activeCard);
     window.AppState.cards = CardStorage.getCards();
     window.AppState._dirty = true;
@@ -220,7 +225,7 @@ const Editor = {
     count.textContent = greetings.length ? '(' + greetings.length + ')' : '';
 
     if (!greetings.length) {
-      container.innerHTML = '<div class="text-muted" style="font-size:0.8rem;padding:0.5rem 0;">' + I18n.t('editor.greetings') + '</div>';
+      container.innerHTML = '<div style="font-size:0.82rem;padding:0.5rem 0;color:var(--text-secondary);"><i class="bi bi-info-circle me-1" style="color:var(--purple-400);"></i>No greetings yet. Click <strong>Add Greeting</strong> or use AI to generate some.</div>';
       return;
     }
 
