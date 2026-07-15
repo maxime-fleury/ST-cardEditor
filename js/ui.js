@@ -114,6 +114,44 @@ window.Ui = {
 const DEBOUNCE_INPUT_MS = 800;
 const DEBOUNCE_SEARCH_MS = 300;
 
+// ─── FLOATING LABELS ──────────────────────────────────────
+function initFloatingLabels() {
+  function syncFloatLabels() {
+    document.querySelectorAll('.floating-label').forEach(group => {
+      const label = group.querySelector('label');
+      const input = group.querySelector('input, textarea');
+      if (!label || !input) return;
+      const hasVal = input.value && input.value.trim().length > 0;
+      label.classList.toggle('floated', hasVal || document.activeElement === input);
+    });
+  }
+  document.addEventListener('focusin', (e) => {
+    if (e.target.matches('.floating-label input, .floating-label textarea')) {
+      const label = e.target.closest('.floating-label')?.querySelector('label');
+      if (label) label.classList.add('floated');
+    }
+  });
+  document.addEventListener('focusout', (e) => {
+    if (e.target.matches('.floating-label input, .floating-label textarea')) {
+      const label = e.target.closest('.floating-label')?.querySelector('label');
+      if (label && !(e.target.value && e.target.value.trim().length > 0)) {
+        label.classList.remove('floated');
+      }
+    }
+  });
+  document.addEventListener('input', (e) => {
+    if (e.target.matches('.floating-label input, .floating-label textarea')) {
+      const label = e.target.closest('.floating-label')?.querySelector('label');
+      if (label) {
+        const hasVal = e.target.value && e.target.value.trim().length > 0;
+        label.classList.toggle('floated', hasVal || document.activeElement === e.target);
+      }
+    }
+  });
+  window.syncFloatingLabels = syncFloatLabels;
+  syncFloatLabels();
+}
+
 // ─── INIT ───────────────────────────────────────────────
 async function init() {
   const $ = Ui.$;
@@ -175,6 +213,7 @@ async function init() {
   bindEvents(settingsModal);
   AiChat.updateContextBar();
   Wizard.init();
+  initFloatingLabels();
   window.addEventListener('beforeunload', (e) => {
     if (window.AppState.activeCard && window.AppState._dirty) {
       Editor.syncGreetings();

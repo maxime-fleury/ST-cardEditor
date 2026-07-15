@@ -125,6 +125,7 @@ const Editor = {
     this.showEditor();
     this.updateCharCounts();
     this.autoResizeTextareas();
+    window.syncFloatingLabels?.();
     window.Ui.updateUIState();
   },
 

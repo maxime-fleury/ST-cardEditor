@@ -163,6 +163,23 @@ body::before {
     radial-gradient(ellipse 40% 40% at 50% 50%, rgba(92, 22, 197, 0.04) 0%, transparent 60%);
 }
 
+/* ─── BACKGROUND PATTERN — Topographic Lines ─────────── */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.45;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='500' height='500'%3E%3Cpath d='M0 380Q60 340 120 370T240 350T360 380T480 340T500 360' fill='none' stroke='%239147ff' stroke-width='0.7'/%3E%3Cpath d='M0 310Q70 280 140 310T280 290T420 320T500 290' fill='none' stroke='%239147ff' stroke-width='0.7'/%3E%3Cpath d='M0 250Q80 220 160 250T320 230T480 260T500 240' fill='none' stroke='%239147ff' stroke-width='0.6'/%3E%3Cpath d='M0 190Q90 160 180 190T360 170T500 200' fill='none' stroke='%239147ff' stroke-width='0.6'/%3E%3Cpath d='M0 130Q70 105 140 130T280 115T420 135T500 120' fill='none' stroke='%239147ff' stroke-width='0.5'/%3E%3Cpath d='M0 75Q80 55 160 78T320 60T480 80T500 70' fill='none' stroke='%239147ff' stroke-width='0.5'/%3E%3Cpath d='M0 440Q50 420 110 445T230 430T350 450T470 425T500 435' fill='none' stroke='%239147ff' stroke-width='0.7'/%3E%3Cpath d='M0 25Q60 8 130 28T270 12T410 30T500 18' fill='none' stroke='%239147ff' stroke-width='0.4'/%3E%3C/svg%3E");
+  background-size: 500px 500px;
+}
+
+[data-theme="light"] body::after {
+  opacity: 0.35;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='500' height='500'%3E%3Cpath d='M0 380Q60 340 120 370T240 350T360 380T480 340T500 360' fill='none' stroke='%237c3aed' stroke-width='0.7'/%3E%3Cpath d='M0 310Q70 280 140 310T280 290T420 320T500 290' fill='none' stroke='%237c3aed' stroke-width='0.7'/%3E%3Cpath d='M0 250Q80 220 160 250T320 230T480 260T500 240' fill='none' stroke='%237c3aed' stroke-width='0.6'/%3E%3Cpath d='M0 190Q90 160 180 190T360 170T500 200' fill='none' stroke='%237c3aed' stroke-width='0.6'/%3E%3Cpath d='M0 130Q70 105 140 130T280 115T420 135T500 120' fill='none' stroke='%237c3aed' stroke-width='0.5'/%3E%3Cpath d='M0 75Q80 55 160 78T320 60T480 80T500 70' fill='none' stroke='%237c3aed' stroke-width='0.5'/%3E%3Cpath d='M0 440Q50 420 110 445T230 430T350 450T470 425T500 435' fill='none' stroke='%237c3aed' stroke-width='0.7'/%3E%3Cpath d='M0 25Q60 8 130 28T270 12T410 30T500 18' fill='none' stroke='%237c3aed' stroke-width='0.4'/%3E%3C/svg%3E");
+}
+
 /* ============================================================
    RESET & BASE
    ============================================================ */
@@ -1062,6 +1079,7 @@ body.resizing { cursor: col-resize; user-select: none; }
   font-size: 0.85rem !important;
   border-radius: var(--radius-sm) !important;
   resize: vertical;
+  min-height: 120px;
   transition: all var(--transition-fast);
 }
 .editor-textarea:hover { border-color: var(--border-default) !important; }
@@ -1091,6 +1109,48 @@ body.resizing { cursor: col-resize; user-select: none; }
 }
 .form-label { color: var(--text-secondary); }
 .form-text { color: var(--text-muted) !important; }
+
+/* ─── FLOATING LABELS ─────────────────────────────────── */
+.floating-label {
+  position: relative;
+}
+.floating-label > label {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  font-size: 0.85rem;
+  color: var(--text-placeholder);
+  pointer-events: none;
+  transition: all 0.2s ease;
+  z-index: 1;
+  transform-origin: left top;
+}
+.floating-label > label .field-toggle-group {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.floating-label > label.floated .field-toggle-group,
+.floating-label > label.floated:hover .field-toggle-group {
+  opacity: 1;
+}
+.floating-label > label:hover .field-toggle-group {
+  opacity: 0.6;
+}
+.floating-label textarea,
+.floating-label input {
+  padding-top: 1.4rem !important;
+  padding-bottom: 0.4rem !important;
+}
+.floating-label label.floated {
+  top: 2px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-accent);
+  letter-spacing: 0.02em;
+}
+.floating-label label.floated .field-toggle-group {
+  opacity: 1;
+}
 
 /* ============================================================
    MARKDOWN PREVIEW

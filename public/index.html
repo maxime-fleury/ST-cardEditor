@@ -230,55 +230,67 @@
           <div class="tab-pane fade show active" id="tabCore">
             <div class="row g-3">
               <div class="col-12">
-                <label class="form-label field-label">
-                  <span data-i18n="editor.desc">Description</span> <small data-i18n="editor.descSub">(appearance, backstory)</small>
-                  <span class="field-toggle-group" data-target="editDescription">
-                    <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
-                    <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
-                  </span>
-                </label>
-                <textarea class="form-control editor-textarea" id="editDescription" rows="6" 
-                          data-i18n-placeholder="editor.descPlaceholder" placeholder="Describe the character's appearance, background, and key traits..."></textarea>
-                <div class="md-preview" id="previewDescription"></div>
-                <small class="char-count text-muted" style="font-size:0.7rem;"></small>
+                <div class="floating-label">
+                  <label class="form-label field-label">
+                    <span data-i18n="editor.desc">Description</span> <small data-i18n="editor.descSub">(appearance, backstory)</small>
+                    <span class="field-toggle-group" data-target="editDescription">
+                      <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
+                      <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
+                    </span>
+                  </label>
+                  <textarea class="form-control editor-textarea" id="editDescription" rows="6" 
+                            data-i18n-placeholder="editor.descPlaceholder" placeholder="Describe the character's appearance, background, and key traits..."></textarea>
+                  <div class="md-preview" id="previewDescription"></div>
+                  <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
+                </div>
               </div>
               <div class="col-md-6">
-                <label class="form-label field-label">
-                  <span data-i18n="editor.firstMes">First Message</span>
-                  <span class="field-toggle-group" data-target="editFirstMes">
-                    <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
-                    <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
-                  </span>
-                </label>
-                <textarea class="form-control editor-textarea" id="editFirstMes" rows="5" 
-                          data-i18n-placeholder="editor.firstMesPlaceholder" placeholder="The character's first message when starting a chat..."></textarea>
-                <div class="md-preview" id="previewFirstMes"></div>
-                <small class="char-count text-muted" style="font-size:0.7rem;"></small>
+                <div class="floating-label">
+                  <label class="form-label field-label">
+                    <span data-i18n="editor.firstMes">First Message</span>
+                    <span class="field-toggle-group" data-target="editFirstMes">
+                      <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
+                      <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
+                    </span>
+                  </label>
+                  <textarea class="form-control editor-textarea" id="editFirstMes" rows="5" 
+                            data-i18n-placeholder="editor.firstMesPlaceholder" placeholder="The character's first message when starting a chat..."></textarea>
+                  <div class="md-preview" id="previewFirstMes"></div>
+                  <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
+                </div>
               </div>
               <div class="col-md-6">
-                <label class="form-label field-label">
-                  <span data-i18n="editor.scenario">Scenario</span>
-                  <span class="field-toggle-group" data-target="editScenario">
-                    <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
-                    <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
-                  </span>
-                </label>
-                <textarea class="form-control editor-textarea" id="editScenario" rows="5" 
-                          data-i18n-placeholder="editor.scenarioPlaceholder" placeholder="Current circumstances and context of the conversation..."></textarea>
-                <div class="md-preview" id="previewScenario"></div>
+                <div class="floating-label">
+                  <label class="form-label field-label">
+                    <span data-i18n="editor.scenario">Scenario</span>
+                    <span class="field-toggle-group" data-target="editScenario">
+                      <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
+                      <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
+                    </span>
+                  </label>
+                  <textarea class="form-control editor-textarea" id="editScenario" rows="5" 
+                            data-i18n-placeholder="editor.scenarioPlaceholder" placeholder="Current circumstances and context of the conversation..."></textarea>
+                  <div class="md-preview" id="previewScenario"></div>
+                </div>
               </div>
               <div class="col-md-6">
-                <label class="form-label field-label"><span data-i18n="editor.creator">Creator</span></label>
-                <input type="text" class="form-control" id="editCreator" data-i18n-placeholder="editor.creatorPlaceholder" placeholder="Card creator / author">
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.creator">Creator</span></label>
+                  <input type="text" class="form-control" id="editCreator" data-i18n-placeholder="editor.creatorPlaceholder" placeholder="Card creator / author">
+                </div>
               </div>
               <div class="col-md-3">
-                <label class="form-label field-label"><span data-i18n="editor.version">Character Version</span></label>
-                <input type="text" class="form-control" id="editVersion" placeholder="v1.0">
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.version">Character Version</span></label>
+                  <input type="text" class="form-control" id="editVersion" placeholder="v1.0">
+                </div>
               </div>
               <div class="col-md-3">
-                <label class="form-label field-label"><span data-i18n="editor.tags">Tags</span> <small data-i18n="editor.tagsSub">(comma-separated)</small></label>
-                <input type="text" class="form-control" id="editTags" data-i18n-placeholder="editor.tagsPlaceholder" placeholder="fantasy, warrior, elf" list="tagSuggestions">
-                <datalist id="tagSuggestions"></datalist>
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.tags">Tags</span> <small data-i18n="editor.tagsSub">(comma-separated)</small></label>
+                  <input type="text" class="form-control" id="editTags" data-i18n-placeholder="editor.tagsPlaceholder" placeholder="fantasy, warrior, elf" list="tagSuggestions">
+                  <datalist id="tagSuggestions"></datalist>
+                </div>
               </div>
             </div>
           </div>
@@ -287,23 +299,27 @@
           <div class="tab-pane fade" id="tabPersonality">
             <div class="row g-3">
               <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="editor.personalitySummary">Personality Summary</span></label>
-                <textarea class="form-control editor-textarea" id="editPersonality" rows="14" 
-                          data-i18n-placeholder="editor.personalityPlaceholder" placeholder="A brief description of the character's personality... (used in character card format)"></textarea>
-                <small class="char-count text-muted" style="font-size:0.7rem;"></small>
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.personalitySummary">Personality Summary</span></label>
+                  <textarea class="form-control editor-textarea" id="editPersonality" rows="14" 
+                            data-i18n-placeholder="editor.personalityPlaceholder" placeholder="A brief description of the character's personality... (used in character card format)"></textarea>
+                  <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
+                </div>
               </div>
               <div class="col-12">
-                <label class="form-label field-label">
-                  <span data-i18n="editor.mesExample">Example Messages</span>
-                  <span class="field-toggle-group" data-target="editMesExample">
-                    <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
-                    <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
-                  </span>
-                </label>
-                <textarea class="form-control editor-textarea font-mono" id="editMesExample" rows="16" 
-                          placeholder="&lt;START&gt;&#10;{{char}}: Example dialogue here...&#10;{{user}}: User response...&#10;&lt;START&gt;&#10;{{char}}: Another example..."></textarea>
-                <div class="md-preview" id="previewMesExample"></div>
-                <small class="form-text text-muted" data-i18n="editor.mesExampleFormat">Format: &lt;START&gt; blocks with {{char}}: and {{user}}: prefixes</small>
+                <div class="floating-label">
+                  <label class="form-label field-label">
+                    <span data-i18n="editor.mesExample">Example Messages</span>
+                    <span class="field-toggle-group" data-target="editMesExample">
+                      <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
+                      <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
+                    </span>
+                  </label>
+                  <textarea class="form-control editor-textarea font-mono" id="editMesExample" rows="16" 
+                            placeholder="&lt;START&gt;&#10;{{char}}: Example dialogue here...&#10;{{user}}: User response...&#10;&lt;START&gt;&#10;{{char}}: Another example..."></textarea>
+                  <div class="md-preview" id="previewMesExample"></div>
+                  <small class="form-text text-muted" data-i18n="editor.mesExampleFormat">Format: &lt;START&gt; blocks with {{char}}: and {{user}}: prefixes</small>
+                </div>
               </div>
             </div>
           </div>
@@ -312,20 +328,26 @@
           <div class="tab-pane fade" id="tabAdvanced">
             <div class="row g-3">
               <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="editor.systemPrompt">System Prompt</span></label>
-                <textarea class="form-control editor-textarea font-mono" id="editSystemPrompt" rows="12" 
-                          data-i18n-placeholder="editor.systemPromptPlaceholder" placeholder="Override the system prompt. Use {{original}} to include the default."></textarea>
-                <small class="char-count text-muted" style="font-size:0.7rem;"></small>
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.systemPrompt">System Prompt</span></label>
+                  <textarea class="form-control editor-textarea font-mono" id="editSystemPrompt" rows="12" 
+                            data-i18n-placeholder="editor.systemPromptPlaceholder" placeholder="Override the system prompt. Use {{original}} to include the default."></textarea>
+                  <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
+                </div>
               </div>
               <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="editor.postHistory">Post-History Instructions</span></label>
-                <textarea class="form-control editor-textarea font-mono" id="editPostHistory" rows="10" 
-                          data-i18n-placeholder="editor.postHistoryPlaceholder" placeholder="Instructions injected after the chat history. Use {{original}} for default."></textarea>
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.postHistory">Post-History Instructions</span></label>
+                  <textarea class="form-control editor-textarea font-mono" id="editPostHistory" rows="10" 
+                            data-i18n-placeholder="editor.postHistoryPlaceholder" placeholder="Instructions injected after the chat history. Use {{original}} for default."></textarea>
+                </div>
               </div>
               <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="editor.creatorNotes">Creator Notes</span></label>
-                <textarea class="form-control editor-textarea" id="editCreatorNotes" rows="4" 
-                          data-i18n-placeholder="editor.creatorNotesPlaceholder" placeholder="Notes for card users (model recommendations, usage tips...)"></textarea>
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.creatorNotes">Creator Notes</span></label>
+                  <textarea class="form-control editor-textarea" id="editCreatorNotes" rows="4" 
+                            data-i18n-placeholder="editor.creatorNotesPlaceholder" placeholder="Notes for card users (model recommendations, usage tips...)"></textarea>
+                </div>
               </div>
               <div class="col-12">
                 <label class="form-label field-label"><span data-i18n="editor.greetings">Alternate Greetings</span> <span class="greeting-count" id="greetingCount"></span></label>
