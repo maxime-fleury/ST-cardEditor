@@ -248,7 +248,9 @@ const CardManager = {
     AiChat.renderChatHistory();
     Editor.populateEditor(fullCard);
     this.renderCardList();
+    window.AppState._dirty = false;
     Ui.updateUIState();
+    AiChat.updateContextBar();
   },
 
   async createNewCard() {
@@ -267,6 +269,8 @@ const CardManager = {
     const { activeCard } = window.AppState;
     if (!activeCard) { Ui.showToast('No card to save', 'warning'); return; }
     await Editor.syncEditorToCard();
+    window.AppState._dirty = false;
+    Ui.setDirty(false);
     this.renderCardList();
     Ui.showToast('Card saved!', 'success');
   },

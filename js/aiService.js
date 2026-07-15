@@ -210,7 +210,7 @@ const AIService = {
     return `$${perMillion.toFixed(3)}/M`;
   },
 
-  async chatStream(prompt, systemPrompt = '', model = '', onChunk) {
+  async chatStream(prompt, systemPrompt = '', model = '', onChunk, signal) {
     if (!this._apiKey) throw new Error('API key not set');
     if (!model) throw new Error('No model selected.');
 
@@ -229,6 +229,7 @@ const AIService = {
         'X-Title': 'ST Card Editor',
       },
       body: JSON.stringify({ model, messages, temperature: this.DEFAULT_TEMPERATURE, max_tokens: maxTokens, stream: true }),
+      signal,
     });
 
     if (!resp.ok) {
@@ -290,6 +291,13 @@ const AIService = {
     }
 
     return Math.min(maxTokens, available);
+  },
+
+  /**
+   * Public: get context length for a model (fallback 128k).
+   */
+  getContextLength(modelId) {
+    return this._getContextLength(modelId);
   },
 
   /**

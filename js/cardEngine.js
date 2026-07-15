@@ -110,8 +110,8 @@ const CardEngine = {
 
     let source;
     if (raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3') {
-      card.spec = 'chara_card_v2';
-      card.spec_version = raw.spec_version || '2.0';
+      card.spec = raw.spec;
+      card.spec_version = raw.spec_version || (raw.spec === 'chara_card_v3' ? '3.0' : '2.0');
       source = raw.data || {};
     } else if (raw.name !== undefined && !raw.spec) {
       card.spec = 'chara_card_v2';

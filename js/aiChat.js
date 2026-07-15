@@ -27,6 +27,7 @@ const AiChat = {
     CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
 
     const streamingEl = this.createStreamingMessage();
+    this._abortController = new AbortController();
     AIService.chatStream(prompt, this.buildSystemPrompt(targetField), modelId, (fullText) => {
       streamingEl.querySelector('.ai-message-content').innerHTML = Ui.escapeHtml(fullText)
         .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')
@@ -36,7 +37,7 @@ const AiChat = {
         .replace(/\n/g, '<br>');
       const container = document.querySelector('#aiChatMessages');
       container.scrollTop = container.scrollHeight;
-    })
+    }, this._abortController.signal)
       .then(result => {
         streamingEl.remove();
         this.addChatMessage('assistant', result.content, result.usage);
@@ -50,8 +51,12 @@ const AiChat = {
       })
       .catch(err => {
         streamingEl.remove();
-        this.addChatMessage('system', 'Error: ' + err.message);
-        Ui.showToast('AI Error: ' + err.message, 'danger');
+        if (err && err.name === 'AbortError') {
+          this.addChatMessage('system', 'Generation stopped.');
+        } else {
+          this.addChatMessage('system', 'Error: ' + err.message);
+          Ui.showToast('AI Error: ' + err.message, 'danger');
+        }
       })
       .finally(() => { window.AppState.isAiLoading = false; this.updateSendButton(); });
   },
@@ -104,10 +109,10 @@ const AiChat = {
     };
 
     if (targetField === 'full') {
-      const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || content.match(/(\{[\s\S]*\})/);
-      if (jsonMatch) {
+      const jsonStr = this._extractJSON(content);
+      if (jsonStr) {
         try {
-          const parsed = CardEngine.parseJSON(jsonMatch[1].trim(), activeCard._filename);
+          const parsed = CardEngine.parseJSON(jsonStr, activeCard._filename);
           showPreview(CardEngine.toJSON(activeCard), CardEngine.toJSON(parsed), () => {
             const internal = { _id: activeCard._id, _filename: activeCard._filename, _hasImage: activeCard._hasImage, _imageBase64: activeCard._imageBase64, _thumbnail: activeCard._thumbnail };
             Object.assign(activeCard, parsed);
@@ -135,6 +140,42 @@ const AiChat = {
         });
       }
     }
+  },
+
+  /**
+   * Extract a full JSON object from AI text. Handles ```json fences and finds
+   * the outermost balanced-brace span (ignoring braces inside strings), which is
+   * far more robust than a greedy regex for messy model output.
+   */
+  _extractJSON(text) {
+    if (!text) return null;
+    const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const candidate = fence ? fence[1].trim() : text.trim();
+    const balanced = this._balancedBraces(candidate);
+    if (balanced) return balanced;
+    return this._balancedBraces(text);
+  },
+
+  _balancedBraces(text) {
+    const start = text.indexOf('{');
+    if (start < 0) return null;
+    let depth = 0, inStr = false, esc = false;
+    for (let i = start; i < text.length; i++) {
+      const c = text[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === '\\') esc = true;
+        else if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') inStr = true;
+      else if (c === '{') depth++;
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+    }
+    return null;
   },
 
   handleQuickAction(action) {
@@ -197,19 +238,6 @@ const AiChat = {
     container.scrollTop = container.scrollHeight;
   },
 
-  showTypingIndicator() {
-    const $ = (sel) => document.querySelector(sel);
-    const container = $('#aiChatMessages');
-    const welcome = container.querySelector('.ai-welcome');
-    if (welcome) welcome.remove();
-    const el = document.createElement('div');
-    el.className = 'typing-indicator';
-    el.innerHTML = '<span></span><span></span><span></span>';
-    container.appendChild(el);
-    container.scrollTop = container.scrollHeight;
-    return el;
-  },
-
   createStreamingMessage() {
     const $ = (sel) => document.querySelector(sel);
     const container = $('#aiChatMessages');
@@ -254,8 +282,57 @@ const AiChat = {
   updateSendButton() {
     const $ = (sel) => document.querySelector(sel);
     const btn = $('#btnAiSend');
+    const stop = $('#btnAiStop');
     btn.disabled = window.AppState.isAiLoading;
     btn.innerHTML = window.AppState.isAiLoading ? '<span class="spinner-border spinner-border-sm"></span>' : '<i class="bi bi-send-fill"></i>';
+    if (stop) stop.classList.toggle('d-none', !window.AppState.isAiLoading);
+  },
+
+  /**
+   * Update the context-usage bar: estimates input tokens (card target + prompt)
+   * plus the capped max output, relative to the model's context length.
+   * Uses a real BPE tokenizer when available, with a heuristic fallback.
+   */
+  async updateContextBar() {
+    const $ = (sel) => document.querySelector(sel);
+    const bar = $('#contextBarFill');
+    const label = $('#contextBarLabel');
+    if (!bar || !label) return;
+
+    const modelId = $('#aiModelSelect').value || $('#navModelSelect').value;
+    const targetField = $('#aiTargetSelect').value;
+    const prompt = $('#aiInput').value || '';
+    const { activeCard } = window.AppState;
+
+    if (!modelId) {
+      bar.style.width = '0%';
+      bar.classList.remove('warn', 'danger');
+      label.textContent = 'Select a model';
+      return;
+    }
+
+    const ctx = AIService.getContextLength(modelId);
+    let inputText = '';
+    if (targetField === 'full') inputText = CardEngine.getTextContent(activeCard);
+    else if (activeCard && activeCard[targetField] !== undefined) inputText = activeCard[targetField] || '';
+    if (!inputText && !activeCard) inputText = '(no card selected)';
+
+    const inputTokens = await Tokenizer.count(inputText + '\n' + prompt);
+    const maxOut = AIService.resolveMaxTokens(modelId, [{ role: 'system', content: inputText }, { role: 'user', content: prompt }]);
+    const total = inputTokens + maxOut;
+    const ratio = ctx > 0 ? total / ctx : 0;
+    const pct = Math.min(100, Math.round(ratio * 100));
+
+    bar.style.width = pct + '%';
+    bar.classList.toggle('warn', ratio >= 0.9 && ratio < 1);
+    bar.classList.toggle('danger', ratio >= 1);
+    label.textContent = this._fmt(inputTokens) + ' in · ' + this._fmt(maxOut) + ' out · ' + this._fmt(ctx) + ' ctx';
+  },
+
+  _fmt(n) {
+    n = n || 0;
+    if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k';
+    return '' + n;
   },
 };
 

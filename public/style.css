@@ -268,6 +268,29 @@ a:hover { color: var(--purple-400); text-decoration: underline; }
   transform: translateY(0);
 }
 
+/* Dirty-state indicator on Save button */
+.btn-accent.is-dirty {
+  box-shadow: 0 0 0 0.15rem var(--warning), var(--shadow-glow);
+}
+.dirty-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--warning);
+  box-shadow: 0 0 6px var(--warning);
+  animation: pulse-glow 1.6s ease-in-out infinite;
+}
+
+/* Avatar is interactive (click / drop to upload) */
+.char-avatar { cursor: pointer; }
+.char-avatar.drag-over {
+  border-color: var(--purple-500) !important;
+  box-shadow: inset 0 0 18px var(--purple-glow), 0 0 18px var(--purple-glow);
+}
+
 .btn-outline-accent {
   background: transparent;
   border: 1px solid var(--border-accent);
@@ -373,6 +396,7 @@ a:hover { color: var(--purple-400); text-decoration: underline; }
   width: var(--panel-left-width);
   min-width: var(--panel-left-width);
   border-right: 1px solid var(--border-subtle);
+  position: relative;
 }
 
 .panel-center {
@@ -384,7 +408,27 @@ a:hover { color: var(--purple-400); text-decoration: underline; }
   width: var(--panel-right-width);
   min-width: var(--panel-right-width);
   border-left: 1px solid var(--border-subtle);
+  position: relative;
 }
+
+/* Draggable panel resizers */
+.panel-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 30;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+#resizerLeft { right: -3px; }
+#resizerRight { left: -3px; }
+.panel-resizer:hover, .panel-resizer:focus {
+  background: var(--purple-glow);
+  outline: none;
+}
+body.resizing { cursor: col-resize; user-select: none; }
 
 .panel-header {
   height: var(--panel-header-height);
@@ -1054,6 +1098,44 @@ a:hover { color: var(--purple-400); text-decoration: underline; }
   white-space: nowrap;
 }
 
+/* Context usage bar */
+.context-bar {
+  position: relative;
+  height: 16px;
+  border-radius: 100px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  margin-bottom: 0.4rem;
+}
+.context-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  background: linear-gradient(90deg, var(--purple-600), var(--magenta-600));
+  transition: width var(--transition-normal), background var(--transition-normal);
+}
+.context-bar-fill.warn { background: linear-gradient(90deg, #d97706, var(--warning)); }
+.context-bar-fill.danger { background: linear-gradient(90deg, #b91c1c, var(--danger)); }
+.context-bar-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.ai-send-group {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
 /* ============================================================
    MODAL
    ============================================================ */
@@ -1342,14 +1424,21 @@ a:hover { color: var(--purple-400); text-decoration: underline; }
 
 @media (max-width: 992px) {
   .card-preview-tooltip { left: auto; right: 105%; }
+  .panel-resizer { display: none; }
   .panel-right { display: none; position: fixed; top: 0; right: 0; bottom: 0; width: 320px; z-index: 1040; background: var(--bg-primary); border-left: 1px solid var(--border-subtle); box-shadow: -4px 0 20px rgba(0,0,0,.5); }
   .panel-right.mobile-open { display: flex; flex-direction: column; }
   .panel-left { width: 240px; min-width: 240px; }
 }
 @media (max-width: 768px) {
-  .panel-left { width: 100%; min-width: 100%; 
-    max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border-subtle); }
-  .app-container { flex-direction: column; }
+  .panel-left { width: 100%; min-width: 100%;
+    max-height: 38vh; border-right: none; border-bottom: 1px solid var(--border-subtle); }
+  .app-container { flex-direction: column; overflow-y: auto; }
+  .panel-center { min-height: 60vh; }
+  .editor-header { flex-wrap: wrap; }
+  .editor-header-right { width: 100%; justify-content: flex-end; }
+  .no-card-selected { height: auto; min-height: 50vh; }
+  .ai-input-actions { flex-direction: column; align-items: stretch; gap: 0.35rem; }
+  .ai-target-group { justify-content: space-between; }
 }
 
 @media (prefers-reduced-motion: reduce) {

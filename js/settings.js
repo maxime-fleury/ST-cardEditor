@@ -120,12 +120,19 @@ const Settings = {
     if (val) $('#aiModelSelect').value = val;
   },
 
-  updateStorageUsage() {
+  async updateStorageUsage() {
     const $ = (sel) => document.querySelector(sel);
-    const bytes = CardStorage.getUsageEstimate();
+    let bytes = CardStorage.getUsageEstimate();
+    if (navigator.storage && navigator.storage.estimate) {
+      try {
+        const est = await navigator.storage.estimate();
+        if (est.usage) bytes = est.usage;
+      } catch (_) { /* keep localStorage sum */ }
+    }
     const kb = (bytes / 1024).toFixed(1);
     const mb = (bytes / (1024 * 1024)).toFixed(2);
-    $('#storageUsage').textContent = parseFloat(kb) > 1000 ? mb + ' MB' : kb + ' KB';
+    const gb = (bytes / (1024 * 1024 * 1024)).toFixed(2);
+    $('#storageUsage').textContent = parseFloat(gb) >= 1 ? gb + ' GB' : (parseFloat(kb) > 1000 ? mb + ' MB' : kb + ' KB');
   },
 
   confirmClearStorage() {

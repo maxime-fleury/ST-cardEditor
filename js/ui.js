@@ -3,7 +3,7 @@
    ============================================================ */
 
 // ─── Shared State ───────────────────────────────────────
-window.AppState = { cards: [], activeCard: null, models: [], chatHistory: [], isAiLoading: false };
+window.AppState = { cards: [], activeCard: null, models: [], chatHistory: [], isAiLoading: false, _dirty: false };
 
 // ─── Utilities ──────────────────────────────────────────
 window.Ui = {
@@ -57,6 +57,22 @@ window.Ui = {
     document.querySelector('#btnExportJson').disabled = !h;
     document.querySelector('#btnExportPng').disabled = !h;
     document.querySelector('#btnDeleteCard').disabled = !h;
+    this.setDirty(window.AppState._dirty);
+  },
+
+  setDirty(dirty) {
+    window.AppState._dirty = dirty;
+    const btn = document.querySelector('#btnSaveCard');
+    if (!btn) return;
+    btn.classList.toggle('is-dirty', !!dirty);
+    let dot = btn.querySelector('.dirty-dot');
+    if (dirty && !dot) {
+      dot = document.createElement('span');
+      dot.className = 'dirty-dot';
+      btn.appendChild(dot);
+    } else if (!dirty && dot) {
+      dot.remove();
+    }
   },
 };
 
@@ -105,11 +121,12 @@ async function init() {
   if (apiKey) Settings.refreshModelsList();
   Ui.updateUIState();
   bindEvents(settingsModal);
+  AiChat.updateContextBar();
   window.addEventListener('beforeunload', (e) => {
-    if (window.AppState.activeCard) {
+    if (window.AppState.activeCard && window.AppState._dirty) {
       Editor.syncGreetings();
       Editor.syncEditorToCard();
-      // Prompt the user if there might be unsaved changes.
+      // Prompt the user only when there are unsaved changes.
       e.preventDefault();
       e.returnValue = '';
     }
@@ -160,6 +177,7 @@ function bindEvents(settingsModal) {
   $('#btnNewCardCenter').addEventListener('click', () => CardManager.createNewCard());
   $('#btnSaveCard').addEventListener('click', () => CardManager.saveCurrentCard());
   $('#btnSettings').addEventListener('click', () => settingsModal.show());
+  $('#btnHelp').addEventListener('click', () => { const m = new bootstrap.Modal('#shortcutsModal'); m.show(); });
   $('#btnToggleApiKey').addEventListener('click', () => Settings.toggleApiKeyVisibility());
   $('#btnSaveSettings').addEventListener('click', () => Settings.saveSettings(settingsModal));
   $('#btnRefreshModels').addEventListener('click', () => Settings.refreshModelsList());
@@ -181,6 +199,28 @@ function bindEvents(settingsModal) {
   $('#btnBatchDelete').addEventListener('click', () => CardManager.batchDelete());
   $('#btnBatchExport').addEventListener('click', () => CardManager.batchExportJSON());
 
+  // Avatar upload (click + drag/drop)
+  const avatar = $('#charAvatar');
+  const avatarInput = $('#avatarInput');
+  if (avatar) {
+    avatar.addEventListener('click', () => avatarInput.click());
+    avatar.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); avatarInput.click(); }
+    });
+    avatar.addEventListener('dragover', (e) => { e.preventDefault(); avatar.classList.add('drag-over'); });
+    avatar.addEventListener('dragleave', () => avatar.classList.remove('drag-over'));
+    avatar.addEventListener('drop', (e) => {
+      e.preventDefault(); avatar.classList.remove('drag-over');
+      const f = e.dataTransfer?.files?.[0];
+      if (f && f.type.startsWith('image/')) Editor.setAvatar(f);
+    });
+  }
+  if (avatarInput) avatarInput.addEventListener('change', (e) => {
+    const f = e.target.files?.[0];
+    if (f) Editor.setAvatar(f);
+    e.target.value = '';
+  });
+
   ['editName','editDescription','editPersonality','editScenario','editFirstMes',
    'editMesExample','editCreatorNotes','editSystemPrompt','editPostHistory',
    'editCreator','editVersion','editTags'].forEach(id => {
@@ -189,7 +229,7 @@ function bindEvents(settingsModal) {
       const field = id.replace('edit', '');
       const camelField = field.charAt(0).toLowerCase() + field.slice(1);
       el.addEventListener('focus', () => Editor._snapshot(camelField));
-      el.addEventListener('input', Ui.debounce(() => { Editor.syncEditorToCard(); Editor.updateCharCounts(); Editor.autoResizeTextareas(); }, DEBOUNCE_INPUT_MS));
+      el.addEventListener('input', Ui.debounce(() => { Editor.syncEditorToCard(); Editor.updateCharCounts(); Editor.autoResizeTextareas(); AiChat.updateContextBar(); }, DEBOUNCE_INPUT_MS));
     }
   });
 
@@ -198,6 +238,12 @@ function bindEvents(settingsModal) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); AiChat.send(); }
   });
   $('#btnClearChat').addEventListener('click', () => AiChat.clearChat());
+  $('#aiInput').addEventListener('input', Ui.debounce(() => AiChat.updateContextBar(), 400));
+  $('#aiTargetSelect').addEventListener('change', () => AiChat.updateContextBar());
+  $('#aiModelSelect').addEventListener('change', () => AiChat.updateContextBar());
+  $('#navModelSelect').addEventListener('change', () => AiChat.updateContextBar());
+  const stopBtn = $('#btnAiStop');
+  if (stopBtn) stopBtn.addEventListener('click', () => { if (AiChat._abortController) AiChat._abortController.abort(); });
 
   $$('.quick-action').forEach(btn => {
     btn.addEventListener('click', () => AiChat.handleQuickAction(btn.dataset.action));
@@ -219,16 +265,63 @@ function bindEvents(settingsModal) {
   const themeToggle = $('#btnThemeToggle');
   const savedTheme = localStorage.getItem(CardStorage.PREFIX + 'theme') || 'dark';
   if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); themeToggle.innerHTML = '<i class="bi bi-sun-fill"></i>'; }
-  if (themeToggle) {
-    themeToggle.addEventListener('click', () => {
-      const current = document.documentElement.getAttribute('data-theme');
-      const next = current === 'light' ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', next);
-      localStorage.setItem(CardStorage.PREFIX + 'theme', next);
-      themeToggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
-    });
+    if (themeToggle) {
+      themeToggle.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem(CardStorage.PREFIX + 'theme', next);
+        themeToggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
+      });
+    }
+
+    setupPanelResizers();
   }
-}
+
+  // ─── PANEL RESIZERS ───────────────────────────────
+  function setupPanelResizers() {
+    const root = document.documentElement;
+    const app = document.querySelector('#appContainer');
+    const savedL = localStorage.getItem(CardStorage.PREFIX + 'panelLeft');
+    const savedR = localStorage.getItem(CardStorage.PREFIX + 'panelRight');
+    if (savedL) root.style.setProperty('--panel-left-width', savedL + 'px');
+    if (savedR) root.style.setProperty('--panel-right-width', savedR + 'px');
+
+    const startDrag = (which) => (e) => {
+      e.preventDefault();
+      document.body.classList.add('resizing');
+      const rect = app.getBoundingClientRect();
+      const move = (ev) => {
+        const x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
+        if (which === 'left') {
+          let w = Math.round(x - rect.left);
+          w = Math.max(220, Math.min(480, w));
+          root.style.setProperty('--panel-left-width', w + 'px');
+        } else {
+          let w = Math.round(rect.right - x);
+          w = Math.max(280, Math.min(560, w));
+          root.style.setProperty('--panel-right-width', w + 'px');
+        }
+      };
+      const up = () => {
+        document.body.classList.remove('resizing');
+        localStorage.setItem(CardStorage.PREFIX + 'panelLeft', root.style.getPropertyValue('--panel-left-width'));
+        localStorage.setItem(CardStorage.PREFIX + 'panelRight', root.style.getPropertyValue('--panel-right-width'));
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+        window.removeEventListener('touchmove', move);
+        window.removeEventListener('touchend', up);
+      };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+      window.addEventListener('touchmove', move, { passive: false });
+      window.addEventListener('touchend', up);
+    };
+    const rl = document.querySelector('#resizerLeft');
+    const rr = document.querySelector('#resizerRight');
+    if (rl) { rl.addEventListener('mousedown', startDrag('left')); rl.addEventListener('touchstart', startDrag('left'), { passive: false }); }
+    if (rr) { rr.addEventListener('mousedown', startDrag('right')); rr.addEventListener('touchstart', startDrag('right'), { passive: false }); }
+  }
 
 // ─── KEYBOARD SHORTCUTS ───────────────────────────────
 

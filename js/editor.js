@@ -134,12 +134,35 @@ const Editor = {
     activeCard.tags = $('#editTags').value.split(',').map(s => s.trim()).filter(Boolean);
     await CardStorage.upsertCard(activeCard);
     window.AppState.cards = CardStorage.getCards();
+    window.AppState._dirty = true;
+    Ui.setDirty(true);
   },
 
   showEditor() {
     const $ = (sel) => document.querySelector(sel);
     $('#noCardSelected').classList.add('d-none');
     $('#editorContainer').classList.remove('d-none');
+  },
+
+  async setAvatar(file) {
+    const { activeCard } = window.AppState;
+    if (!activeCard) { Ui.showToast('Select a card first', 'warning'); return; }
+    try {
+      const b64 = await CardEngine._blobToBase64(file);
+      activeCard._imageBase64 = b64;
+      activeCard._hasImage = true;
+      activeCard._thumbnail = await CardEngine._createThumbnail(b64);
+      const img = $('#charAvatarImg');
+      if (img) { img.src = b64; img.hidden = false; }
+      const ph = $('#avatarPlaceholder');
+      if (ph) ph.style.display = 'none';
+      await CardStorage.saveImage(activeCard._id, b64);
+      await this.syncEditorToCard();
+      Ui.showToast('Avatar updated', 'success');
+    } catch (e) {
+      console.error('Avatar load failed', e);
+      Ui.showToast('Failed to load image', 'danger');
+    }
   },
 
   hideEditor() {

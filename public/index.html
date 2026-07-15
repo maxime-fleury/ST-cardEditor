@@ -53,7 +53,12 @@
         <button class="btn btn-outline-light btn-sm" id="btnThemeToggle" title="Toggle theme" aria-label="Toggle theme">
           <i class="bi bi-moon-fill"></i>
         </button>
-        
+
+        <!-- Help / Shortcuts -->
+        <button class="btn btn-outline-light btn-sm" id="btnHelp" title="Shortcuts & help" aria-label="Shortcuts and help">
+          <i class="bi bi-question-lg"></i>
+        </button>
+
         <!-- Settings -->
         <button class="btn btn-outline-light btn-sm" id="btnSettings" title="Settings" aria-label="Settings">
           <i class="bi bi-gear-fill"></i>
@@ -67,6 +72,7 @@
     
     <!-- LEFT PANEL — Card Library -->
     <aside class="panel panel-left" id="panelLeft">
+      <div class="panel-resizer" id="resizerLeft" role="separator" aria-label="Resize card library" tabindex="0"></div>
       <div class="panel-header">
         <h6 class="panel-title"><i class="bi bi-collection me-2"></i>Card Library</h6>
         <span class="card-count" id="cardCount">0 cards</span>
@@ -133,10 +139,11 @@
       <div class="editor-container d-none" id="editorContainer">
         <div class="editor-header">
           <div class="editor-header-left">
-            <div class="char-avatar" id="charAvatar">
+            <div class="char-avatar" id="charAvatar" title="Click or drop an image to set the avatar" role="button" tabindex="0" aria-label="Set character avatar">
               <img id="charAvatarImg" src="" alt="" hidden>
               <i class="bi bi-person-fill avatar-placeholder" id="avatarPlaceholder"></i>
             </div>
+            <input type="file" id="avatarInput" accept="image/*" hidden>
             <div class="editor-title-group">
               <input type="text" class="form-control form-control-lg editor-name" 
                      id="editName" placeholder="Character Name" maxlength="200">
@@ -295,6 +302,7 @@
     
     <!-- RIGHT PANEL — AI Assistant -->
     <aside class="panel panel-right" id="panelRight">
+      <div class="panel-resizer" id="resizerRight" role="separator" aria-label="Resize AI assistant" tabindex="0"></div>
       <div class="panel-header">
         <h6 class="panel-title"><i class="bi bi-robot me-2"></i>AI Assistant</h6>
         <button class="btn btn-outline-secondary btn-sm" id="btnClearChat" title="Clear chat">
@@ -303,7 +311,7 @@
       </div>
       
       <!-- AI Chat Messages -->
-      <div class="ai-chat-messages" id="aiChatMessages">
+      <div class="ai-chat-messages" id="aiChatMessages" role="log" aria-live="polite" aria-label="AI chat messages">
         <div class="ai-welcome">
           <div class="ai-welcome-icon">
             <i class="bi bi-magic"></i>
@@ -327,35 +335,44 @@
         </div>
       </div>
       
-      <!-- AI Input -->
-      <div class="ai-input-area">
-        <div class="ai-input-row">
-          <textarea class="form-control ai-input" id="aiInput" 
-                    placeholder="Ask AI to edit the card..." rows="2"></textarea>
-          <button class="btn btn-accent btn-sm ai-send-btn" id="btnAiSend" title="Send">
-            <i class="bi bi-send-fill"></i>
-          </button>
-        </div>
-        <div class="ai-input-actions">
-          <select class="form-select form-select-sm ai-model-select" id="aiModelSelect">
-            <option value="">Auto (use nav model)</option>
-          </select>
-          <div class="ai-target-group">
-            <span class="ai-target-label">Target:</span>
-            <select class="form-select form-select-sm ai-target-select" id="aiTargetSelect">
-              <option value="full">Full Card</option>
-              <option value="description">Description</option>
-              <option value="personality">Personality</option>
-              <option value="first_mes">First Message</option>
-              <option value="scenario">Scenario</option>
-              <option value="mes_example">Example Messages</option>
-              <option value="system_prompt">System Prompt</option>
-              <option value="post_history_instructions">Post-History Instructions</option>
-              <option value="creator_notes">Creator Notes</option>
-            </select>
-          </div>
-        </div>
-      </div>
+       <!-- AI Input -->
+       <div class="ai-input-area">
+         <div class="context-bar" id="contextBar" title="Estimated tokens used vs. model context limit">
+           <div class="context-bar-fill" id="contextBarFill"></div>
+           <span class="context-bar-label" id="contextBarLabel">— / — tokens</span>
+         </div>
+         <div class="ai-input-row">
+           <textarea class="form-control ai-input" id="aiInput" 
+                     placeholder="Ask AI to edit the card..." rows="2"></textarea>
+           <div class="ai-send-group">
+             <button class="btn btn-accent btn-sm ai-send-btn" id="btnAiSend" title="Send">
+               <i class="bi bi-send-fill"></i>
+             </button>
+             <button class="btn btn-outline-danger btn-sm ai-send-btn d-none" id="btnAiStop" title="Stop generating">
+               <i class="bi bi-stop-fill"></i>
+             </button>
+           </div>
+         </div>
+         <div class="ai-input-actions">
+           <select class="form-select form-select-sm ai-model-select" id="aiModelSelect">
+             <option value="">Auto (use nav model)</option>
+           </select>
+           <div class="ai-target-group">
+             <span class="ai-target-label">Target:</span>
+             <select class="form-select form-select-sm ai-target-select" id="aiTargetSelect">
+               <option value="full">Full Card</option>
+               <option value="description">Description</option>
+               <option value="personality">Personality</option>
+               <option value="first_mes">First Message</option>
+               <option value="scenario">Scenario</option>
+               <option value="mes_example">Example Messages</option>
+               <option value="system_prompt">System Prompt</option>
+               <option value="post_history_instructions">Post-History Instructions</option>
+               <option value="creator_notes">Creator Notes</option>
+             </select>
+           </div>
+         </div>
+       </div>
     </aside>
   </div>
 
@@ -503,7 +520,7 @@
     </div>
   </div>
 
-  <!-- ========== TOAST CONTAINER ========== -->
+  <!-- ========== AI PREVIEW MODAL ========== -->
   <!-- AI Preview Modal -->
   <div class="modal fade" id="aiPreviewModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -558,20 +575,21 @@
     <i class="bi bi-robot"></i>
   </button>
 
-  <div class="toast-container position-fixed top-0 end-0 p-3" id="toastContainer"></div>
+  <div class="toast-container position-fixed top-0 end-0 p-3" id="toastContainer" role="status" aria-live="polite" aria-label="Notifications"></div>
 
   <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   
   <!-- App Modules -->
-  <script src="js/cardEngine.js?v=17"></script>
-  <script src="js/aiService.js?v=17"></script>
-  <script src="js/storage.js?v=17"></script>
-  <script src="js/exportUtils.js?v=17"></script>
-  <script src="js/editor.js?v=17"></script>
-  <script src="js/cardManager.js?v=17"></script>
-  <script src="js/aiChat.js?v=17"></script>
-  <script src="js/settings.js?v=17"></script>
-  <script src="js/ui.js?v=17"></script>
+  <script src="js/tokenizer.js?v=18"></script>
+  <script src="js/cardEngine.js?v=18"></script>
+  <script src="js/aiService.js?v=18"></script>
+  <script src="js/storage.js?v=18"></script>
+  <script src="js/exportUtils.js?v=18"></script>
+  <script src="js/editor.js?v=18"></script>
+  <script src="js/cardManager.js?v=18"></script>
+  <script src="js/aiChat.js?v=18"></script>
+  <script src="js/settings.js?v=18"></script>
+  <script src="js/ui.js?v=18"></script>
 </body>
 </html>
