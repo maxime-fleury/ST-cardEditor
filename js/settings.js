@@ -10,31 +10,31 @@ const Settings = {
     const defaultModel = $('#defaultModelSelect').value;
     const maxTokens = parseInt($('#maxTokensInput').value, 10) || 0;
     const customApiUrl = $('#customApiUrlInput').value.trim();
-    const customApiKey = $('#customApiKeyInput').value.trim();
+    const customApiKey = $('#namedApiKeyInput').value.trim();
     const customModelId = $('#customModelInput').value.trim();
 
     CardStorage.setProvider(provider);
-    CardStorage.setCustomApiUrl(customApiUrl);
-    CardStorage.setCustomApiKey(customApiKey);
-    CardStorage.setCustomModelId(customModelId);
 
-    if (provider === 'custom') {
-      AIService.setProvider('custom', customApiUrl, customApiKey);
-      CardStorage.setApiKey(customApiKey);
-      AIService.setApiKey(customApiKey);
+    if (provider === 'openrouter') {
+      CardStorage.setApiKey(apiKey);
+      AIService.setProvider('openrouter');
+      CardStorage.setDefaultModel(defaultModel);
+      $('#navModelSelect').value = defaultModel;
+      $('#aiModelSelect').value = defaultModel;
+    } else {
+      const info = AIService.getProviderInfo(provider);
+      const url = provider === 'custom' ? customApiUrl : info.baseUrl;
+      CardStorage.setCustomApiUrl(url);
+      CardStorage.setCustomApiKey(customApiKey);
+      CardStorage.setCustomModelId(customModelId);
+      AIService.setProvider(provider, url, customApiKey);
       if (customModelId) {
         CardStorage.setDefaultModel(customModelId);
         $('#navModelSelect').value = customModelId;
         $('#aiModelSelect').value = customModelId;
       }
-    } else {
-      CardStorage.setApiKey(apiKey);
-      AIService.setApiKey(apiKey);
-      AIService.setProvider('openrouter');
-      CardStorage.setDefaultModel(defaultModel);
-      $('#navModelSelect').value = defaultModel;
-      $('#aiModelSelect').value = defaultModel;
     }
+
     CardStorage.setMaxTokens(maxTokens);
     CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
     modal.hide();
@@ -50,13 +50,48 @@ const Settings = {
     else { input.type = 'password'; icon.className = 'bi bi-eye-fill'; }
   },
 
+  toggleNamedApiKeyVisibility() {
+    const $ = (sel) => document.querySelector(sel);
+    const input = $('#namedApiKeyInput');
+    const icon = $('#btnToggleNamedApiKey i');
+    if (input.type === 'password') { input.type = 'text'; icon.className = 'bi bi-eye-slash-fill'; }
+    else { input.type = 'password'; icon.className = 'bi bi-eye-fill'; }
+  },
+
   toggleProvider() {
     const $ = (sel) => document.querySelector(sel);
     const provider = $('#providerSelect').value;
     const isOpenRouter = provider === 'openrouter';
+    const isCustom = provider === 'custom';
+    const isNamed = !isOpenRouter && !isCustom;
+
     $('#openrouterSettings').classList.toggle('d-none', !isOpenRouter);
-    $('#customSettings').classList.toggle('d-none', isOpenRouter);
+    $('#customSettings').classList.toggle('d-none', !isCustom);
+    $('#namedProviderSettings').classList.toggle('d-none', !isNamed);
+    $('#modelIdSection').classList.toggle('d-none', isOpenRouter);
     $('#openrouterExtras').classList.toggle('d-none', !isOpenRouter);
+    $('#securityWarning').classList.toggle('d-none', !isOpenRouter);
+
+    if (isNamed) {
+      const info = AIService.getProviderInfo(provider);
+      $('#namedApiUrlInput').value = info.baseUrl;
+      const linkMap = {
+        nanogpt: 'https://nano-gpt.com',
+        xai: 'https://console.x.ai',
+        zai: 'https://z.ai',
+        chutes: 'https://chutes.ai',
+        deepseek: 'https://platform.deepseek.com',
+      };
+      $('#namedProviderLink').innerHTML = '<a href="' + (linkMap[provider] || '#') + '" target="_blank" class="text-accent">Get API key from ' + info.name + ' <i class="bi bi-box-arrow-up-right ms-1"></i></a>';
+    }
+
+    if (isCustom) {
+      $('#customModelInput').placeholder = 'e.g. llama-3.2-8b-instruct';
+      $('#modelIdHint').textContent = 'The exact model ID your server expects.';
+    } else if (isNamed) {
+      $('#customModelInput').placeholder = 'e.g. ' + provider + '-latest';
+      $('#modelIdHint').textContent = 'Leave empty to use the provider default model.';
+    }
   },
 
   openSettings() {
@@ -64,8 +99,8 @@ const Settings = {
     const provider = CardStorage.getProvider() || 'openrouter';
     $('#providerSelect').value = provider;
     $('#apiKeyInput').value = CardStorage.getApiKey();
+    $('#namedApiKeyInput').value = CardStorage.getCustomApiKey();
     $('#customApiUrlInput').value = CardStorage.getCustomApiUrl();
-    $('#customApiKeyInput').value = CardStorage.getCustomApiKey();
     $('#customModelInput').value = CardStorage.getCustomModelId();
     $('#maxTokensInput').value = CardStorage.getMaxTokens() || '';
     $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
@@ -187,12 +222,11 @@ const Settings = {
     window.AppState.activeCard = null;
     window.AppState.chatHistory = [];
     window.AppState.models = [];
-    AIService.setApiKey('');
     AIService.setProvider('openrouter');
     $('#apiKeyInput').value = '';
     $('#providerSelect').value = 'openrouter';
     $('#customApiUrlInput').value = '';
-    $('#customApiKeyInput').value = '';
+    $('#namedApiKeyInput').value = '';
     $('#customModelInput').value = '';
     this.toggleProvider();
     $('#navModelSelect').innerHTML = '<option value="">Select model...</option>';
@@ -213,6 +247,7 @@ const Settings = {
       maxTokens: CardStorage.getMaxTokens(),
       injectCopyright: CardStorage.getInjectCopyright(),
       customApiUrl: CardStorage.getCustomApiUrl(),
+      customApiKey: CardStorage.getCustomApiKey(),
       customModelId: CardStorage.getCustomModelId(),
     };
     Ui.downloadFile('st-card-editor-settings.json', JSON.stringify(settings, null, 2), 'application/json');
@@ -233,6 +268,7 @@ const Settings = {
           if (settings.maxTokens !== undefined) { CardStorage.setMaxTokens(settings.maxTokens); $('#maxTokensInput').value = settings.maxTokens || ''; }
           if (settings.injectCopyright !== undefined) { CardStorage.setInjectCopyright(settings.injectCopyright); $('#injectCopyrightToggle').checked = settings.injectCopyright; }
           if (settings.customApiUrl) { CardStorage.setCustomApiUrl(settings.customApiUrl); $('#customApiUrlInput').value = settings.customApiUrl; }
+          if (settings.customApiKey) { CardStorage.setCustomApiKey(settings.customApiKey); $('#namedApiKeyInput').value = settings.customApiKey; }
           if (settings.customModelId) { CardStorage.setCustomModelId(settings.customModelId); $('#customModelInput').value = settings.customModelId; }
           Ui.showToast('Settings imported!', 'success');
         } catch (err) {

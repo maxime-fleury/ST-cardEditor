@@ -468,10 +468,15 @@
             </label>
             <select class="form-select" id="providerSelect">
               <option value="openrouter">OpenRouter</option>
+              <option value="nanogpt">NanoGPT</option>
+              <option value="xai">xAI (Grok)</option>
+              <option value="zai">Z.AI (GLM)</option>
+              <option value="chutes">Chutes</option>
+              <option value="deepseek">DeepSeek</option>
               <option value="custom">Custom (OpenAI-compatible)</option>
             </select>
-            <small class="form-text text-muted">
-              Use OpenRouter for hosted models, or a custom endpoint (LM Studio, Ollama, vLLM, etc.)
+            <small class="form-text text-muted" id="providerHint">
+              Hosted model providers or a custom endpoint (LM Studio, Ollama, etc.)
             </small>
           </div>
 
@@ -479,7 +484,7 @@
           <div id="openrouterSettings">
             <div class="mb-4">
               <label class="form-label fw-semibold">
-                <i class="bi bi-key-fill me-2 text-accent"></i>OpenRouter API Key
+                <i class="bi bi-key-fill me-2 text-accent"></i>API Key
               </label>
               <div class="input-group">
                 <input type="password" class="form-control" id="apiKeyInput" 
@@ -493,10 +498,29 @@
                   Get your API key from OpenRouter <i class="bi bi-box-arrow-up-right ms-1"></i>
                 </a>
               </small>
-              <div class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mt-2 mb-0" style="font-size: 0.78rem;">
-                <i class="bi bi-exclamation-triangle-fill"></i>
-                <span>Your API key is stored locally in your browser's localStorage in plaintext. Do not use this app on shared devices.</span>
+            </div>
+          </div>
+
+          <!-- Named Provider Settings (NanoGPT, xAI, Z.AI, Chutes, DeepSeek) -->
+          <div id="namedProviderSettings" class="d-none">
+            <div class="mb-3">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-link-45deg me-2 text-accent"></i>API Base URL
+              </label>
+              <input type="text" class="form-control" id="namedApiUrlInput" readonly>
+            </div>
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-key-fill me-2 text-accent"></i>API Key
+              </label>
+              <div class="input-group">
+                <input type="password" class="form-control" id="namedApiKeyInput"
+                       placeholder="Enter your API key">
+                <button class="btn btn-outline-secondary" id="btnToggleNamedApiKey" type="button">
+                  <i class="bi bi-eye-fill"></i>
+                </button>
               </div>
+              <small class="form-text text-muted" id="namedProviderLink"></small>
             </div>
           </div>
 
@@ -522,20 +546,26 @@
                 Not needed for local servers like LM Studio or Ollama.
               </small>
             </div>
+          </div>
+
+          <!-- Model ID (shown for named + custom providers) -->
+          <div id="modelIdSection" class="d-none">
             <div class="mb-4">
               <label class="form-label fw-semibold">
                 <i class="bi bi-cpu me-2 text-accent"></i>Model ID
               </label>
               <input type="text" class="form-control" id="customModelInput"
-                     placeholder="e.g. llama-3.2-8b-instruct">
-              <small class="form-text text-muted">
-                The exact model ID your provider expects. Check your server's model list.
+                     placeholder="e.g. deepseek-v4-flash">
+              <small class="form-text text-muted" id="modelIdHint">
+                The exact model ID your provider expects.
               </small>
             </div>
-            <div class="alert alert-info d-flex align-items-center gap-2 py-2 px-3 mb-0" style="font-size: 0.78rem;">
-              <i class="bi bi-info-circle-fill"></i>
-              <span>For local providers, click "Refresh Models" after saving to auto-detect available models.</span>
-            </div>
+          </div>
+
+          <!-- Security warning (OpenRouter only) -->
+          <div id="securityWarning" class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mb-0" style="font-size: 0.78rem;">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span>Your API key is stored locally in your browser's localStorage in plaintext. Do not use this app on shared devices.</span>
           </div>
           
           <!-- OpenRouter-specific sections -->

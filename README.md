@@ -2,7 +2,9 @@
 
 A web-based tool for editing, translating, and enhancing **SillyTavern character cards** with AI assistance. Drag & drop your cards, edit every field, generate characters with AI, and get reference images — all in one place.
 
-![Version](https://img.shields.io/badge/version-1.0.0-purple)
+### **[Try it now](https://maxime-fleury.github.io/ST-cardEditor/)**
+
+![Version](https://img.shields.io/badge/version-2.0.0-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-000?logo=bun)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![Live Demo](https://img.shields.io/badge/demo-gh--pages-9147ff?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/)
@@ -42,12 +44,17 @@ Four tabbed panels covering every aspect of the **V2/V3 card spec**:
 
 ### AI Assistant
 
-**Two provider modes:**
+**Seven built-in provider modes:**
 
 | Provider | Description |
 |----------|-------------|
 | **OpenRouter** | 200+ hosted models with pricing, free tier available |
-| **Custom (OpenAI-compatible)** | LM Studio, Ollama, vLLM, or any OpenAI-compatible endpoint |
+| **NanoGPT** | Hosted models via nano-gpt.com |
+| **xAI (Grok)** | Grok models from xAI |
+| **Z.AI (GLM)** | ZhipuAI GLM models |
+| **Chutes** | Hosted models via Chutes AI |
+| **DeepSeek** | DeepSeek models (V3, R1, etc.) |
+| **Custom** | LM Studio, Ollama, vLLM, or any OpenAI-compatible endpoint |
 
 - **Streaming responses** with real-time text rendering
 - **Side-by-side diff preview** — review AI changes before applying (uses [jsdiff](https://github.com/kpdecker/jsdiff))
@@ -133,7 +140,13 @@ Or try it instantly on **GitHub Pages**:
 4. Click **Refresh Models** to load available AI models
 5. Select your preferred model from the navbar dropdown
 
-#### Option B: Custom Provider (local models)
+#### Option B: Named Providers (NanoGPT, xAI, Z.AI, Chutes, DeepSeek)
+1. Open Settings (gear icon) and select your provider
+2. Click the provider link to get an API key
+3. Paste the API key and enter a Model ID
+4. Click **Refresh Models** to load available models
+
+#### Option C: Custom Provider (local models)
 1. Start your local server (e.g., LM Studio, Ollama)
 2. Open Settings (gear icon) and select **Custom (OpenAI-compatible)**
 3. Enter the API Base URL (e.g. `http://localhost:1234/v1`)
@@ -187,7 +200,7 @@ st-card-editor/
 │   └── style.css           # Dark/light theme stylesheet
 ├── js/
 │   ├── cardEngine.js       # Card parsing, normalization, PNG chunk embedding
-│   ├── aiService.js        # AI API client (OpenRouter + custom providers)
+│   ├── aiService.js        # AI API client (7 providers + custom)
 │   ├── storage.js          # localStorage + IndexedDB persistence layer
 │   ├── exportUtils.js      # PNG/JSON export, CRC32, PNG chunk embedding
 │   ├── editor.js           # Editor form, greetings, lorebook management
@@ -207,14 +220,14 @@ st-card-editor/
 The app is a **single-page application** built with vanilla JavaScript and **Bootstrap 5.3** for layout:
 
 - **`cardEngine.js`** — Parses SillyTavern card formats (V1 flat, V2/V3 spec), extracts embedded data from PNG/WebP files (`chara`/`ccv3` tEXt chunks), and handles stable ID generation via content hashing.
-- **`aiService.js`** — Wraps OpenRouter and custom OpenAI-compatible APIs: lists models with pricing, sends chat completions (streaming and non-streaming) with context-aware system prompts, and fetches account credit info from OpenRouter.
+- **`aiService.js`** — Wraps 7 AI providers (OpenRouter, NanoGPT, xAI, Z.AI, Chutes, DeepSeek, Custom) with a unified registry: lists models with pricing, sends chat completions (streaming and non-streaming) with context-aware system prompts, and fetches account credit info from OpenRouter.
 - **`storage.js`** — Hybrid persistence: lightweight metadata in `localStorage` (namespaced `stce_*`), full card data and images in **IndexedDB** (`stce_data` database). Includes one-time migration from legacy localStorage-only format.
 - **`exportUtils.js`** — PNG/JSON export with CRC32 checksum calculation and `tEXt` chunk embedding for SillyTavern-compatible output.
 - **`editor.js`** — Two-way binding between editor form fields and the active card object, with debounced auto-save, undo/redo, alternate greetings, and lorebook entry management.
 - **`cardManager.js`** — Card library rendering, drag-and-drop file import, card selection with IndexedDB image loading, sorting, tag cloud filtering, batch operations, and 3D tilt hover effect.
 - **`aiChat.js`** — AI chat interface with streaming responses, side-by-side diff preview (via jsdiff), markdown rendering (via marked + DOMPurify), context-aware system prompts, and quick action presets.
 - **`wizard.js`** — 5-step guided character creation with chip-based multi-select inputs, summary review, waifu.im image fetching, and AI generation.
-- **`settings.js`** — Settings modal with provider selection (OpenRouter/Custom), API key management, model browsing/selection, credit tracking, and storage usage display.
+- **`settings.js`** — Settings modal with provider selection (7 providers), API key management, model browsing/selection, credit tracking, and storage usage display.
 - **`tokenizer.js`** — Token estimation using lazy-loaded `gpt-tokenizer` BPE library with offline heuristic fallback.
 - **`ui.js`** — Thin controller: shared state (`AppState`), utility functions (`escapeHtml`, `debounce`, `showToast`, `renderMarkdown`), initialization, and all event binding.
 

@@ -3,75 +3,75 @@
    ============================================================ */
 
 const AIService = {
-  BASE_URL: 'https://openrouter.ai/api/v1',
-  _provider: 'openrouter',
-  _customBaseUrl: '',
   DEFAULT_TEMPERATURE: 0.7,
   DEFAULT_MAX_TOKENS: 65536,
 
-  /**
-   * Known free model IDs on OpenRouter (for quick identification).
-   */
-  FREE_MODEL_PATTERNS: [
-    ':free',
-    'openrouter/free',
-  ],
+  PROVIDERS: {
+    openrouter: { name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', requiresKey: true },
+    nanogpt:    { name: 'NanoGPT',    baseUrl: 'https://api.nano-gpt.com/api/v1', requiresKey: true },
+    xai:        { name: 'xAI (Grok)', baseUrl: 'https://api.x.ai/v1', requiresKey: true },
+    zai:        { name: 'Z.AI (GLM)', baseUrl: 'https://api.z.ai/api/paas/v4', requiresKey: true },
+    chutes:     { name: 'Chutes',     baseUrl: 'https://llm.chutes.ai/v1', requiresKey: true },
+    deepseek:   { name: 'DeepSeek',   baseUrl: 'https://api.deepseek.com/v1', requiresKey: true },
+    custom:     { name: 'Custom',     baseUrl: '', requiresKey: false },
+  },
+
+  FREE_MODEL_PATTERNS: [ ':free', 'openrouter/free' ],
+  _provider: 'openrouter',
+  _apiKey: '',
 
   /**
-   * Set the provider mode and base URL.
+   * Get the provider registry entry.
+   */
+  getProviderInfo(id) {
+    return this.PROVIDERS[id] || this.PROVIDERS.custom;
+  },
+
+  /**
+   * Set the active provider.
    */
   setProvider(provider, customUrl, customKey) {
     this._provider = provider || 'openrouter';
-    if (provider === 'custom') {
-      this._customBaseUrl = (customUrl || '').replace(/\/+$/, '');
-      this._apiKey = customKey || '';
-    } else {
-      this._customBaseUrl = '';
-      this.BASE_URL = 'https://openrouter.ai/api/v1';
-    }
+    this._apiKey = customKey || '';
   },
 
   /**
-   * Get the effective base URL.
+   * Get the effective base URL for the current provider.
    */
   _getBaseUrl() {
-    if (this._provider === 'custom' && this._customBaseUrl) {
-      return this._customBaseUrl;
+    const info = this.getProviderInfo(this._provider);
+    if (this._provider === 'custom') {
+      return (CardStorage.getCustomApiUrl() || '').replace(/\/+$/, '');
     }
-    return 'https://openrouter.ai/api/v1';
+    return info.baseUrl;
   },
 
   /**
-   * Get the effective model ID (custom overrides).
+   * Get the API key for the current provider.
+   * OpenRouter uses CardStorage.getApiKey(), others use CardStorage.getCustomApiKey().
    */
+  _getApiKeyForProvider() {
+    if (this._provider === 'openrouter') return CardStorage.getApiKey();
+    return CardStorage.getCustomApiKey() || '';
+  },
+
   _resolveModel(model) {
     if (this._provider === 'custom') {
-      const custom = CardStorage.getCustomModelId();
-      return custom || model || '';
+      return CardStorage.getCustomModelId() || model || '';
+    }
+    if (this._provider !== 'openrouter') {
+      return CardStorage.getCustomModelId() || model || '';
     }
     return model;
   },
 
-  /**
-   * Set the API key for all requests.
-   */
-  setApiKey(key) {
-    this._apiKey = key;
-  },
+  setApiKey(key) { this._apiKey = key; },
+  getApiKey() { return this._apiKey || ''; },
 
-  /**
-   * Get current API key.
-   */
-  getApiKey() {
-    return this._apiKey || '';
-  },
-
-  /**
-   * Check if API key is set.
-   */
   hasApiKey() {
-    if (this._provider === 'custom') return true; // custom providers may not need a key
-    return !!this._apiKey;
+    const info = this.getProviderInfo(this._provider);
+    if (!info.requiresKey) return true;
+    return !!this._getApiKeyForProvider();
   },
 
   /**
@@ -225,8 +225,9 @@ const AIService = {
    * @returns {Promise<object>} { content, usage, model }
    */
   async chat(prompt, systemPrompt = '', model = '') {
-    const apiKey = this._provider === 'custom' ? this._apiKey : this._apiKey;
-    if (!apiKey && this._provider !== 'custom') throw new Error('API key not set');
+    const apiKey = this._getApiKeyForProvider();
+    const info = this.getProviderInfo(this._provider);
+    if (!apiKey && info.requiresKey) throw new Error('API key not set');
     
     const messages = [];
     if (systemPrompt) {
@@ -234,10 +235,9 @@ const AIService = {
     }
     messages.push({ role: 'user', content: prompt });
     
-    // Resolve model (custom may override)
     const useModel = this._resolveModel(model);
     if (!useModel) {
-      throw new Error('No model selected. Please choose a model or set a custom model ID in Settings.');
+      throw new Error('No model selected. Please choose a model or set a model ID in Settings.');
     }
 
     const maxTokens = this.resolveMaxTokens(useModel, messages);
@@ -264,9 +264,7 @@ const AIService = {
     
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      if (resp.status === 402) {
-        throw new Error('Insufficient credits. Please top up your account.');
-      }
+      if (resp.status === 402) throw new Error('Insufficient credits. Please top up your account.');
       throw new Error(err.error?.message || `HTTP ${resp.status}`);
     }
     
@@ -295,8 +293,9 @@ const AIService = {
   },
 
   async chatStream(prompt, systemPrompt = '', model = '', onChunk, signal) {
-    const apiKey = this._apiKey;
-    if (!apiKey && this._provider !== 'custom') throw new Error('API key not set');
+    const apiKey = this._getApiKeyForProvider();
+    const info = this.getProviderInfo(this._provider);
+    if (!apiKey && info.requiresKey) throw new Error('API key not set');
 
     const messages = [];
     if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });

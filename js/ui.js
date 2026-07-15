@@ -136,16 +136,18 @@ async function init() {
     $('#defaultModelSelect').value = defaultModel;
   }
 
-  // Restore custom provider
+  // Restore provider
   const provider = CardStorage.getProvider();
-  if (provider === 'custom') {
+  if (provider && provider !== 'openrouter') {
     const customUrl = CardStorage.getCustomApiUrl();
     const customKey = CardStorage.getCustomApiKey();
-    const customModel = CardStorage.getCustomModelId();
-    AIService.setProvider('custom', customUrl, customKey);
-    if (customModel) {
-      CardStorage.setDefaultModel(customModel);
-      $('#navModelSelect').value = customModel;
+    AIService.setProvider(provider, customUrl, customKey);
+    if (provider === 'custom') {
+      const customModel = CardStorage.getCustomModelId();
+      if (customModel) {
+        CardStorage.setDefaultModel(customModel);
+        $('#navModelSelect').value = customModel;
+      }
     }
   }
 
@@ -226,6 +228,7 @@ function bindEvents(settingsModal) {
   $('#btnSettings').addEventListener('click', () => settingsModal.show());
   $('#btnHelp').addEventListener('click', () => { const m = new bootstrap.Modal('#shortcutsModal'); m.show(); });
   $('#btnToggleApiKey').addEventListener('click', () => Settings.toggleApiKeyVisibility());
+  $('#btnToggleNamedApiKey').addEventListener('click', () => Settings.toggleNamedApiKeyVisibility());
   $('#btnSaveSettings').addEventListener('click', () => Settings.saveSettings(settingsModal));
   $('#btnRefreshModels').addEventListener('click', () => Settings.refreshModelsList());
   $('#btnClearStorage').addEventListener('click', () => Settings.confirmClearStorage());
