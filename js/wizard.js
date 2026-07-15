@@ -22,6 +22,10 @@ const Wizard = {
     this._renderStepIndicator();
     this._showStep(1);
     this._modal.show();
+    setTimeout(() => {
+      const step1 = document.querySelector('.wizard-step[data-step="1"]');
+      if (step1) Anims.staggerFadeIn(step1.querySelectorAll('.mb-3, .mb-4'), { stagger: 30, duration: 200 });
+    }, 100);
   },
 
   _resetImageUI() {
@@ -62,6 +66,7 @@ const Wizard = {
       group.querySelectorAll('.wizard-chip').forEach(chip => {
         chip.addEventListener('click', () => {
           chip.classList.toggle('active');
+          Anims.scaleClick(chip);
         });
       });
     });
@@ -160,23 +165,55 @@ const Wizard = {
     this._collectStep(this._step);
     if (this._step === 1 && !this._answers.name) {
       Ui.showToast('Please enter a character name', 'warning');
+      Anims.shakeElement(document.querySelector('#wizName'));
       document.querySelector('#wizName').focus();
       return;
     }
     if (this._step < this._totalSteps) {
+      const prevStep = this._step;
       this._step++;
       this._populateStep(this._step);
-      this._showStep(this._step);
+      this._showStepAnimated(this._step, prevStep, 'next');
     }
   },
 
   _back() {
     this._collectStep(this._step);
     if (this._step > 1) {
+      const prevStep = this._step;
       this._step--;
       this._populateStep(this._step);
-      this._showStep(this._step);
+      this._showStepAnimated(this._step, prevStep, 'back');
     }
+  },
+
+  _showStepAnimated(step, prevStep, direction) {
+    const prevEl = document.querySelector('.wizard-step[data-step="' + prevStep + '"]');
+    const nextEl = document.querySelector('.wizard-step[data-step="' + step + '"]');
+
+    document.querySelector('#wizBtnBack').disabled = step === 1;
+
+    if (step === this._totalSteps) {
+      document.querySelector('#wizBtnNext').classList.add('d-none');
+      document.querySelector('#wizStepLabel').textContent = 'Ready to generate!';
+      this._renderSummary();
+    } else {
+      document.querySelector('#wizBtnNext').classList.remove('d-none');
+      document.querySelector('#wizBtnNext').innerHTML = 'Next <i class="bi bi-arrow-right ms-1"></i>';
+      document.querySelector('#wizStepLabel').textContent = 'Step ' + step + ' of ' + this._totalSteps;
+    }
+
+    this._renderStepIndicator();
+    this._updateProgressBar();
+
+    Anims.slideStep(prevEl, nextEl, direction, () => {
+      if (step === this._totalSteps) {
+        const items = document.querySelectorAll('.wizard-summary-item');
+        Anims.staggerFadeIn(items, { stagger: 20, duration: 200 });
+      } else {
+        Anims.staggerFadeIn(nextEl.querySelectorAll('.mb-3, .mb-4'), { stagger: 25, duration: 180 });
+      }
+    });
   },
 
   _showStep(step) {
@@ -217,6 +254,7 @@ const Wizard = {
   _updateProgressBar() {
     const pct = Math.round((this._step / this._totalSteps) * 100);
     document.querySelector('#wizardProgressBar').style.width = pct + '%';
+    Anims.progressBounce(document.querySelector('#wizardProgressBar'));
   },
 
   _renderSummary() {

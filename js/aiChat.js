@@ -287,6 +287,7 @@ const AiChat = {
     el.className = 'ai-message ' + role;
     el.innerHTML = formatted + '<div class="text-muted mt-1" style="font-size:0.6rem;">' + time + '</div>' + usageInfo;
     container.appendChild(el);
+    Anims.staggerFadeIn(el, { duration: 200, from: 10 });
     container.scrollTop = container.scrollHeight;
   },
 
@@ -299,6 +300,7 @@ const AiChat = {
     el.className = 'ai-message assistant';
     el.innerHTML = '<div class="ai-message-content"></div>';
     container.appendChild(el);
+    Anims.staggerFadeIn(el, { duration: 200, from: 10 });
     container.scrollTop = container.scrollHeight;
     return el;
   },
@@ -332,6 +334,7 @@ const AiChat = {
     $('#aiChatMessages').querySelectorAll('.quick-action').forEach(btn => {
       btn.addEventListener('click', () => self.handleQuickAction(btn.dataset.action));
     });
+    Anims.staggerFadeIn($('#aiChatMessages').querySelectorAll('.quick-action'), { stagger: 40, duration: 180 });
     Ui.showToast('Chat cleared', 'info');
   },
 

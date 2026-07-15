@@ -172,6 +172,9 @@ const Settings = {
     ).join('')
     + (hasMore ? '<div class="text-center py-2"><button class="btn btn-outline-accent btn-sm" id="btnLoadMoreModels">Load more (' + (filtered.length - end) + ' remaining)</button></div>' : '')
     + '<div class="text-center text-muted" style="font-size:0.7rem;">Showing ' + Math.min(end, filtered.length) + ' of ' + filtered.length + ' models</div>';
+
+    Anims.staggerFadeIn(container.querySelectorAll('.model-item'), { stagger: 15, duration: 150 });
+
     const self = this;
     container.querySelectorAll('.model-item').forEach(item => {
       item.addEventListener('click', () => {

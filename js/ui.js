@@ -379,9 +379,20 @@ function bindEvents(settingsModal) {
         const next = current === 'light' ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', next);
         localStorage.setItem(CardStorage.PREFIX + 'theme', next);
+        Anims.iconSpin(themeToggle.querySelector('i'));
         themeToggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
       });
     }
+
+  // Brand icon float
+  const brandIcon = $('.brand-icon');
+  if (brandIcon) brandIcon.classList.add('brand-float');
+
+  // Global button click feedback
+  document.addEventListener('mousedown', (e) => {
+    const btn = e.target.closest('.btn');
+    if (btn && !Anims._disabled()) Anims.scaleClick(btn);
+  });
 
     setupPanelResizers();
   }

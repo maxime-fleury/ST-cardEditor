@@ -260,6 +260,8 @@ const CardManager = {
         + '</div></div>';
     }).join('');
 
+    Anims.staggerFadeIn(container.querySelectorAll('.card-list-item'), { stagger: 25, duration: 200 });
+
     // ─── 3D Tilt Effect ──────────────────────────────────
     if (!reducedMotion) {
       container.querySelectorAll('.card-list-item').forEach(item => {
@@ -309,6 +311,12 @@ const CardManager = {
         if (!handle) return;
         dragId = handle.dataset.cardId;
         e.dataTransfer.effectAllowed = 'move';
+        const dragItem = handle.closest('.card-list-item');
+        if (dragItem && !Anims._disabled()) {
+          dragItem.style.transition = 'transform 150ms ease, opacity 150ms ease';
+          dragItem.style.transform = 'scale(0.97)';
+          dragItem.style.opacity = '0.7';
+        }
       });
       container.addEventListener('dragover', (e) => {
         e.preventDefault();
@@ -337,7 +345,11 @@ const CardManager = {
         this.renderCardList();
         dragId = null;
       });
-      container.addEventListener('dragend', () => { dragId = null; });
+      container.addEventListener('dragend', () => {
+        const dragItem = container.querySelector('.card-list-item[style*="scale"]');
+        if (dragItem) { dragItem.style.transform = ''; dragItem.style.opacity = ''; }
+        dragId = null;
+      });
     }
   },
 
