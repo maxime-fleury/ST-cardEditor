@@ -21,6 +21,15 @@ const Editor = {
     for (const [k, v] of Object.entries(this._FIELD_MAP)) { if (v === cardProp) return k; }
     return cardProp;
   },
+  _fieldToDomId(field) {
+    const map = {
+      name: 'editName', description: 'editDescription', personality: 'editPersonality',
+      scenario: 'editScenario', firstMes: 'editFirstMes', mesExample: 'editMesExample',
+      creatorNotes: 'editCreatorNotes', systemPrompt: 'editSystemPrompt',
+      postHistory: 'editPostHistory', creator: 'editCreator', version: 'editVersion', tags: 'editTags',
+    };
+    return map[field] || 'edit' + field.charAt(0).toUpperCase() + field.slice(1);
+  },
 
   _snapshot(field) {
     const { activeCard } = window.AppState;
@@ -38,7 +47,7 @@ const Editor = {
     const entry = this._undoStack.pop();
     this._redoStack.push({ ...entry, oldValue: activeCard[entry.prop] || '', newValue: entry.oldValue });
     activeCard[entry.prop] = entry.oldValue;
-    const el = document.querySelector('#edit' + entry.field.charAt(0).toUpperCase() + entry.field.slice(1));
+    const el = document.querySelector('#' + this._fieldToDomId(entry.field));
     if (el) el.value = entry.oldValue;
     Editor.syncEditorToCard();
     Ui.showToast('Undid change to ' + entry.prop, 'info');
@@ -51,7 +60,7 @@ const Editor = {
     const entry = this._redoStack.pop();
     this._undoStack.push({ ...entry, oldValue: activeCard[entry.prop] || '', newValue: entry.newValue });
     activeCard[entry.prop] = entry.newValue;
-    const el = document.querySelector('#edit' + entry.field.charAt(0).toUpperCase() + entry.field.slice(1));
+    const el = document.querySelector('#' + this._fieldToDomId(entry.field));
     if (el) el.value = entry.newValue;
     Editor.syncEditorToCard();
     Ui.showToast('Redid change to ' + entry.prop, 'info');

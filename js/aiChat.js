@@ -66,7 +66,10 @@ const AiChat = {
     if (targetField === 'full') {
       parts.push('The user will ask you to modify the entire card. Here is the current card content:');
       parts.push('```json');
-      parts.push(CardEngine.toJSON(activeCard || CardEngine.createEmptyCard()));
+      const cardForPrompt = activeCard ? { ...activeCard } : CardEngine.createEmptyCard();
+      delete cardForPrompt._id; delete cardForPrompt._filename; delete cardForPrompt._hasImage;
+      delete cardForPrompt._imageBase64; delete cardForPrompt._thumbnail;
+      parts.push(CardEngine.toJSON(cardForPrompt));
       parts.push('```');
       parts.push('When the user asks for changes, respond with the FULL updated JSON card. Keep all the structure intact.');
     } else if (activeCard) {

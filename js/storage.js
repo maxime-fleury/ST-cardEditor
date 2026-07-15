@@ -243,9 +243,13 @@ const CardStorage = {
    * The full card is stored in IndexedDB; only lightweight metadata lives in localStorage.
    * The localStorage index is updated synchronously so the UI can refresh immediately.
    */
-  upsertCard(card) {
+  async upsertCard(card) {
     const toSave = { ...card };
     delete toSave._imageBase64;
+
+    // Persist the full card to IndexedDB first, then update the lightweight
+    // localStorage index so the two stores stay consistent.
+    await this.DB.set(this.DB.stores.cards, card._id, toSave);
 
     const index = this.getCards();
     const idx = index.findIndex(c => c._id === card._id);
@@ -256,19 +260,12 @@ const CardStorage = {
       index.unshift(meta);
     }
     localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
-
-    // Persist the full card to IndexedDB and return the promise so callers
-    // can await when they need to read the card back immediately.
-    return this.DB.set(this.DB.stores.cards, card._id, toSave).catch((e) => {
-      console.error('Failed to persist card to IndexedDB:', card._id, e);
-    });
   },
 
   /**
    * Delete a card by ID.
    */
   deleteCard(id) {
-    localStorage.removeItem(this.PREFIX + 'card_' + id);
     const index = this.getCards().filter(c => c._id !== id);
     localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
     this.deleteImage(id).catch(() => {});

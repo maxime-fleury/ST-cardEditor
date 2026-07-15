@@ -8,7 +8,8 @@ const Settings = {
     const apiKey = $('#apiKeyInput').value.trim();
     const defaultModel = $('#defaultModelSelect').value;
     const maxTokens = parseInt($('#maxTokensInput').value, 10) || 0;
-    if (apiKey) { CardStorage.setApiKey(apiKey); AIService.setApiKey(apiKey); }
+    CardStorage.setApiKey(apiKey);
+    AIService.setApiKey(apiKey);
     CardStorage.setDefaultModel(defaultModel);
     CardStorage.setMaxTokens(maxTokens);
     CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
@@ -139,6 +140,7 @@ const Settings = {
     $('#apiKeyInput').value = '';
     $('#navModelSelect').innerHTML = '<option value="">Select model...</option>';
     $('#defaultModelSelect').innerHTML = '<option value="">Browse models below...</option>';
+    $('#aiModelSelect').innerHTML = '<option value="">Auto (use nav model)</option>';
     Editor.hideEditor();
     CardManager.renderCardList();
     this.renderModelList();

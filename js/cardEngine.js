@@ -14,13 +14,23 @@ const CardEngine = {
       const text = await file.text();
       return this.parseJSON(text, file.name);
     }
-    if (ext === 'png' || ext === 'webp') {
+    if (ext === 'png') {
       const buffer = await file.arrayBuffer();
       const card = this.parsePNG(buffer, file.name);
       if (!card._imageBase64) {
-        const blob = new Blob([buffer], { type: 'image/' + ext });
+        const blob = new Blob([buffer], { type: 'image/png' });
         card._imageBase64 = await this._blobToBase64(blob);
       }
+      card._thumbnail = await this._createThumbnail(card._imageBase64);
+      return card;
+    }
+    if (ext === 'webp') {
+      // WebP has no standard tEXt/chara chunk; import as image-only card.
+      const buffer = await file.arrayBuffer();
+      const card = this._createEmptyCard(file.name);
+      const blob = new Blob([buffer], { type: 'image/webp' });
+      card._imageBase64 = await this._blobToBase64(blob);
+      card._hasImage = true;
       card._thumbnail = await this._createThumbnail(card._imageBase64);
       return card;
     }

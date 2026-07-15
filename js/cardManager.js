@@ -4,6 +4,8 @@
 
 const CardManager = {
   async migrateImagesToIndexedDB() {
+    // Legacy migration: cards that still store _imageBase64 inline are moved
+    // to the dedicated image store. Newer imports already save images separately.
     const all = CardStorage.getCards();
     for (const meta of all) {
       const full = await CardStorage.getCard(meta._id);
@@ -79,6 +81,7 @@ const CardManager = {
   },
 
   async batchDelete() {
+    if (this._selectedIds.size === 0) { Ui.showToast('No cards selected', 'info'); return; }
     if (!confirm('Delete ' + this._selectedIds.size + ' cards? This cannot be undone.')) return;
     for (const id of this._selectedIds) await CardStorage.deleteCard(id);
     this._selectedIds.clear();
@@ -93,6 +96,7 @@ const CardManager = {
   },
 
   async batchExportJSON() {
+    if (this._selectedIds.size === 0) { Ui.showToast('No cards selected', 'info'); return; }
     const cards = [];
     for (const id of this._selectedIds) {
       const card = await CardStorage.getCard(id);

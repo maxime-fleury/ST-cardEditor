@@ -105,10 +105,13 @@ async function init() {
   if (apiKey) Settings.refreshModelsList();
   Ui.updateUIState();
   bindEvents(settingsModal);
-  window.addEventListener('beforeunload', () => {
+  window.addEventListener('beforeunload', (e) => {
     if (window.AppState.activeCard) {
       Editor.syncGreetings();
       Editor.syncEditorToCard();
+      // Prompt the user if there might be unsaved changes.
+      e.preventDefault();
+      e.returnValue = '';
     }
   });
   window.addEventListener('storage', handleStorageChange);
@@ -265,16 +268,23 @@ async function handleStorageChange(e) {
   window.AppState.cards = CardStorage.getCards();
   CardManager.renderCardList();
   if (window.AppState.activeCard) {
-    const updated = await CardStorage.getCard(window.AppState.activeCard._id);
-    if (updated) {
-      window.AppState.activeCard = updated;
-      try {
-        const b64 = await CardStorage.getImage(updated._id);
-        if (b64) window.AppState.activeCard._imageBase64 = b64;
-      } catch (err) {
-        console.error('Failed to load image from IndexedDB:', err);
+    // Avoid overwriting the user's current edits if an editor field is focused.
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+    try {
+      const updated = await CardStorage.getCard(window.AppState.activeCard._id);
+      if (updated) {
+        window.AppState.activeCard = updated;
+        try {
+          const b64 = await CardStorage.getImage(updated._id);
+          if (b64) window.AppState.activeCard._imageBase64 = b64;
+        } catch (err) {
+          console.error('Failed to load image from IndexedDB:', err);
+        }
+        Editor.populateEditor(window.AppState.activeCard);
       }
-      Editor.populateEditor(window.AppState.activeCard);
+    } catch (err) {
+      console.error('Failed to handle storage change:', err);
     }
   }
 }
