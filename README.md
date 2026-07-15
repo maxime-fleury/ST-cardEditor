@@ -12,6 +12,22 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 
 ---
 
+## Screenshots
+
+| Landing Page (Dark) | Character Wizard |
+|:---:|:---:|
+| ![Landing Dark](.github/screenshots/01-landing-dark.png) | ![Wizard Step 1](.github/screenshots/03-wizard-step1.png) |
+
+| Editor | Settings |
+|:---:|:---:|
+| ![Editor Populated](.github/screenshots/07-editor-populated.png) | ![Settings](.github/screenshots/08-settings.png) |
+
+| Full View (Dark) | Full View (Light) |
+|:---:|:---:|
+| ![Full Dark](.github/screenshots/09-full-dark.png) | ![Full Light](.github/screenshots/10-full-light.png) |
+
+---
+
 ## Features
 
 ### Card Library
@@ -83,6 +99,43 @@ A 5-step guided character builder:
 - **Reference image** — fetch 3 random anime images from [waifu.im](https://www.waifu.im), select one, refetch unselected, apply as card avatar
 - **AI generation** — builds a detailed prompt from all wizard answers and sends to AI for full card generation
 - **Blank generation** — creates a card with name/tags/creator pre-filled
+
+### Animations & Micro-Interactions
+
+Powered by [anime.js](https://animejs.com/) with full `prefers-reduced-motion` support:
+
+- **Wizard transitions** — slide-in/out between steps, staggered field entrance, progress bar bounce
+- **Card list** — staggered fade-in after render, drag start/end scale+opacity feedback
+- **Theme toggle** — 360° icon spin on switch
+- **Button feedback** — scale(0.96) click animation on all buttons via mousedown
+- **Toast notifications** — horizontal slide entrance
+- **AI chat** — message entrance animation, quick action stagger on clear
+- **Lorebook** — spring-like chevron rotation on toggle
+- **Brand icon** — idle floating animation
+- **Skeleton loading** — staggered reveal for card placeholders
+
+### Localization (i18n)
+
+Full interface translation across **10 languages** with 336+ translation keys:
+
+| Language | Key | Status |
+|----------|-----|--------|
+| English | `en` | Default |
+| French | `fr` | Complete |
+| Spanish | `es` | Complete |
+| German | `de` | Complete |
+| Portuguese (Brazil) | `pt-BR` | Complete |
+| Japanese | `ja` | Complete |
+| Chinese (Simplified) | `zh` | Complete |
+| Korean | `ko` | Complete |
+| Greek | `el` | Complete |
+| Russian | `ru` | Complete |
+
+- **Auto-detection** from browser language (`navigator.language`)
+- **Manual switch** via Settings modal — changes apply instantly
+- **Persistent** via `localStorage`
+- Covers: navbar, card library, editor tabs, AI chat, wizard, settings, toasts, modals, error messages
+- Formal/polite register for all languages (Japanese です/ます, German Sie-form, formal Korean, formal Russian)
 
 ### Storage & Export
 - **Auto-save** to browser localStorage + IndexedDB with debounced writes
@@ -184,10 +237,13 @@ Or try it instantly on **GitHub Pages**:
 ### Quick Actions
 Click any suggestion chip to instantly:
 - New Card — opens the character creation wizard
-- Translate to French — translates entire card
+- Translate — translates entire card to a chosen language
 - Enhance Description — adds sensory details
 - Expand Personality — adds quirks and motivations
 - Improve First Message — makes it more engaging
+- Shorten — tightens text while preserving meaning
+- Change Tone — rewrites with a specified tone
+- Fix Grammar — corrects grammar, spelling, and punctuation
 
 ---
 
@@ -209,7 +265,11 @@ st-card-editor/
 │   ├── wizard.js           # 5-step character creation wizard, waifu.im integration
 │   ├── settings.js         # Settings modal, model list, credits, provider config
 │   ├── tokenizer.js        # Token estimation (lazy-loaded BPE tokenizer)
+│   ├── animations.js       # anime.js animation utilities (stagger, slide, pulse, etc.)
+│   ├── i18n.js             # Internationalization: 336 keys × 10 languages
 │   └── ui.js               # Main controller: utilities, init, event binding
+├── .github/
+│   └── screenshots/        # README screenshots
 ├── server.js               # Bun static file server with OpenRouter API proxy
 ├── package.json            # Project metadata and scripts
 └── README.md               # This file
@@ -229,7 +289,9 @@ The app is a **single-page application** built with vanilla JavaScript and **Boo
 - **`wizard.js`** — 5-step guided character creation with chip-based multi-select inputs, summary review, waifu.im image fetching, and AI generation.
 - **`settings.js`** — Settings modal with provider selection (7 providers), API key management, model browsing/selection, credit tracking, and storage usage display.
 - **`tokenizer.js`** — Token estimation using lazy-loaded `gpt-tokenizer` BPE library with offline heuristic fallback.
-- **`ui.js`** — Thin controller: shared state (`AppState`), utility functions (`escapeHtml`, `debounce`, `showToast`, `renderMarkdown`), initialization, and all event binding.
+- **`animations.js`** — Reusable animation functions built on anime.js: stagger fade-in, slide transitions, pulse, shake, scale click, progress bounce, icon spin, skeleton reveal, toast entrance. All respect `prefers-reduced-motion`.
+- **`i18n.js`** — Internationalization module: `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings. 336 keys across 10 languages.
+- **`ui.js`** — Thin controller: shared state (`AppState`), utility functions (`escapeHtml`, `debounce`, `showToast`, `renderMarkdown`), initialization, I18n boot, and all event binding.
 
 ---
 
@@ -255,6 +317,7 @@ PNG Signature → IHDR → ... → IDAT → tEXt (chara=JSON) → IEND
 | [marked](https://github.com/markedjs/marked) | Markdown parsing for AI chat messages |
 | [DOMPurify](https://github.com/cure53/DOMPurify) | XSS sanitization of rendered HTML |
 | [jsdiff](https://github.com/kpdecker/jsdiff) | Word-level diffing for AI response preview |
+| [anime.js](https://animejs.com/) | Animation library for micro-interactions |
 | [gpt-tokenizer](https://github.com/niieani/gpt-tokenizer) | BPE token counting (lazy-loaded) |
 
 ### Theme System
@@ -289,7 +352,7 @@ Contributions are welcome! Feel free to open issues or submit pull requests for:
 - More AI quick actions / presets
 - Batch editing features
 - Theme customization
-- Localization
+- Additional languages
 
 ---
 
@@ -317,4 +380,5 @@ This project is open source and available under the [MIT License](LICENSE).
 - **[marked](https://github.com/markedjs/marked)** — Markdown parser
 - **[DOMPurify](https://github.com/cure53/DOMPurify)** — HTML sanitizer
 - **[jsdiff](https://github.com/kpdecker/jsdiff)** — Diff library
+- **[anime.js](https://animejs.com/)** — Animation library
 - **[Inter](https://rsms.me/inter)**, **[Plus Jakarta Sans](https://www.typewolf.com/plus-jakarta-sans)** & **[JetBrains Mono](https://www.jetbrains.com/lp/mono)** — Typefaces
