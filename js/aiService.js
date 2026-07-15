@@ -272,28 +272,13 @@ const AIService = {
   },
 
   /**
-   * Rough token estimate: ~4 chars per token (covers most models).
-   */
-  _estimateTokens(text) {
-    return Math.ceil((text || '').length / 4);
-  },
-
-  /**
    * Resolve max_tokens: user setting > model limit > default.
-   * Caps output so that estimated_input + max_tokens <= context_length.
+   * Caps output so that input + max_tokens <= context_length,
+   * reserving 20 % of context for input (safe for all languages).
    */
   resolveMaxTokens(modelId, messages = []) {
-    // Estimate input tokens from all message content
-    let inputTokens = 0;
-    for (const msg of messages) {
-      inputTokens += this._estimateTokens(msg.content);
-    }
-    inputTokens += 4; // small overhead for formatting/roles
-
     const ctxLength = this._getContextLength(modelId);
-
-    // Always cap: available = context - input, with a floor of 1024
-    const available = Math.max(1024, ctxLength - inputTokens);
+    const available = Math.max(1024, Math.floor(ctxLength * 0.8));
 
     const userMax = CardStorage.getMaxTokens();
     if (userMax > 0) return Math.min(userMax, available);
