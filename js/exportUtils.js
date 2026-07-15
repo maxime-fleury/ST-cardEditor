@@ -32,12 +32,14 @@ const ExportUtils = {
     if (CardStorage.getInjectCopyright()) this.injectCopyright(clone);
     const json = CardEngine.toJSON(clone);
     try {
+      let pngBytes;
       if (activeCard._imageBase64) {
-        const ext = activeCard._imageBase64.includes('image/webp') ? 'webp' : 'png';
-        const blob = await this.embedJSONInPNG(activeCard._imageBase64, json);
-        if (blob) { Ui.downloadBlob(blob, (activeCard.name || 'character') + '.' + ext); Ui.showToast('Exported as ' + ext.toUpperCase() + ' with card data!', 'success'); return; }
+        pngBytes = await this.imageBase64ToPNGBytes(activeCard._imageBase64);
       }
-      const blob = await this.createMinimalPNG(json);
+      if (!pngBytes) {
+        pngBytes = await this.createMinimalPNGBytes();
+      }
+      const blob = new Blob([this.embedCharaChunk(pngBytes, json)], { type: 'image/png' });
       Ui.downloadBlob(blob, (activeCard.name || 'character') + '.png');
       Ui.showToast('Exported as PNG with card data!', 'success');
     } catch (err) {
@@ -47,30 +49,45 @@ const ExportUtils = {
     }
   },
 
+  async imageBase64ToPNGBytes(imageBase64) {
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = reject;
+        el.src = imageBase64;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      return new Promise((resolve) => {
+        canvas.toBlob((blob) => {
+          if (!blob) return resolve(null);
+          const reader = new FileReader();
+          reader.onload = () => resolve(new Uint8Array(reader.result));
+          reader.readAsArrayBuffer(blob);
+        }, 'image/png');
+      });
+    } catch (err) {
+      console.error('Failed to convert image to PNG:', err);
+      return null;
+    }
+  },
+
   async embedJSONInPNG(imageBase64, jsonStr) {
     try {
-      const bytes = this.base64DataUrlToBytes(imageBase64);
-      if (!bytes) return null;
-      return new Blob([this.embedCharaChunk(bytes, jsonStr)], { type: 'image/png' });
+      const pngBytes = await this.imageBase64ToPNGBytes(imageBase64);
+      if (!pngBytes) return null;
+      return new Blob([this.embedCharaChunk(pngBytes, jsonStr)], { type: 'image/png' });
     } catch (err) {
       console.error('Failed to embed PNG chunk:', err);
       return null;
     }
   },
 
-  base64DataUrlToBytes(dataUrl) {
-    if (!dataUrl || !dataUrl.startsWith('data:')) return null;
-    const base64 = dataUrl.split(',')[1];
-    if (!base64) return null;
-    const binStr = atob(base64);
-    const bytes = new Uint8Array(binStr.length);
-    for (let i = 0; i < binStr.length; i++) {
-      bytes[i] = binStr.charCodeAt(i);
-    }
-    return bytes;
-  },
-
-  async createMinimalPNG(jsonStr) {
+  async createMinimalPNGBytes() {
     const canvas = document.createElement('canvas');
     canvas.width = 64; canvas.height = 64;
     const ctx = canvas.getContext('2d');
@@ -82,7 +99,7 @@ const ExportUtils = {
     return new Promise((resolve) => {
       canvas.toBlob((blob) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(new Blob([this.embedCharaChunk(new Uint8Array(reader.result), jsonStr)], { type: 'image/png' }));
+        reader.onload = () => resolve(new Uint8Array(reader.result));
         reader.readAsArrayBuffer(blob);
       }, 'image/png');
     });
@@ -100,7 +117,11 @@ const ExportUtils = {
     if (iendPos < 0) return bytes;
 
     const keyword = 'chara';
-    const textData = new TextEncoder().encode(keyword + '\0' + jsonStr);
+    const utf8Bytes = new TextEncoder().encode(jsonStr);
+    let binary = '';
+    for (let i = 0; i < utf8Bytes.length; i++) binary += String.fromCharCode(utf8Bytes[i]);
+    const b64 = btoa(binary);
+    const textData = new TextEncoder().encode(keyword + '\0' + b64);
     const typeBytes = new TextEncoder().encode('tEXt');
     const crcData = new Uint8Array(4 + textData.length);
     crcData.set(typeBytes, 0); crcData.set(textData, 4);
