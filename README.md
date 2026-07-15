@@ -18,13 +18,13 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 |:---:|:---:|
 | ![Landing Dark](.github/screenshots/01-landing-dark.png) | ![Wizard Step 1](.github/screenshots/03-wizard-step1.png) |
 
-| Editor | Settings |
+| Editor (Core) | Editor (Advanced) |
 |:---:|:---:|
-| ![Editor Populated](.github/screenshots/07-editor-populated.png) | ![Settings](.github/screenshots/08-settings.png) |
+| ![Editor Populated](.github/screenshots/07-editor-populated.png) | ![Editor Advanced](.github/screenshots/09-editor-advanced.png) |
 
-| Full View (Dark) | Full View (Light) |
+| Settings | Full View (Dark) |
 |:---:|:---:|
-| ![Full Dark](.github/screenshots/09-full-dark.png) | ![Full Light](.github/screenshots/10-full-light.png) |
+| ![Settings](.github/screenshots/10-settings.png) | ![Full Dark](.github/screenshots/11-full-dark.png) |
 
 ---
 

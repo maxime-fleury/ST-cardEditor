@@ -1079,7 +1079,7 @@ body.resizing { cursor: col-resize; user-select: none; }
   font-size: 0.85rem !important;
   border-radius: var(--radius-sm) !important;
   resize: vertical;
-  min-height: 120px;
+  min-height: 120px;!important;
   transition: all var(--transition-fast);
 }
 .editor-textarea:hover { border-color: var(--border-default) !important; }
