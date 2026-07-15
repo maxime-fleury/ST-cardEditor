@@ -159,7 +159,10 @@ const AIService = {
     const apiKey = this._getApiKeyForProvider();
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
 
-    const resp = await fetch(baseUrl + '/models', { headers });
+    const resp = await fetch(baseUrl + '/models', {
+      headers,
+      signal: AbortSignal.timeout(15000),
+    });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       throw new Error(err.error?.message || 'Failed to fetch models (HTTP ' + resp.status + ')');

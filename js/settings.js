@@ -281,6 +281,85 @@ const Settings = {
     };
     input.click();
   },
+
+  async exportWorkspace() {
+    const $ = (sel) => document.querySelector(sel);
+    const cards = CardStorage.getCards();
+    const fullCards = [];
+    for (const meta of cards) {
+      const card = await CardStorage.getCard(meta._id);
+      if (!card) continue;
+      try {
+        const b64 = await CardStorage.getImage(card._id);
+        if (b64) card._imageBase64 = b64;
+      } catch (_) {}
+      // Strip internal metadata that won't survive export
+      delete card._id;
+      delete card._filename;
+      delete card._createdAt;
+      delete card._fileSize;
+      fullCards.push(card);
+    }
+    const workspace = {
+      version: '2.1',
+      exportedAt: new Date().toISOString(),
+      cards: fullCards,
+      settings: {
+        provider: CardStorage.getProvider(),
+        defaultModel: CardStorage.getDefaultModel(),
+        maxTokens: CardStorage.getMaxTokens(),
+        injectCopyright: CardStorage.getInjectCopyright(),
+      },
+    };
+    Ui.downloadFile('st-card-editor-workspace-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(workspace, null, 2), 'application/json');
+    Ui.showToast('Workspace exported (' + fullCards.length + ' cards)', 'success');
+  },
+
+  importWorkspace() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const workspace = JSON.parse(text);
+        if (!workspace.cards || !Array.isArray(workspace.cards)) {
+          throw new Error('Invalid workspace format');
+        }
+        let imported = 0;
+        for (const card of workspace.cards) {
+          if (!card.name && !card.description) continue;
+          const normalized = CardEngine.normalize(card, (card.name || 'character') + '.json');
+          if (card._imageBase64) {
+            await CardStorage.saveImage(normalized._id, card._imageBase64);
+            normalized._hasImage = true;
+            normalized._thumbnail = normalized._thumbnail || await CardEngine._createThumbnail(card._imageBase64);
+          }
+          await CardStorage.upsertCard(normalized);
+          imported++;
+        }
+        // Restore settings if present
+        if (workspace.settings) {
+          if (workspace.settings.provider) CardStorage.setProvider(workspace.settings.provider);
+          if (workspace.settings.defaultModel) CardStorage.setDefaultModel(workspace.settings.defaultModel);
+          if (workspace.settings.maxTokens !== undefined) CardStorage.setMaxTokens(workspace.settings.maxTokens);
+          if (workspace.settings.injectCopyright !== undefined) CardStorage.setInjectCopyright(workspace.settings.injectCopyright);
+        }
+        window.AppState.cards = CardStorage.getCards();
+        CardManager.renderCardList();
+        Settings.refreshModelsList();
+        Ui.showToast('Workspace imported (' + imported + ' cards)', 'success');
+      } catch (err) {
+        console.error('Workspace import failed:', err);
+        Ui.showToast('Failed to import workspace: ' + err.message, 'danger');
+      }
+      input.remove();
+    };
+    document.body.appendChild(input);
+    input.click();
+  },
 };
 
 window.Settings = Settings;

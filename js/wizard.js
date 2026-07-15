@@ -225,16 +225,7 @@ const Wizard = {
     }
   },
 
-  _showStepAnimated(step, prevStep, direction) {
-    const prevEl = document.querySelector('.wizard-step[data-step="' + prevStep + '"]');
-    const nextEl = document.querySelector('.wizard-step[data-step="' + step + '"]');
-
-    // Clean up any lingering inline styles on all steps before animating
-    document.querySelectorAll('.wizard-step').forEach(el => {
-      el.style.opacity = '';
-      el.style.transform = '';
-    });
-
+  _renderStepNav(step) {
     document.querySelector('#wizBtnBack').disabled = step === 1;
 
     if (step === this._totalSteps) {
@@ -262,6 +253,19 @@ const Wizard = {
 
     this._renderStepIndicator();
     this._updateProgressBar();
+  },
+
+  _showStepAnimated(step, prevStep, direction) {
+    const prevEl = document.querySelector('.wizard-step[data-step="' + prevStep + '"]');
+    const nextEl = document.querySelector('.wizard-step[data-step="' + step + '"]');
+
+    // Clean up any lingering inline styles on all steps before animating
+    document.querySelectorAll('.wizard-step').forEach(el => {
+      el.style.opacity = '';
+      el.style.transform = '';
+    });
+
+    this._renderStepNav(step);
 
     Anims.slideStep(prevEl, nextEl, direction, () => {
       if (step === this._totalSteps) {
@@ -283,33 +287,7 @@ const Wizard = {
     const target = document.querySelector('.wizard-step[data-step="' + step + '"]');
     if (target) target.classList.remove('d-none');
 
-    document.querySelector('#wizBtnBack').disabled = step === 1;
-
-    if (step === this._totalSteps) {
-      document.querySelector('#wizBtnNext').classList.add('d-none');
-      document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.ready');
-      this._renderSummary();
-      this._renderQuickTags();
-      // Derive tags from wizard answers for initial pre-fill
-      const derivedTags = this._deriveImageTags();
-      const searchInput = document.querySelector('#wizImageTagSearch');
-      if (searchInput) {
-        searchInput.value = derivedTags;
-        this._tagSearch = derivedTags;
-        this._renderQuickTags();
-      }
-      if (!this._autoFetched) {
-        this._autoFetched = true;
-        this._fetchImage();
-      }
-    } else {
-      document.querySelector('#wizBtnNext').classList.remove('d-none');
-      document.querySelector('#wizBtnNext').innerHTML = I18n.t('wizard.next') + ' <i class="bi bi-arrow-right ms-1"></i>';
-      document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.stepLabel', { step: step, total: this._totalSteps });
-    }
-
-    this._renderStepIndicator();
-    this._updateProgressBar();
+    this._renderStepNav(step);
   },
 
   _renderStepIndicator() {

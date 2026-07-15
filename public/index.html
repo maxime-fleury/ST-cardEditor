@@ -131,13 +131,14 @@
           <span class="text-accent fw-semibold" style="font-size:0.8rem;" id="batchCount">0 selected</span>
           <div class="d-flex gap-1">
             <button class="btn btn-outline-accent btn-sm" id="btnBatchExport" title="Export selected as JSON" data-i18n-title="left.exportSelected"><i class="bi bi-download"></i></button>
+            <button class="btn btn-outline-accent btn-sm d-none" id="btnBatchCompare" title="Compare selected cards"><i class="bi bi-layout-sidebar-inset"></i></button>
             <button class="btn btn-outline-danger btn-sm" id="btnBatchDelete" title="Delete selected" data-i18n-title="left.deleteSelected"><i class="bi bi-trash"></i></button>
           </div>
         </div>
       </div>
       
       <!-- Card list -->
-      <div class="card-list" id="cardList" role="listbox" aria-label="Card library"></div>
+      <div class="card-list" id="cardList" role="listbox" aria-label="Card library" aria-live="polite"></div>
       
       <!-- Empty state -->
       <div class="empty-state" id="emptyState">
@@ -712,6 +713,12 @@
           </button>
           <button type="button" class="btn btn-outline-secondary btn-sm" id="btnImportSettings" title="Import settings">
             <i class="bi bi-upload me-1"></i> <span data-i18n="settings.import">Import</span>
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnExportWorkspace" title="Backup all cards">
+            <i class="bi bi-archive me-1"></i> Backup
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnImportWorkspace" title="Restore backup">
+            <i class="bi bi-box-arrow-in-down me-1"></i> Restore
           </button>
           <input type="file" id="settingsFileInput" accept=".json" hidden>
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="settings.close">Close</button>

@@ -49,7 +49,7 @@ const Editor = {
     this.updateCharCounts();
     this.autoResizeTextareas();
     AiChat.updateContextBar();
-    Ui.showToast(I18n.t('toast.undo') + ' ' + entry.prop, 'info');
+    Ui.showToast(I18n.t('toast.undo') + ': ' + entry.field, 'info');
   },
 
   async redo() {
@@ -65,7 +65,7 @@ const Editor = {
     this.updateCharCounts();
     this.autoResizeTextareas();
     AiChat.updateContextBar();
-    Ui.showToast(I18n.t('toast.redo') + ' ' + entry.prop, 'info');
+    Ui.showToast(I18n.t('toast.redo') + ': ' + entry.field, 'info');
   },
   populateEditor(card) {
     const $ = (sel) => document.querySelector(sel);
@@ -148,11 +148,31 @@ const Editor = {
     activeCard.creator = $('#editCreator').value.trim();
     activeCard.character_version = $('#editVersion').value.trim();
     activeCard.tags = $('#editTags').value.split(',').map(s => s.trim()).filter(Boolean);
-    // Compute file size without image data to keep it accurate
-    const sizeCard = { ...activeCard };
-    delete sizeCard._imageBase64;
-    delete sizeCard._thumbnail;
-    activeCard._fileSize = JSON.stringify(sizeCard).length;
+    // Compute file size using the export format (without internal metadata)
+    activeCard._fileSize = JSON.stringify({
+      spec: activeCard.spec || 'chara_card_v2',
+      spec_version: activeCard.spec_version || '2.0',
+      data: {
+        name: activeCard.name || '', description: activeCard.description || '',
+        personality: activeCard.personality || '', scenario: activeCard.scenario || '',
+        first_mes: activeCard.first_mes || '', mes_example: activeCard.mes_example || '',
+        creator_notes: activeCard.creator_notes || '',
+        system_prompt: activeCard.system_prompt || '',
+        post_history_instructions: activeCard.post_history_instructions || '',
+        alternate_greetings: activeCard.alternate_greetings || [],
+        tags: activeCard.tags || [], creator: activeCard.creator || '',
+        character_version: activeCard.character_version || '',
+        character_book: activeCard.character_book || { entries: [] },
+        extensions: activeCard.extensions || {},
+      },
+    }).length;
+    // Warn if card has no name (throttled to once until name is filled)
+    if (!activeCard.name && !this._nameWarned) {
+      this._nameWarned = true;
+      Ui.showToast(I18n.t('toast.noNameWarning'), 'warning');
+    } else if (activeCard.name && this._nameWarned) {
+      this._nameWarned = false;
+    }
     await CardStorage.upsertCard(activeCard);
     window.AppState.cards = CardStorage.getCards();
     window.AppState._dirty = true;

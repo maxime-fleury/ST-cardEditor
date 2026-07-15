@@ -19,10 +19,11 @@ window.Ui = {
     const el = document.createElement('div');
     el.className = 'toast align-items-center border-0';
     el.setAttribute('role', 'alert');
-    const toastLabel = (I18n && I18n.t) ? I18n.t('gen.toastAutoHide', { s: 10 }) : 'Auto-hides in 10s';
+    const DURATION = 10000;
+    const initialSecs = Math.ceil(DURATION / 1000);
+    const toastLabel = (I18n && I18n.t) ? I18n.t('gen.toastAutoHide', { s: initialSecs }) : 'Auto-hides in ' + initialSecs + 's';
     el.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2 w-100"><div class="flex-grow-1 d-flex align-items-center gap-2"><i class="bi ' + (icons[type] || icons.info) + '"></i>' + this.escapeHtml(msg) + '</div><div class="toast-timer" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">' + toastLabel + '</div><button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
     document.querySelector('#toastContainer').appendChild(el);
-    const DURATION = 10000;
     const toast = new bootstrap.Toast(el, { delay: DURATION });
     toast.show();
     // Live countdown timer
@@ -98,10 +99,35 @@ window.Ui = {
     }
   },
 
-  // ─── Markdown Renderer ──────────────────────────────────
+  // ─── Markdown Renderer (lazy-loads marked + DOMPurify) ───
+  _markdownReady: false,
+  _markdownLoading: null,
+
+  _ensureMarkdownLibs() {
+    if (this._markdownReady) return;
+    if (this._markdownLoading) return;
+    this._markdownLoading = true;
+    if (typeof marked === 'undefined') {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+      document.head.appendChild(s);
+    }
+    if (typeof DOMPurify === 'undefined') {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js';
+      document.head.appendChild(s);
+    }
+    // Mark as ready on next tick (scripts load asynchronously)
+    setTimeout(() => { this._markdownReady = true; this._markdownLoading = null; }, 200);
+  },
+
   renderMarkdown(text) {
     if (!text) return '';
-    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') return this.escapeHtml(text);
+    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+      this._ensureMarkdownLibs();
+      // Fall back to escaped text while libraries load
+      return this.escapeHtml(text).replace(/\n/g, '<br>');
+    }
 
     // Configure marked
     if (marked.setOptions) {
@@ -128,6 +154,22 @@ window.Ui = {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / 1048576).toFixed(1) + ' MB';
+  },
+
+  // ─── Saved Indicator ──────────────────────────────────
+  _savedTimer: null,
+  flashSaved() {
+    const btn = document.querySelector('#btnSaveCard');
+    if (!btn) return;
+    const origHTML = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check2-all me-1"></i> Saved';
+    btn.classList.add('btn-saved-flash');
+    if (this._savedTimer) clearTimeout(this._savedTimer);
+    this._savedTimer = setTimeout(() => {
+      btn.innerHTML = origHTML;
+      btn.classList.remove('btn-saved-flash');
+      this._savedTimer = null;
+    }, 1500);
   },
 };
 
@@ -219,6 +261,9 @@ async function init() {
 
   const settingsModal = new bootstrap.Modal('#settingsModal');
 
+  // Focus-trap all modals for keyboard accessibility
+  setupModalFocusTraps();
+
   CardManager.renderCardList();
   AiChat.renderChatHistory();
 
@@ -246,6 +291,67 @@ async function init() {
     }
   });
   window.addEventListener('storage', handleStorageChange);
+
+  // Register service worker for offline support
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
+  // ─── Global error boundary ─────────────────────────
+  setupErrorBoundary();
+}
+
+// ─── MODAL FOCUS TRAP ────────────────────────────────
+function setupModalFocusTraps() {
+  document.querySelectorAll('.modal').forEach(modalEl => {
+    modalEl.addEventListener('shown.bs.modal', () => {
+      const firstFocusable = modalEl.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (firstFocusable) firstFocusable.focus();
+    });
+    modalEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') return; // let Bootstrap handle Escape
+      if (e.key !== 'Tab') return;
+      const focusable = modalEl.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+  });
+}
+
+// ─── GLOBAL ERROR BOUNDARY ────────────────────────────
+function setupErrorBoundary() {
+  window.addEventListener('error', (e) => {
+    const msg = e.error?.message || e.message || 'Unknown error';
+    console.error('Global error:', e.error || e);
+    // Avoid flooding toasts for cascading errors
+    if (!window._errorThrottled) {
+      window._errorThrottled = true;
+      Ui.showToast('Unexpected error: ' + msg, 'danger');
+      setTimeout(() => { window._errorThrottled = false; }, 5000);
+    }
+    // Reset AI loading state on error to prevent UI lockup
+    if (window.AppState.isAiLoading) {
+      window.AppState.isAiLoading = false;
+      AiChat.updateSendButton();
+    }
+  });
+
+  window.addEventListener('unhandledrejection', (e) => {
+    const msg = e.reason?.message || String(e.reason);
+    console.error('Unhandled rejection:', e.reason);
+    if (!window._errorThrottled) {
+      window._errorThrottled = true;
+      Ui.showToast('Request failed: ' + msg, 'danger');
+      setTimeout(() => { window._errorThrottled = false; }, 5000);
+    }
+    if (window.AppState.isAiLoading) {
+      window.AppState.isAiLoading = false;
+      AiChat.updateSendButton();
+    }
+  });
 }
 
 // ─── EVENT BINDINGS ────────────────────────────────────
@@ -299,6 +405,8 @@ function bindEvents(settingsModal) {
   $('#btnClearStorage').addEventListener('click', () => Settings.confirmClearStorage());
   $('#btnExportSettings').addEventListener('click', () => Settings.exportSettings());
   $('#btnImportSettings').addEventListener('click', () => Settings.importSettings());
+  $('#btnExportWorkspace').addEventListener('click', () => Settings.exportWorkspace());
+  $('#btnImportWorkspace').addEventListener('click', () => Settings.importWorkspace());
   $('#providerSelect').addEventListener('change', () => Settings.toggleProvider());
   $('#languageSelect').addEventListener('change', (e) => {
     I18n.setLanguage(e.target.value);
@@ -315,10 +423,15 @@ function bindEvents(settingsModal) {
   });
   $('#btnExportJson').addEventListener('click', () => ExportUtils.exportAsJSON());
   $('#btnExportPng').addEventListener('click', () => ExportUtils.exportAsPNG());
-  $('#btnDeleteCard').addEventListener('click', () => CardManager.deleteActiveCard());
+  $('#btnDeleteCard').addEventListener('click', () => {
+    if (confirm(I18n.t ? I18n.t('batch.deleteConfirm', { count: 1 }) : 'Delete this card? This cannot be undone.')) {
+      CardManager.deleteActiveCard();
+    }
+  });
   $('#btnDuplicateCard').addEventListener('click', () => CardManager.duplicateCard());
   $('#btnBatchDelete').addEventListener('click', () => CardManager.batchDelete());
   $('#btnBatchExport').addEventListener('click', () => CardManager.batchExportJSON());
+  $('#btnBatchCompare').addEventListener('click', () => CardManager.batchCompare());
 
   // Avatar upload (click + drag/drop)
   const avatar = $('#charAvatar');

@@ -556,8 +556,9 @@ const AiChat = {
   _extractJSONArray(text) {
     if (!text) return null;
     // Use bracket-depth counting for robust [ ] matching
-    const start = text.indexOf('[');
-    if (start < 0) return null;
+    const textStart = text.indexOf('[');
+    if (textStart < 0) return null;
+    let start = textStart;
     let depth = 0, inStr = false, esc = false;
     for (let i = start; i < text.length; i++) {
       const c = text[i];
@@ -579,7 +580,8 @@ const AiChat = {
               return parsed;
             }
           } catch (_) { /* keep looking for another array */ }
-          // Continue scanning for another array
+          // Continue scanning for another array — adjust start past this bracket pair
+          start = i + 1;
           depth = 0;
         }
       }
@@ -750,9 +752,13 @@ const AiChat = {
     if (lastUserIdx < 0) return;
 
     const lastUserPrompt = chatHistory[lastUserIdx].content;
+    // Remove the last user message and everything after it (assistant responses).
+    // We save the truncated history so the removed entries are intentionally discarded.
     chatHistory.splice(lastUserIdx);
     window.AppState.isAiLoading = false;
+    CardStorage.saveChatHistory(chatHistory, window.AppState.activeCard?._id);
 
+    // Clean up DOM — remove the last user + assistant message pair
     const $ = (sel) => document.querySelector(sel);
     const container = $('#aiChatMessages');
     const allMsgs = container.querySelectorAll('.ai-message');
@@ -764,7 +770,6 @@ const AiChat = {
       removed++;
     }
 
-    CardStorage.saveChatHistory(chatHistory, window.AppState.activeCard?._id);
     this.send(lastUserPrompt);
   },
 
@@ -948,7 +953,14 @@ const AiChat = {
     }
 
     const ctx = AIService.getContextLength(modelId);
-    const inputText = CardEngine.getTextContent(activeCard);
+    // Use the actual card JSON (same as sent in the system prompt) for an accurate token estimate.
+    // This matches what buildSystemPrompt() sends, avoiding inflated counts from getTextContent() labels.
+    const cardJson = activeCard ? CardEngine.toJSON(activeCard) : '';
+    const systemPromptBase = [
+      'You are an AI assistant helping edit SillyTavern character cards.',
+      'SillyTavern is an AI roleplay frontend. Cards define character personalities.',
+    ].join('\n');
+    const inputText = systemPromptBase + '\n\n' + cardJson;
 
     const inputTokens = await Tokenizer.count(inputText + '\n' + prompt);
 

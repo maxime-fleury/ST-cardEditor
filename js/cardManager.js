@@ -76,10 +76,13 @@ const CardManager = {
   _updateBatchToolbar() {
     const toolbar = document.querySelector('#batchToolbar');
     const count = document.querySelector('#batchCount');
+    const compareBtn = document.querySelector('#btnBatchCompare');
     if (!toolbar) return;
     if (this._selectedIds.size >= 2) {
       toolbar.classList.remove('d-none');
       count.textContent = I18n.t('left.selected', { count: this._selectedIds.size });
+      // Show compare button only when exactly 2 cards are selected
+      if (compareBtn) compareBtn.classList.toggle('d-none', this._selectedIds.size !== 2);
     } else {
       toolbar.classList.add('d-none');
     }
@@ -98,6 +101,44 @@ const CardManager = {
     }
     this.renderCardList();
     Ui.showToast(I18n.t('toast.cardsDeleted'), 'warning');
+  },
+
+  async batchCompare() {
+    if (this._selectedIds.size !== 2) { Ui.showToast('Select exactly 2 cards to compare', 'info'); return; }
+    const [idA, idB] = [...this._selectedIds];
+    const cardA = await CardStorage.getCard(idA);
+    const cardB = await CardStorage.getCard(idB);
+    if (!cardA || !cardB) { Ui.showToast('Failed to load cards for comparison', 'danger'); return; }
+
+    const jsonA = CardEngine.toJSON(cardA);
+    const jsonB = CardEngine.toJSON(cardB);
+
+    const oldEl = document.querySelector('#aiDiffOld');
+    const newEl = document.querySelector('#aiDiffNew');
+    const titleEl = document.querySelector('#aiPreviewModal .modal-title');
+    if (!oldEl || !newEl) return;
+
+    if (titleEl) titleEl.innerHTML = '<i class="bi bi-layout-sidebar-inset me-2 text-accent"></i>Compare: ' + Ui.escapeHtml(cardA.name || 'Card A') + ' vs ' + Ui.escapeHtml(cardB.name || 'Card B');
+
+    // Reuse the existing diff renderer
+    AiChat._renderDiff(jsonA, jsonB);
+
+    // Hide accept/discard buttons (comparison is read-only)
+    const acceptBtn = document.querySelector('#btnAcceptAI');
+    const discardBtn = document.querySelector('#btnDiscardAI');
+    if (acceptBtn) acceptBtn.classList.add('d-none');
+    if (discardBtn) discardBtn.classList.add('d-none');
+
+    const modal = new bootstrap.Modal('#aiPreviewModal');
+    // Restore button visibility on close
+    const modalEl = document.querySelector('#aiPreviewModal');
+    const restoreButtons = () => {
+      if (acceptBtn) acceptBtn.classList.remove('d-none');
+      if (discardBtn) discardBtn.classList.remove('d-none');
+      modalEl.removeEventListener('hidden.bs.modal', restoreButtons);
+    };
+    modalEl.addEventListener('hidden.bs.modal', restoreButtons);
+    modal.show();
   },
 
   async batchExportJSON() {
@@ -404,6 +445,11 @@ const CardManager = {
     window.AppState._dirty = false;
     Ui.updateUIState();
     AiChat.updateContextBar();
+    // Autofocus the AI input for quick editing workflow
+    setTimeout(() => {
+      const aiInput = document.querySelector('#aiInput');
+      if (aiInput) aiInput.focus();
+    }, 100);
   },
 
   async createNewCard() {
@@ -424,6 +470,7 @@ const CardManager = {
     await Editor.syncEditorToCard();
     window.AppState._dirty = false;
     Ui.setDirty(false);
+    Ui.flashSaved();
     this.renderCardList();
     Ui.showToast(I18n.t('toast.cardSaved'), 'success');
   },
@@ -502,6 +549,7 @@ const CardManager = {
       await CardStorage.upsertCard(snapshot);
       if (snapshot._imageBase64) {
         await CardStorage.saveImage(snapshot._id, snapshot._imageBase64);
+        snapshot._hasImage = true;
       }
       window.AppState.cards = CardStorage.getCards();
       this.renderCardList();
