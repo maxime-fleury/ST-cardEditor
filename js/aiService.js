@@ -107,7 +107,7 @@ const AIService = {
     }
     if (!this._apiKey) throw new Error(I18n.t('error.apiKeyNotSet'));
     
-    const resp = await fetch(`${this.BASE_URL}/models`, {
+    const resp = await fetch(`${this._getBaseUrl()}/models`, {
       headers: {
         'Authorization': `Bearer ${this._apiKey}`,
         'Content-Type': 'application/json',
@@ -194,7 +194,7 @@ const AIService = {
   async fetchKeyInfo() {
     if (!this._apiKey) throw new Error(I18n.t('error.apiKeyNotSet'));
     
-    const resp = await fetch(`${this.BASE_URL}/key`, {
+    const resp = await fetch(`${this._getBaseUrl()}/key`, {
       headers: {
         'Authorization': `Bearer ${this._apiKey}`,
         'Content-Type': 'application/json',
