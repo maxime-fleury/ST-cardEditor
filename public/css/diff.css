@@ -1,0 +1,88 @@
+﻿/* ============================================================
+   AI DIFF VIEWER â€” Side by Side
+   ============================================================ */
+.diff-container {
+  display: flex;
+  gap: 1rem;
+  animation: fadeIn 0.2s ease;
+}
+.diff-pane {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.diff-pane-header {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: var(--font-heading);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--surface-border);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.diff-pane-old .diff-pane-header {
+  background: var(--diff-del);
+  color: #fca5a5;
+}
+.diff-pane-new .diff-pane-header {
+  background: var(--diff-add);
+  color: #86efac;
+}
+.diff-pane-body {
+  padding: 0.65rem 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.65;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+}
+.diff-pane-old .diff-pane-body { background: rgba(239, 68, 68, 0.04); }
+.diff-pane-new .diff-pane-body { background: rgba(34, 197, 94, 0.04); }
+
+.diff-del {
+  background: var(--diff-del-word);
+  color: #fca5a5;
+  border-radius: 2px;
+  padding: 0.05em 0.1em;
+  text-decoration: line-through;
+  text-decoration-color: rgba(252, 165, 165, 0.5);
+}
+.diff-add {
+  background: var(--diff-add-word);
+  color: #86efac;
+  border-radius: 2px;
+  padding: 0.05em 0.1em;
+}
+
+.diff-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.diff-legend {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.diff-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.diff-legend .diff-del {
+  text-decoration: none;
+  font-size: 0.68rem;
+}
+.diff-legend .diff-add {
+  font-size: 0.68rem;
+}

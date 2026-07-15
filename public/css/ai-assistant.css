@@ -1,0 +1,243 @@
+﻿/* ============================================================
+   AI ASSISTANT
+   ============================================================ */
+.ai-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ai-welcome {
+  text-align: center;
+  padding: 1.5rem 0.5rem;
+  animation: slideInUp 0.3s ease;
+}
+.ai-welcome-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 0.75rem;
+  font-size: 1.5rem;
+  color: #fff;
+  box-shadow: var(--shadow-glow);
+}
+.ai-welcome h6 {
+  font-weight: 600;
+  font-family: var(--font-heading);
+  margin-bottom: 0.25rem;
+}
+.ai-welcome p {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: center;
+}
+.quick-actions .btn { transition: all var(--transition-fast); }
+.quick-actions .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+
+/* Chat bubbles */
+.ai-message {
+  max-width: 90%;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  animation: messageIn 0.25s ease;
+  transition: all var(--transition-fast);
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.ai-message img,
+.ai-message table,
+.ai-message pre {
+  max-width: 100%;
+}
+.ai-message.user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, var(--purple-600), var(--purple-700));
+  color: #fff;
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 4px 12px rgba(119, 44, 232, 0.25);
+}
+.ai-message.user:hover { box-shadow: 0 6px 18px rgba(119, 44, 232, 0.4); transform: translateY(-1px); }
+.ai-message.assistant {
+  align-self: flex-start;
+  background: var(--bg-surface);
+  border: 1px solid var(--surface-border);
+  border-bottom-left-radius: 4px;
+  color: var(--text-primary);
+}
+.ai-message.assistant:hover { border-color: var(--border-default); box-shadow: 0 4px 12px rgba(0,0,0,0.2); transform: translateY(-1px); }
+.ai-message pre {
+  background: var(--bg-deep);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0.35rem 0;
+  overflow-x: hidden;
+}
+.ai-message.system {
+  align-self: center;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-style: italic;
+}
+
+@keyframes messageIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Typing indicator */
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+  padding: 0.6rem 0.75rem;
+  align-self: flex-start;
+}
+.typing-indicator span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--purple-500);
+  animation: typingBounce 1.2s infinite;
+}
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-8px); opacity: 1; }
+}
+
+/* AI Input */
+.ai-input-area {
+  border-top: 1px solid var(--surface-border);
+  padding: 0.6rem 0.75rem;
+  background: rgba(255, 255, 255, 0.02);
+  position: relative;
+}
+.ai-input-area::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--purple-500), var(--magenta-500), transparent);
+  opacity: 0.5;
+}
+.ai-input-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: flex-end;
+}
+.ai-input {
+  flex: 1;
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--text-primary) !important;
+  font-size: 0.82rem !important;
+  border-radius: var(--radius-md) !important;
+  resize: vertical;
+  min-height: 60px;
+  max-height: 200px;
+}
+.ai-input:focus {
+  border-color: var(--border-accent) !important;
+  box-shadow: 0 0 0 0.15rem var(--purple-glow) !important;
+}
+.ai-input::placeholder { color: var(--text-placeholder); opacity: 1; }
+
+.ai-send-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50% !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0 !important;
+}
+
+.ai-input-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.4rem;
+  gap: 0.5rem;
+}
+.ai-model-select, .ai-target-select {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--surface-border) !important;
+  color: var(--text-secondary) !important;
+  font-size: 0.72rem !important;
+  border-radius: var(--radius-sm) !important;
+}
+.ai-target-group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.ai-target-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Context usage bar */
+.context-bar {
+  position: relative;
+  height: 16px;
+  border-radius: 100px;
+  background: var(--bg-surface);
+  border: 1px solid var(--surface-border);
+  overflow: hidden;
+  margin-bottom: 0.4rem;
+}
+.context-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  background: linear-gradient(90deg, var(--purple-600), var(--magenta-600));
+  transition: width var(--transition-normal), background var(--transition-normal);
+}
+.context-bar-fill.warn { background: linear-gradient(90deg, #d97706, var(--warning)); }
+.context-bar-fill.danger { background: linear-gradient(90deg, #b91c1c, var(--danger)); }
+.context-bar-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.ai-send-group {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}

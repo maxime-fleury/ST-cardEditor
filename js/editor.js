@@ -232,7 +232,7 @@ const Editor = {
             : '<button class="btn btn-outline-accent btn-sm greeting-set-default" data-idx="' + idx + '" title="Set as first message"><i class="bi bi-star"></i></button>')
         + '<button class="btn btn-outline-danger btn-sm greeting-delete" data-idx="' + idx + '" title="Remove"><i class="bi bi-x-lg"></i></button>'
         + '</div>'
-        + '<textarea class="form-control greeting-textarea" rows="2" placeholder="Greeting ' + (idx + 1) + '..." data-greeting-idx="' + idx + '">' + Ui.escapeHtml(g) + '</textarea>'
+        + '<textarea class="form-control greeting-textarea" rows="4" placeholder="Greeting ' + (idx + 1) + '..." data-greeting-idx="' + idx + '">' + Ui.escapeHtml(g) + '</textarea>'
         + '</div>';
     }).join('');
 
@@ -382,7 +382,7 @@ const Editor = {
           + '<option value="after_char"' + (entry.position !== 'before_char' ? ' selected' : '') + '>After char</option></select>'
           + '</div>'
           + '<label class="form-label" style="font-size:0.72rem;">Content</label>'
-          + '<textarea class="form-control editor-textarea font-mono" rows="3" placeholder="Entry content..." data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || '') + '</textarea>'
+          + '<textarea class="form-control editor-textarea font-mono" rows="6" placeholder="Entry content..." data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || '') + '</textarea>'
           + '</div>'
           + '</div>';
       }).join('')

@@ -13,7 +13,18 @@
   <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="style.css">
+  <!-- App CSS (split for maintainability) -->
+  <link rel="stylesheet" href="css/theme.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/library.css">
+  <link rel="stylesheet" href="css/editor.css">
+  <link rel="stylesheet" href="css/ai-assistant.css">
+  <link rel="stylesheet" href="css/modal.css">
+  <link rel="stylesheet" href="css/diff.css">
+  <link rel="stylesheet" href="css/wizard.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/responsive.css">
 </head>
 <body>
   <!-- ========== NAVBAR ========== -->
@@ -230,48 +241,42 @@
           <div class="tab-pane fade show active" id="tabCore">
             <div class="row g-3">
               <div class="col-12">
-                <div class="floating-label">
-                  <label class="form-label field-label">
-                    <span data-i18n="editor.desc">Description</span> <small data-i18n="editor.descSub">(appearance, backstory)</small>
-                    <span class="field-toggle-group" data-target="editDescription">
-                      <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
-                      <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
-                    </span>
-                  </label>
-                  <textarea class="form-control editor-textarea" id="editDescription" rows="6" 
-                            data-i18n-placeholder="editor.descPlaceholder" placeholder="Describe the character's appearance, background, and key traits..."></textarea>
-                  <div class="md-preview" id="previewDescription"></div>
-                  <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
-                </div>
+                <label class="form-label field-label editor-field-label">
+                  <span data-i18n="editor.desc">Description</span> <small data-i18n="editor.descSub">(appearance, backstory)</small>
+                  <span class="field-toggle-group" data-target="editDescription">
+                    <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
+                    <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
+                  </span>
+                </label>
+                <textarea class="form-control editor-textarea" id="editDescription" rows="6" 
+                          data-i18n-placeholder="editor.descPlaceholder" placeholder="Describe the character's appearance, background, and key traits..."></textarea>
+                <div class="md-preview" id="previewDescription"></div>
+                <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
               </div>
               <div class="col-md-6">
-                <div class="floating-label">
-                  <label class="form-label field-label">
-                    <span data-i18n="editor.firstMes">First Message</span>
-                    <span class="field-toggle-group" data-target="editFirstMes">
-                      <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
-                      <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
-                    </span>
-                  </label>
-                  <textarea class="form-control editor-textarea" id="editFirstMes" rows="5" 
-                            data-i18n-placeholder="editor.firstMesPlaceholder" placeholder="The character's first message when starting a chat..."></textarea>
-                  <div class="md-preview" id="previewFirstMes"></div>
-                  <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
-                </div>
+                <label class="form-label field-label editor-field-label">
+                  <span data-i18n="editor.firstMes">First Message</span>
+                  <span class="field-toggle-group" data-target="editFirstMes">
+                    <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
+                    <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
+                  </span>
+                </label>
+                <textarea class="form-control editor-textarea" id="editFirstMes" rows="8" 
+                          data-i18n-placeholder="editor.firstMesPlaceholder" placeholder="The character's first message when starting a chat..."></textarea>
+                <div class="md-preview" id="previewFirstMes"></div>
+                <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
               </div>
               <div class="col-md-6">
-                <div class="floating-label">
-                  <label class="form-label field-label">
-                    <span data-i18n="editor.scenario">Scenario</span>
-                    <span class="field-toggle-group" data-target="editScenario">
-                      <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
-                      <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
-                    </span>
-                  </label>
-                  <textarea class="form-control editor-textarea" id="editScenario" rows="5" 
-                            data-i18n-placeholder="editor.scenarioPlaceholder" placeholder="Current circumstances and context of the conversation..."></textarea>
-                  <div class="md-preview" id="previewScenario"></div>
-                </div>
+                <label class="form-label field-label editor-field-label">
+                  <span data-i18n="editor.scenario">Scenario</span>
+                  <span class="field-toggle-group" data-target="editScenario">
+                    <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
+                    <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
+                  </span>
+                </label>
+                <textarea class="form-control editor-textarea" id="editScenario" rows="6" 
+                          data-i18n-placeholder="editor.scenarioPlaceholder" placeholder="Current circumstances and context of the conversation..."></textarea>
+                <div class="md-preview" id="previewScenario"></div>
               </div>
               <div class="col-md-6">
                 <div class="floating-label">
@@ -345,8 +350,8 @@
               <div class="col-12">
                 <div class="floating-label">
                   <label class="form-label field-label"><span data-i18n="editor.creatorNotes">Creator Notes</span></label>
-                  <textarea class="form-control editor-textarea" id="editCreatorNotes" rows="4" 
-                            data-i18n-placeholder="editor.creatorNotesPlaceholder" placeholder="Notes for card users (model recommendations, usage tips...)"></textarea>
+<textarea class="form-control editor-textarea" id="editCreatorNotes" rows="5" 
+                          data-i18n-placeholder="editor.creatorNotesPlaceholder" placeholder="Notes for card users (model recommendations, usage tips...)"></textarea>
                 </div>
               </div>
               <div class="col-12">
@@ -791,11 +796,11 @@
               <div class="col-md-6">
                 <label class="form-label field-label"><span data-i18n="wizard.languageLabel">Language</span></label>
                 <select class="form-select" id="wizLanguage">
-                  <option value="en" data-i18n="lang.en">English</option>
-                  <option value="fr" data-i18n="lang.fr">French</option>
-                  <option value="de" data-i18n="lang.de">German</option>
-                  <option value="ja" data-i18n="lang.ja">Japanese</option>
-                  <option value="other" data-i18n="wizard.language.other">Other</option>
+                  <option value="en">English</option>
+                  <option value="fr">French</option>
+                  <option value="de">German</option>
+                  <option value="ja">Japanese</option>
+                  <option value="other">Other</option>
                 </select>
                 <input type="text" class="form-control mt-2 d-none" id="wizLanguageCustom" data-i18n-placeholder="wizard.languageSpecify" placeholder="Specify language">
               </div>
@@ -906,18 +911,21 @@
                   <div class="wizard-image-preview">
                     <img class="wiz-thumb" src="" alt="" hidden>
                     <div class="wizard-image-placeholder"><i class="bi bi-image"></i></div>
+                    <div class="wizard-image-selected"><i class="bi bi-check-circle-fill"></i></div>
                   </div>
                 </div>
                 <div class="wizard-image-card" data-idx="1">
                   <div class="wizard-image-preview">
                     <img class="wiz-thumb" src="" alt="" hidden>
                     <div class="wizard-image-placeholder"><i class="bi bi-image"></i></div>
+                    <div class="wizard-image-selected"><i class="bi bi-check-circle-fill"></i></div>
                   </div>
                 </div>
                 <div class="wizard-image-card" data-idx="2">
                   <div class="wizard-image-preview">
                     <img class="wiz-thumb" src="" alt="" hidden>
                     <div class="wizard-image-placeholder"><i class="bi bi-image"></i></div>
+                    <div class="wizard-image-selected"><i class="bi bi-check-circle-fill"></i></div>
                   </div>
                 </div>
               </div>

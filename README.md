@@ -253,7 +253,18 @@ Click any suggestion chip to instantly:
 st-card-editor/
 ├── public/
 │   ├── index.html          # Main HTML with full UI layout
-│   └── style.css           # Dark/light theme stylesheet
+│   └── css/                # Stylesheets (split by concern)
+│       ├── theme.css        # Design tokens, dark/light themes, backdrop
+│       ├── base.css         # Reset, scrollbars, navbar, animations, buttons
+│       ├── layout.css       # App container, panels, resizers
+│       ├── library.css      # Left panel: card list, drop zone, empty state
+│       ├── editor.css       # Editor fields, textareas, markdown preview
+│       ├── ai-assistant.css # AI chat panel and message bubbles
+│       ├── modal.css        # Modals, model list, credits
+│       ├── diff.css         # AI response diff viewer
+│       ├── wizard.css       # Card creation wizard
+│       ├── components.css   # Toasts, lorebook, greetings
+│       └── responsive.css   # Media queries and responsive rules
 ├── js/
 │   ├── cardEngine.js       # Card parsing, normalization, PNG chunk embedding
 │   ├── aiService.js        # AI API client (7 providers + custom)
