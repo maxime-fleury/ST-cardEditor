@@ -16,9 +16,25 @@ const Wizard = {
   show() {
     this._step = 1;
     this._answers = {};
+    this._fetchedImageUrl = null;
+    this._fetchedImageBlob = null;
+    this._resetImageUI();
     this._renderStepIndicator();
     this._showStep(1);
     this._modal.show();
+  },
+
+  _resetImageUI() {
+    const img = document.querySelector('#wizImagePreviewImg');
+    const placeholder = document.querySelector('#wizImagePlaceholder');
+    const btnUse = document.querySelector('#wizBtnUseImage');
+    const btnRemove = document.querySelector('#wizBtnRemoveImage');
+    const source = document.querySelector('#wizImageSource');
+    if (img) { img.src = ''; img.hidden = true; }
+    if (placeholder) placeholder.classList.remove('d-none');
+    if (btnUse) btnUse.classList.add('d-none');
+    if (btnRemove) btnRemove.classList.add('d-none');
+    if (source) { source.textContent = ''; source.classList.add('d-none'); }
   },
 
   _bindEvents() {
@@ -50,6 +66,11 @@ const Wizard = {
     // Generate buttons
     document.querySelector('#wizBtnAI').addEventListener('click', () => self._generateWithAI());
     document.querySelector('#wizBtnBlank').addEventListener('click', () => self._generateBlank());
+
+    // Image fetch buttons
+    document.querySelector('#wizBtnFetchImage').addEventListener('click', () => self._fetchImage());
+    document.querySelector('#wizBtnUseImage').addEventListener('click', () => self._useFetchedImage());
+    document.querySelector('#wizBtnRemoveImage').addEventListener('click', () => self._removeFetchedImage());
 
     // Nav button and center button
     document.querySelector('#btnWizardNav').addEventListener('click', () => self.show());
@@ -224,6 +245,78 @@ const Wizard = {
     document.querySelector('#wizardSummary').innerHTML = html;
   },
 
+  // ─── IMAGE FETCH (waifu.im) ─────────────────────────
+  _fetchedImageUrl: null,
+  _fetchedImageBlob: null,
+
+  async _fetchImage() {
+    const btn = document.querySelector('#wizBtnFetchImage');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Fetching...';
+    try {
+      const resp = await fetch('https://api.waifu.im/images?IncludedTags=waifu&IsNsfw=False');
+      if (!resp.ok) throw new Error('API returned ' + resp.status);
+      const data = await resp.json();
+      if (!data.items || !data.items.length) throw new Error('No images returned');
+      const item = data.items[0];
+      const imgUrl = item.url;
+      const imgResp = await fetch(imgUrl);
+      const blob = await imgResp.blob();
+      this._fetchedImageUrl = imgUrl;
+      this._fetchedImageBlob = blob;
+
+      const img = document.querySelector('#wizImagePreviewImg');
+      const placeholder = document.querySelector('#wizImagePlaceholder');
+      const btnUse = document.querySelector('#wizBtnUseImage');
+      const btnRemove = document.querySelector('#wizBtnRemoveImage');
+      const source = document.querySelector('#wizImageSource');
+
+      const objUrl = URL.createObjectURL(blob);
+      img.src = objUrl;
+      img.hidden = false;
+      placeholder.classList.add('d-none');
+      btnUse.classList.remove('d-none');
+      btnRemove.classList.remove('d-none');
+      if (source) {
+        const tagNames = (item.tags || []).map(t => t.name).join(', ');
+        source.textContent = 'Source: waifu.im' + (tagNames ? ' (' + tagNames + ')' : '');
+        source.classList.remove('d-none');
+      }
+    } catch (e) {
+      console.error('waifu.im fetch failed', e);
+      Ui.showToast('Failed to fetch image: ' + e.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+  },
+
+  async _useFetchedImage() {
+    if (!this._fetchedImageBlob) return;
+    const card = window.AppState.activeCard;
+    if (!card) {
+      Ui.showToast('Create or select a card first', 'warning');
+      return;
+    }
+    await Editor.setAvatar(this._fetchedImageBlob);
+  },
+
+  _removeFetchedImage() {
+    this._fetchedImageUrl = null;
+    this._fetchedImageBlob = null;
+    const img = document.querySelector('#wizImagePreviewImg');
+    const placeholder = document.querySelector('#wizImagePlaceholder');
+    const btnUse = document.querySelector('#wizBtnUseImage');
+    const btnRemove = document.querySelector('#wizBtnRemoveImage');
+    const source = document.querySelector('#wizImageSource');
+    if (img) { img.src = ''; img.hidden = true; }
+    if (placeholder) placeholder.classList.remove('d-none');
+    if (btnUse) btnUse.classList.add('d-none');
+    if (btnRemove) btnRemove.classList.add('d-none');
+    if (source) { source.textContent = ''; source.classList.add('d-none'); }
+  },
+
   // ─── GENERATE ───────────────────────────────────────
   async _generateBlank() {
     this._collectStep(this._step);
@@ -258,7 +351,7 @@ const Wizard = {
 
     // Build the prompt
     const genderText = a.gender === 'other' ? a.genderCustom : (a.gender || 'unspecified');
-    const langMap = { en: 'English', es: 'Spanish', fr: 'French', de: 'German', pt: 'Portuguese', ja: 'Japanese', zh: 'Chinese', ko: 'Korean', ru: 'Russian', ar: 'Arabic', it: 'Italian', nl: 'Dutch' };
+    const langMap = { en: 'English', fr: 'French', de: 'German', ja: 'Japanese' };
     const langText = langMap[a.language] || a.languageCustom || 'English';
     const typeLabels = {
       original: 'Original Character', fanfic: 'Fan Fiction', game: 'Game Character',

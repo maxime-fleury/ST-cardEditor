@@ -664,17 +664,9 @@
                 <label class="form-label field-label">Language</label>
                 <select class="form-select" id="wizLanguage">
                   <option value="en">English</option>
-                  <option value="es">Spanish</option>
                   <option value="fr">French</option>
                   <option value="de">German</option>
-                  <option value="pt">Portuguese</option>
                   <option value="ja">Japanese</option>
-                  <option value="zh">Chinese</option>
-                  <option value="ko">Korean</option>
-                  <option value="ru">Russian</option>
-                  <option value="ar">Arabic</option>
-                  <option value="it">Italian</option>
-                  <option value="nl">Dutch</option>
                   <option value="other">Other</option>
                 </select>
                 <input type="text" class="form-control mt-2 d-none" id="wizLanguageCustom" placeholder="Specify language">
@@ -778,6 +770,32 @@
           <div class="wizard-step d-none" data-step="5">
             <h6 class="wizard-step-title"><i class="bi bi-stars me-2"></i>Generate Character</h6>
             <div class="wizard-summary" id="wizardSummary"></div>
+
+            <div class="wizard-image-section">
+              <label class="form-label field-label">Reference Image <small>(optional, from waifu.im)</small></label>
+              <div class="wizard-image-preview" id="wizImagePreview">
+                <img id="wizImagePreviewImg" src="" alt="" hidden>
+                <div class="wizard-image-placeholder" id="wizImagePlaceholder">
+                  <i class="bi bi-image"></i>
+                  <span>No image selected</span>
+                </div>
+              </div>
+              <div class="wizard-image-actions">
+                <button class="btn btn-sm btn-outline-accent" id="wizBtnFetchImage" type="button">
+                  <i class="bi bi-shuffle me-1"></i>Fetch Random
+                </button>
+                <button class="btn btn-sm btn-accent d-none" id="wizBtnUseImage" type="button">
+                  <i class="bi bi-check-lg me-1"></i>Use This
+                </button>
+                <button class="btn btn-sm btn-outline-secondary d-none" id="wizBtnRemoveImage" type="button">
+                  <i class="bi bi-x-lg me-1"></i>Remove
+                </button>
+              </div>
+              <div class="wizard-image-tags" id="wizImageTags">
+                <small class="text-muted d-none" id="wizImageSource"></small>
+              </div>
+            </div>
+
             <div class="wizard-generate-options">
               <button class="btn btn-accent btn-lg w-100 wizard-generate-btn" id="wizBtnAI">
                 <i class="bi bi-magic me-2"></i>Generate with AI
