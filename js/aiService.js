@@ -3,7 +3,7 @@
    ============================================================ */
 
 const AIService = {
-  BASE_URL: '/api/v1',
+  BASE_URL: 'https://openrouter.ai/api/v1',
   DEFAULT_TEMPERATURE: 0.7,
   DEFAULT_MAX_TOKENS: 65536,
 
