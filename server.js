@@ -61,6 +61,40 @@ const server = Bun.serve({
       pathname = "/index.html";
     }
 
+    // API proxy — forwards requests to OpenRouter to avoid CORS
+    if (pathname.startsWith("/api/")) {
+      const targetPath = pathname.slice(4); // remove /api prefix
+      const targetUrl = `https://openrouter.ai/api${targetPath}${url.search}`;
+      const headers = new Headers();
+      for (const [key, val] of req.headers) {
+        if (key.toLowerCase() === "host") continue;
+        headers.set(key, val);
+      }
+      const body = req.method !== "GET" && req.method !== "HEAD" ? await req.arrayBuffer() : undefined;
+      const upstream = await fetch(targetUrl, {
+        method: req.method,
+        headers,
+        body,
+      });
+      const respHeaders = new Headers(upstream.headers);
+      respHeaders.set("Access-Control-Allow-Origin", "*");
+      return new Response(upstream.body, {
+        status: upstream.status,
+        headers: respHeaders,
+      });
+    }
+
+    // Handle CORS preflight for /api routes
+    if (req.method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        },
+      });
+    }
+
     // Determine file path and prevent directory traversal
     let filePath;
     if (pathname.startsWith("/js/")) {

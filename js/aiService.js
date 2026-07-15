@@ -3,7 +3,7 @@
    ============================================================ */
 
 const AIService = {
-  BASE_URL: 'https://openrouter.ai/api/v1',
+  BASE_URL: '/api/v1',
   DEFAULT_TEMPERATURE: 0.7,
   DEFAULT_MAX_TOKENS: 65536,
 
@@ -159,7 +159,7 @@ const AIService = {
     }
     const useModel = model;
 
-    const maxTokens = this.resolveMaxTokens(model);
+    const maxTokens = this.resolveMaxTokens(model, messages);
     
     const resp = await fetch(`${this.BASE_URL}/chat/completions`, {
       method: 'POST',
@@ -218,7 +218,7 @@ const AIService = {
     if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
     messages.push({ role: 'user', content: prompt });
 
-    const maxTokens = this.resolveMaxTokens(model);
+    const maxTokens = this.resolveMaxTokens(model, messages);
 
     const resp = await fetch(`${this.BASE_URL}/chat/completions`, {
       method: 'POST',
@@ -272,16 +272,51 @@ const AIService = {
   },
 
   /**
-   * Resolve max_tokens: user setting > model limit > default.
+   * Rough token estimate: ~4 chars per token (covers most models).
    */
-  resolveMaxTokens(modelId) {
+  _estimateTokens(text) {
+    return Math.ceil((text || '').length / 4);
+  },
+
+  /**
+   * Resolve max_tokens: user setting > model limit > default.
+   * Caps output so that estimated_input + max_tokens <= context_length.
+   */
+  resolveMaxTokens(modelId, messages = []) {
+    // Estimate input tokens from all message content
+    let inputTokens = 0;
+    for (const msg of messages) {
+      inputTokens += this._estimateTokens(msg.content);
+    }
+    inputTokens += 4; // small overhead for formatting/roles
+
+    const ctxLength = this._getContextLength(modelId);
+
     const userMax = CardStorage.getMaxTokens();
-    if (userMax > 0) return userMax;
+    if (userMax > 0) return Math.min(userMax, Math.max(1024, ctxLength - inputTokens));
+
+    let maxTokens = this.DEFAULT_MAX_TOKENS;
     if (modelId && window.AppState.models) {
       const m = window.AppState.models.find(x => x.id === modelId);
-      if (m && m.max_output_tokens > 0) return m.max_output_tokens;
+      if (m && m.max_output_tokens > 0) maxTokens = m.max_output_tokens;
     }
-    return this.DEFAULT_MAX_TOKENS;
+
+    if (ctxLength > 0) {
+      maxTokens = Math.min(maxTokens, Math.max(1024, ctxLength - inputTokens));
+    }
+
+    return maxTokens;
+  },
+
+  /**
+   * Get context length for a model.
+   */
+  _getContextLength(modelId) {
+    if (modelId && window.AppState.models) {
+      const m = window.AppState.models.find(x => x.id === modelId);
+      if (m && m.context_length > 0) return m.context_length;
+    }
+    return 128000; // safe fallback
   },
 
 
