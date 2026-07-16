@@ -8,6 +8,7 @@ const AiChat = {
   _selectedFields: new Set(), // fields selected for editing
   _greetingCount: 3,
   _applyStore: new Map(),     // msgId → { content, field } for re-apply
+  MAX_PARALLEL_FIELDS: 5,     // cap parallel API requests
 
   FIELD_DEFS: [
     { id: 'description', labelKey: 'ai.target.description', icon: 'bi-card-text' },
@@ -102,6 +103,10 @@ const AiChat = {
       Ui.showToast(I18n.t('toast.selectField'), 'info');
       return;
     }
+    if (selectedFields.length > this.MAX_PARALLEL_FIELDS) {
+      Ui.showToast(I18n.t ? I18n.t('toast.tooManyFields', { max: this.MAX_PARALLEL_FIELDS }) : 'Too many fields selected. Max ' + this.MAX_PARALLEL_FIELDS + ' at once.', 'warning');
+      return;
+    }
 
     const histPanel = $('#aiHistoryPanel');
     if (histPanel && histPanel.classList.contains('open')) {
@@ -117,14 +122,12 @@ const AiChat = {
 
     if (!retryPrompt) {
       input.value = '';
+      this.addChatMessage('user', prompt);
     }
     window.AppState.isAiLoading = true;
     this.updateSendButton();
 
-    if (!retryPrompt) {
-      this.addChatMessage('user', prompt);
-      window.AppState.chatHistory.push({ role: 'user', content: prompt });
-    }
+    window.AppState.chatHistory.push({ role: 'user', content: prompt });
     CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
 
     const groupedCard = this._createGroupedCard(selectedFields);
@@ -147,7 +150,12 @@ const AiChat = {
       const history = this._getRecentHistory(10);
       AIService.chatStream(prompt, this.buildSystemPrompt(field, capturedGreetingCount), modelId,
         (fullText) => {
-          contentEl.textContent = fullText;
+          contentEl.innerHTML = Ui.escapeHtml(fullText)
+            .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            .replace(/\n/g, '<br>');
           const container = document.querySelector('#aiChatMessages');
           container.scrollTop = container.scrollHeight;
         },
@@ -160,7 +168,7 @@ const AiChat = {
             this._finalizeFieldSection(section, field, result.content);
           } catch (_) {}
           completedCount++;
-          combinedContent += '\n\n[' + fieldLabel(field) + ']\n' + result.content;
+          combinedContent += '\n\n[' + field + ']\n' + result.content;
 
           if (completedCount === selectedFields.length) {
             this._finalizeGroupedCard(groupedCard, selectedFields.length);
@@ -184,8 +192,14 @@ const AiChat = {
           completedCount++;
           if (completedCount === selectedFields.length) {
             try { this._finalizeGroupedCard(groupedCard, selectedFields.length); } catch (_) {}
+            if (combinedContent.trim()) {
+              window.AppState.chatHistory.push({ role: 'assistant', content: combinedContent.trim() });
+              CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
+              this._updateSession();
+            }
             window.AppState.isAiLoading = false;
             this.updateSendButton();
+            Settings.refreshCredits();
           }
         });
     });
@@ -425,9 +439,16 @@ const AiChat = {
 
     const streamingEl = this.createStreamingMessage();
 
+    const cardJson = activeCard ? CardEngine.toJSON(activeCard) : '';
     const systemPrompt = [
       'You are an AI assistant helping edit SillyTavern character cards.',
       'SillyTavern is an AI roleplay frontend. Cards define character personalities.',
+      '',
+      'Here is the FULL character card for context:',
+      '```json',
+      cardJson,
+      '```',
+      '',
       'The user wants you to edit or generate the FULL card as JSON.',
       'Respond with ONLY the updated JSON card. Keep the exact JSON structure.',
     ].join('\n');
@@ -753,6 +774,11 @@ const AiChat = {
       const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
       if (applyData && applyData.content) {
         this._applyStore.set(msgId, applyData);
+        // Evict oldest entries if store exceeds limit
+        if (this._applyStore.size > 50) {
+          const oldest = this._applyStore.keys().next().value;
+          this._applyStore.delete(oldest);
+        }
         el.setAttribute('data-apply-id', msgId);
         const reapplyBtn = document.createElement('button');
         reapplyBtn.className = 'ai-message-reapply';
@@ -1000,8 +1026,6 @@ const AiChat = {
     }
 
     const ctx = AIService.getContextLength(modelId);
-    // Use the actual card JSON (same as sent in the system prompt) for an accurate token estimate.
-    // This matches what buildSystemPrompt() sends, avoiding inflated counts from getTextContent() labels.
     const cardJson = activeCard ? CardEngine.toJSON(activeCard) : '';
     const systemPromptBase = [
       'You are an AI assistant helping edit SillyTavern character cards.',
@@ -1009,7 +1033,13 @@ const AiChat = {
     ].join('\n');
     const inputText = systemPromptBase + '\n\n' + cardJson;
 
-    const inputTokens = await Tokenizer.count(inputText + '\n' + prompt);
+    // Include chat history tokens for accurate estimate
+    const history = this._getRecentHistory(10);
+    let historyText = '';
+    for (const msg of history) {
+      historyText += (msg.content || '') + '\n';
+    }
+    const inputTokens = await Tokenizer.count(inputText + '\n' + historyText + '\n' + prompt);
 
     // Get the model's actual max output limit from the model data
     const modelData = (window.AppState.models || []).find(m => m.id === modelId);
@@ -1018,7 +1048,10 @@ const AiChat = {
       : AIService.DEFAULT_MAX_TOKENS;
 
     // Get the API-safe max for this request (accounts for context space)
-    const resolvedMax = await AIService.resolveMaxTokens(modelId, [{ role: 'system', content: inputText }, { role: 'user', content: prompt }]);
+    // Build messages array including history for accurate max token resolution
+    const historyMsgs = history.map(m => ({ role: m.role, content: m.content || '' }));
+    const allMessages = [{ role: 'system', content: inputText }, ...historyMsgs, { role: 'user', content: prompt }];
+    const resolvedMax = await AIService.resolveMaxTokens(modelId, allMessages);
     // The actual usable output is the smaller of model limit and available context
     const actualMaxOut = Math.min(modelMaxOut, resolvedMax);
 
