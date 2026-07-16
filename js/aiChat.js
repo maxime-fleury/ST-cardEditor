@@ -153,7 +153,9 @@ const AiChat = {
         controller.signal
       )
         .then(result => {
-          this._finalizeFieldSection(section, field, result.content);
+          try {
+            this._finalizeFieldSection(section, field, result.content);
+          } catch (_) {}
           completedCount++;
           combinedContent += '\n\n[' + fieldLabel(field) + ']\n' + result.content;
 
@@ -168,15 +170,17 @@ const AiChat = {
           }
         })
         .catch(err => {
-          section.classList.add('error');
-          section.classList.remove('streaming');
-          const label = section.querySelector('.multi-field-label');
-          if (label) label.innerHTML = label.innerHTML.replace(I18n.t ? I18n.t('ai.streaming') : 'streaming...', I18n.t ? I18n.t('ai.failed') : 'failed');
-          contentEl.textContent = err.name === 'AbortError' ? (I18n.t ? I18n.t('ai.cancelled') : 'Cancelled.') : 'Error: ' + err.message;
+          try {
+            section.classList.add('error');
+            section.classList.remove('streaming');
+            const label = section.querySelector('.multi-field-label');
+            if (label) label.innerHTML = label.innerHTML.replace(I18n.t ? I18n.t('ai.streaming') : 'streaming...', I18n.t ? I18n.t('ai.failed') : 'failed');
+            contentEl.textContent = err.name === 'AbortError' ? (I18n.t ? I18n.t('ai.cancelled') : 'Cancelled.') : 'Error: ' + err.message;
+          } catch (_) {}
 
           completedCount++;
           if (completedCount === selectedFields.length) {
-            this._finalizeGroupedCard(groupedCard, selectedFields.length);
+            try { this._finalizeGroupedCard(groupedCard, selectedFields.length); } catch (_) {}
             window.AppState.isAiLoading = false;
             this.updateSendButton();
           }
@@ -342,12 +346,14 @@ const AiChat = {
       // Reset button text on every open
       const copyLabel = () => '<i class="bi bi-clipboard me-1"></i>' + (I18n.t ? I18n.t('ai.copy') : 'Copy');
       copyBtn.innerHTML = copyLabel();
+      // Clean up previous listener if any
+      if (this._copyAbort) this._copyAbort.abort();
+      this._copyAbort = new AbortController();
       let copyTimeout = null;
       const cleanupCopy = () => {
-        copyBtn.removeEventListener('click', copyHandler);
         if (copyTimeout) { clearTimeout(copyTimeout); copyTimeout = null; }
       };
-      const copyHandler = () => {
+      copyBtn.addEventListener('click', () => {
         navigator.clipboard.writeText(content).then(() => {
           copyBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>' + (I18n.t ? I18n.t('ai.copied') : 'Copied!');
           copyTimeout = setTimeout(() => {
@@ -356,8 +362,7 @@ const AiChat = {
         }).catch(() => {
           copyBtn.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>' + (I18n.t ? I18n.t('ai.copyFailed') : 'Failed');
         });
-      };
-      copyBtn.addEventListener('click', copyHandler);
+      }, { signal: this._copyAbort.signal });
       modalEl.addEventListener('hidden.bs.modal', cleanupCopy, { once: true });
     }
 
@@ -390,6 +395,7 @@ const AiChat = {
   _sendFullCard(prompt) {
     const $ = (sel) => document.querySelector(sel);
     const { activeCard } = window.AppState;
+    if (window.AppState.isAiLoading) return;
     const modelSelect = $('#aiModelSelect');
     const input = $('#aiInput');
     if (!modelSelect || !input) { Ui.showToast(I18n.t('toast.selectModel'), 'warning'); return; }

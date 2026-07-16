@@ -657,12 +657,6 @@ const Wizard = {
     prompt += '- Use {{char}} for the character name and {{user}} for the user in example messages\n';
     prompt += '- Keep the JSON structure clean and valid\n';
 
-    // Switch to all fields target
-    AiChat._selectedFields.clear();
-    AiChat.FIELD_DEFS.forEach(f => AiChat._selectedFields.add(f.id));
-    AiChat._renderFieldChips();
-    document.querySelector('#aiInput').value = prompt;
-
     // Create the card first so we have something to work with
     const card = CardEngine.createEmptyCard(a.name || 'New Character');
     card.tags = a.tags || [];
@@ -675,8 +669,8 @@ const Wizard = {
     }
     CardManager.renderCardList();
 
-    // Send to AI
-    AiChat.send();
+    // Send to AI as a single full-card request
+    AiChat._sendFullCard(prompt);
   },
 };
 

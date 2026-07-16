@@ -507,7 +507,11 @@ function bindEvents(settingsModal) {
 
   $('#aiModelSelect').addEventListener('change', () => AiChat.updateContextBar());
   const stopBtn = $('#btnAiStop');
-  if (stopBtn) stopBtn.addEventListener('click', () => { AiChat._abortAll(); });
+  if (stopBtn) stopBtn.addEventListener('click', () => {
+    AiChat._abortAll();
+    window.AppState.isAiLoading = false;
+    AiChat.updateSendButton();
+  });
 
   // Greeting count input
   const greetingCountInput = $('#aiGreetingCountInput');

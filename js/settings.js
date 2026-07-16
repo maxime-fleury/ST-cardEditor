@@ -43,7 +43,12 @@ const Settings = {
 
     modal.hide();
     Ui.showToast(I18n.t('toast.settingsSaved'), 'success');
-    if (provider === 'openrouter' && apiKey) { this.refreshCredits(); this.refreshModelsList(); }
+    if (provider === 'openrouter' && apiKey) {
+      this.refreshCredits();
+      this.refreshModelsList();
+    } else if (provider !== 'custom' && customApiKey) {
+      this.refreshModelsList();
+    }
   },
 
   toggleApiKeyVisibility() {

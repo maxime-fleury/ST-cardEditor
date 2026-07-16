@@ -306,6 +306,7 @@ const AIService = {
     }
 
     const choice = data.choices?.[0];
+    if (!choice) throw new Error('API returned no response choices');
     return {
       content: choice?.message?.content || '',
       usage: data.usage ? {
@@ -381,35 +382,39 @@ const AIService = {
     let usage = null;
     let eventType = '';
 
-    let bufferStr = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bufferStr += decoder.decode(value, { stream: true });
-      const lines = bufferStr.split('\n');
-      bufferStr = lines.pop();
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        if (trimmed.startsWith('event: ')) { eventType = trimmed.slice(7).trim(); continue; }
-        if (trimmed.startsWith(':')) continue; // SSE comment (e.g. : ping)
-        if (!trimmed.startsWith('data: ')) continue;
-        const data = trimmed.slice(6).trim();
-        if (data === '[DONE]') { eventType = ''; break; }
-        try {
-          const parsed = JSON.parse(data);
-          const delta = parsed.choices?.[0]?.delta?.content;
-          if (delta) { full += delta; onChunk(full, delta); }
-          if (parsed.usage) usage = parsed.usage;
-          if (eventType === 'error') {
-            const msg = parsed.error?.message || parsed.detail || data;
-            throw new Error(msg);
+    try {
+      let bufferStr = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bufferStr += decoder.decode(value, { stream: true });
+        const lines = bufferStr.split('\n');
+        bufferStr = lines.pop();
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith('event: ')) { eventType = trimmed.slice(7).trim(); continue; }
+          if (trimmed.startsWith(':')) continue; // SSE comment (e.g. : ping)
+          if (!trimmed.startsWith('data: ')) continue;
+          const data = trimmed.slice(6).trim();
+          if (data === '[DONE]') { eventType = ''; break; }
+          try {
+            const parsed = JSON.parse(data);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) { full += delta; onChunk(full, delta); }
+            if (parsed.usage) usage = parsed.usage;
+            if (eventType === 'error') {
+              const msg = parsed.error?.message || parsed.detail || data;
+              throw new Error(msg);
+            }
+          } catch (e) {
+            if (e instanceof Error) throw e;
+            console.warn('aiService: dropped unparseable SSE chunk:', data);
           }
-        } catch (e) {
-          if (e instanceof Error) throw e;
-          console.warn('aiService: dropped unparseable SSE chunk:', data);
         }
       }
+    } finally {
+      reader.cancel().catch(() => {});
     }
 
     return {
