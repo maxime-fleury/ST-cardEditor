@@ -747,39 +747,42 @@
 
           <!-- Step 1: Basics -->
           <div class="wizard-step" data-step="1">
-            <h6 class="wizard-step-title"><i class="bi bi-person-fill me-2"></i><span data-i18n="wizard.basicsTitle">Character Basics</span></h6>
-            <div class="row g-3">
-              <div class="col-md-8">
-                <label class="form-label field-label"><span data-i18n="wizard.nameLabel">Character Name</span> <span class="text-danger">*</span></label>
-                <input type="text" class="form-control" id="wizName" data-i18n-placeholder="wizard.namePlaceholder" placeholder="e.g. Elara Nightwhisper" maxlength="200">
-              </div>
-              <div class="col-md-4">
-                <label class="form-label field-label"><span data-i18n="wizard.genderLabel">Gender / Pronouns</span></label>
-                <select class="form-select" id="wizGender">
-                  <option value="" data-i18n="wizard.genderSelect">Select...</option>
-                  <option value="female" data-i18n="wizard.gender.female">Female (she/her)</option>
-                  <option value="male" data-i18n="wizard.gender.male">Male (he/him)</option>
-                  <option value="nonbinary" data-i18n="wizard.gender.nonbinary">Non-binary (they/them)</option>
-                  <option value="other" data-i18n="wizard.gender.other">Other...</option>
-                </select>
-                <input type="text" class="form-control mt-2 d-none" id="wizGenderCustom" data-i18n-placeholder="wizard.genderCustom" placeholder="Custom pronouns (e.g. it/its)">
-              </div>
-              <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="wizard.tagsLabel">Tags</span> <small data-i18n="wizard.tagsSub">(comma-separated, helps organize your library)</small></label>
-                <input type="text" class="form-control" id="wizTags" data-i18n-placeholder="wizard.tagsPlaceholder" placeholder="fantasy, warrior, elf, original">
-              </div>
-              <div class="col-md-6">
-                <label class="form-label field-label"><span data-i18n="wizard.creatorLabel">Creator</span></label>
-                <input type="text" class="form-control" id="wizCreator" data-i18n-placeholder="wizard.creatorPlaceholder" placeholder="Your name / alias">
+            <h6 class="wizard-step-title"><i class="bi bi-person-fill"></i><span data-i18n="wizard.basicsTitle">Character Basics</span></h6>
+            <div class="wizard-form-card">
+              <div class="row g-3">
+                <div class="col-md-8">
+                  <label class="field-label"><span data-i18n="wizard.nameLabel">Character Name</span> <span class="text-danger">*</span></label>
+                  <input type="text" class="form-control" id="wizName" data-i18n-placeholder="wizard.namePlaceholder" placeholder="e.g. Elara Nightwhisper" maxlength="200">
+                </div>
+                <div class="col-md-4">
+                  <label class="field-label"><span data-i18n="wizard.genderLabel">Gender / Pronouns</span></label>
+                  <select class="form-select" id="wizGender">
+                    <option value="" data-i18n="wizard.genderSelect">Select...</option>
+                    <option value="female" data-i18n="wizard.gender.female">Female (she/her)</option>
+                    <option value="male" data-i18n="wizard.gender.male">Male (he/him)</option>
+                    <option value="nonbinary" data-i18n="wizard.gender.nonbinary">Non-binary (they/them)</option>
+                    <option value="other" data-i18n="wizard.gender.other">Other...</option>
+                  </select>
+                  <input type="text" class="form-control mt-2 d-none" id="wizGenderCustom" data-i18n-placeholder="wizard.genderCustom" placeholder="Custom pronouns (e.g. it/its)">
+                </div>
+                <div class="col-12">
+                  <label class="field-label"><span data-i18n="wizard.tagsLabel">Tags</span> <small data-i18n="wizard.tagsSub">(comma-separated, helps organize your library)</small></label>
+                  <input type="text" class="form-control" id="wizTags" data-i18n-placeholder="wizard.tagsPlaceholder" placeholder="fantasy, warrior, elf, original">
+                </div>
+                <div class="col-md-6">
+                  <label class="field-label"><span data-i18n="wizard.creatorLabel">Creator</span></label>
+                  <input type="text" class="form-control" id="wizCreator" data-i18n-placeholder="wizard.creatorPlaceholder" placeholder="Your name / alias">
+                </div>
               </div>
             </div>
           </div>
 
           <!-- Step 2: Concept -->
           <div class="wizard-step d-none" data-step="2">
-            <h6 class="wizard-step-title"><i class="bi bi-lightbulb me-2"></i><span data-i18n="wizard.conceptTitle">Concept & Setting</span></h6>
-            <div class="row g-3">
-              <div class="col-md-6">
+            <h6 class="wizard-step-title"><i class="bi bi-lightbulb"></i><span data-i18n="wizard.conceptTitle">Concept & Setting</span></h6>
+            <div class="wizard-form-card">
+              <div class="row g-3">
+                <div class="col-md-6">
                 <label class="form-label field-label"><span data-i18n="wizard.typeLabel">Character Type</span></label>
                 <select class="form-select" id="wizType">
                   <option value="" data-i18n="wizard.genderSelect">Select...</option>
@@ -840,17 +843,18 @@
                   <button class="wizard-chip" data-value="melancholic" data-i18n="wizard.chip.melancholic">Melancholic</button>
                   <button class="wizard-chip" data-value="sarcastic" data-i18n="wizard.chip.sarcastic">Sarcastic</button>
                   <button class="wizard-chip" data-value="stoic" data-i18n="wizard.chip.stoic">Stoic</button>
-                </div>
-              </div>
-            </div>
+                </div> <!-- .col-12 mood -->
+              </div> <!-- .row g-3 -->
+            </div> <!-- wizard-form-card -->
           </div>
 
           <!-- Step 3: Personality & Appearance -->
           <div class="wizard-step d-none" data-step="3">
-            <h6 class="wizard-step-title"><i class="bi bi-brain me-2"></i><span data-i18n="wizard.personalityTitle">Personality & Appearance</span></h6>
-            <div class="row g-3">
-              <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="wizard.personalityTraits">Personality Traits</span> <small data-i18n="wizard.personalityTraitsSub">(describe 3-5 key traits, this helps the AI)</small></label>
+            <h6 class="wizard-step-title"><i class="bi bi-brain"></i><span data-i18n="wizard.personalityTitle">Personality & Appearance</span></h6>
+            <div class="wizard-form-card">
+              <div class="row g-3">
+                <div class="col-12">
+                  <label class="field-label"><span data-i18n="wizard.personalityTraits">Personality Traits</span> <small data-i18n="wizard.personalityTraitsSub">(describe 3-5 key traits, this helps the AI)</small></label>
                 <textarea class="form-control" id="wizPersonalityDesc" rows="4" 
                           data-i18n-placeholder="wizard.personalityTraitsPlaceholder" placeholder="e.g. Brave but reckless, fiercely loyal to friends, has a dry sense of humor, struggles with trust, secretly loves animals"></textarea>
               </div>
@@ -865,14 +869,16 @@
                           data-i18n-placeholder="wizard.abilitiesPlaceholder" placeholder="e.g. Can speak to animals, has a photographic memory, always carries a worn journal"></textarea>
               </div>
             </div>
+            </div> <!-- wizard-form-card -->
           </div>
 
           <!-- Step 4: Scenario & First Message -->
           <div class="wizard-step d-none" data-step="4">
-            <h6 class="wizard-step-title"><i class="bi bi-chat-dots me-2"></i><span data-i18n="wizard.scenarioTitle">Scenario & First Message</span></h6>
-            <div class="row g-3">
-              <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="wizard.scenarioLabel">Scenario / Setting</span> <small data-i18n="wizard.scenarioSub">(where does the story begin?)</small></label>
+            <h6 class="wizard-step-title"><i class="bi bi-chat-dots"></i><span data-i18n="wizard.scenarioTitle">Scenario & First Message</span></h6>
+            <div class="wizard-form-card">
+              <div class="row g-3">
+                <div class="col-12">
+                  <label class="field-label"><span data-i18n="wizard.scenarioLabel">Scenario / Setting</span> <small data-i18n="wizard.scenarioSub">(where does the story begin?)</small></label>
                 <textarea class="form-control" id="wizScenario" rows="4" 
                           data-i18n-placeholder="wizard.scenarioPlaceholder" placeholder="e.g. A rainy night in a neon-lit city. The character runs a small repair shop that fixes both machines and broken hearts."></textarea>
               </div>
@@ -898,11 +904,12 @@
                           data-i18n-placeholder="wizard.notesPlaceholder" placeholder="e.g. Keep the dialogue natural, avoid being overly formal, include action descriptions in asterisks"></textarea>
               </div>
             </div>
+            </div> <!-- wizard-form-card -->
           </div>
 
           <!-- Step 5: Generate -->
           <div class="wizard-step d-none" data-step="5">
-            <h6 class="wizard-step-title"><i class="bi bi-stars me-2"></i><span data-i18n="wizard.generateTitle">Generate Character</span></h6>
+            <h6 class="wizard-step-title"><i class="bi bi-stars"></i><span data-i18n="wizard.generateTitle">Generate Character</span></h6>
             <div class="wizard-summary" id="wizardSummary"></div>
 
             <div class="wizard-image-section">
@@ -927,21 +934,24 @@
                 <div class="wizard-image-card" data-idx="0">
                   <div class="wizard-image-preview">
                     <img class="wiz-thumb" src="" alt="" hidden>
-                    <div class="wizard-image-placeholder"><i class="bi bi-image"></i></div>
+                    <div class="wiz-image-loader d-none"><div class="spinner-border spinner-border-sm text-light" role="status"></div><span class="wiz-image-loader-text">Loading</span></div>
+                    <div class="wizard-image-placeholder"><i class="bi bi-camera"></i><span data-i18n="wizard.imagePlaceholder">Click Fetch</span></div>
                     <div class="wizard-image-selected"><i class="bi bi-check-circle-fill"></i></div>
                   </div>
                 </div>
                 <div class="wizard-image-card" data-idx="1">
                   <div class="wizard-image-preview">
                     <img class="wiz-thumb" src="" alt="" hidden>
-                    <div class="wizard-image-placeholder"><i class="bi bi-image"></i></div>
+                    <div class="wiz-image-loader d-none"><div class="spinner-border spinner-border-sm text-light" role="status"></div><span class="wiz-image-loader-text">Loading</span></div>
+                    <div class="wizard-image-placeholder"><i class="bi bi-camera"></i><span data-i18n="wizard.imagePlaceholder">Click Fetch</span></div>
                     <div class="wizard-image-selected"><i class="bi bi-check-circle-fill"></i></div>
                   </div>
                 </div>
                 <div class="wizard-image-card" data-idx="2">
                   <div class="wizard-image-preview">
                     <img class="wiz-thumb" src="" alt="" hidden>
-                    <div class="wizard-image-placeholder"><i class="bi bi-image"></i></div>
+                    <div class="wiz-image-loader d-none"><div class="spinner-border spinner-border-sm text-light" role="status"></div><span class="wiz-image-loader-text">Loading</span></div>
+                    <div class="wizard-image-placeholder"><i class="bi bi-camera"></i><span data-i18n="wizard.imagePlaceholder">Click Fetch</span></div>
                     <div class="wizard-image-selected"><i class="bi bi-check-circle-fill"></i></div>
                   </div>
                 </div>
@@ -959,15 +969,17 @@
               </div>
             </div>
 
-            <div class="wizard-generate-options">
-              <button class="btn btn-accent btn-lg w-100 wizard-generate-btn" id="wizBtnAI">
-                <i class="bi bi-magic me-2"></i><span data-i18n="wizard.generateAI">Generate with AI</span>
-                <small class="d-block text opacity-75" style="font-size:0.7rem;" data-i18n="wizard.generateAISub">Full character card from your answers</small>
-              </button>
-              <button class="btn btn-outline-accent btn-lg w-100 wizard-generate-btn" id="wizBtnBlank">
-                <i class="bi bi-plus-circle me-2"></i><span data-i18n="wizard.createBlank">Create Blank Card</span>
-                <small class="d-block text opacity-75" style="font-size:0.7rem;" data-i18n="wizard.createBlankSub">Start with name and tags pre-filled</small>
-              </button>
+            <div class="wizard-sticky-actions">
+              <div class="wizard-generate-options">
+                <button class="btn btn-accent btn-lg w-100 wizard-generate-btn" id="wizBtnAI">
+                  <i class="bi bi-magic me-2"></i><span data-i18n="wizard.generateAI">Generate with AI</span>
+                  <small class="d-block text opacity-75" style="font-size:0.7rem;" data-i18n="wizard.generateAISub">Full character card from your answers</small>
+                </button>
+                <button class="btn btn-outline-accent btn-lg w-100 wizard-generate-btn" id="wizBtnBlank">
+                  <i class="bi bi-plus-circle me-2"></i><span data-i18n="wizard.createBlank">Create Blank Card</span>
+                  <small class="d-block text opacity-75" style="font-size:0.7rem;" data-i18n="wizard.createBlankSub">Start with name and tags pre-filled</small>
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -7,27 +7,83 @@ const Wizard = {
   _totalSteps: 5,
   _answers: {},
   _modal: null,
+  _fetchedImages: [],
+  _selectedImageIdx: -1,
+  _tagSearch: '',
+  _autoFetched: false,
+  _fetching: false,
+  _wizardDirtyKey: 'stce_wizard_draft',
+  _draftCleared: false,
 
   init() {
     this._modal = new bootstrap.Modal('#wizardModal');
     this._bindEvents();
+    // Clean up object URLs when modal is dismissed
+    document.querySelector('#wizardModal').addEventListener('hidden.bs.modal', () => this._onModalClose());
   },
 
   show() {
     this._step = 1;
     this._answers = {};
-    this._fetchedImageUrl = null;
-    this._fetchedImageBlob = null;
+    this._fetchedImages = [];
+    this._selectedImageIdx = -1;
+    this._tagSearch = '';
     this._autoFetched = false;
+    this._fetching = false;
     this._resetFormUI();
     this._resetImageUI();
     this._renderStepIndicator();
     this._showStep(1);
     this._modal.show();
+    // Restore draft from sessionStorage if available (after step 1 is shown)
+    if (this._restoreDraft()) {
+      this._populateStep(1);
+    }
     setTimeout(() => {
       const step1 = document.querySelector('.wizard-step[data-step="1"]');
       if (step1) Anims.staggerFadeIn(step1.querySelectorAll('.mb-3, .mb-4'), { stagger: 30, duration: 200 });
     }, 100);
+  },
+
+  _onModalClose() {
+    // Revoke all object URLs to prevent memory leaks
+    this._fetchedImages.forEach(img => {
+      if (img && img._objUrl) URL.revokeObjectURL(img._objUrl);
+    });
+    this._fetchedImages = [];
+    this._selectedImageIdx = -1;
+    // Save draft unless it was intentionally cleared (e.g. after generation)
+    if (!this._draftCleared) this._saveDraft();
+    this._draftCleared = false;
+  },
+
+  _saveDraft() {
+    try {
+      if (this._answers && Object.keys(this._answers).length > 0) {
+        sessionStorage.setItem(this._wizardDirtyKey, JSON.stringify(this._answers));
+      }
+    } catch (_) {}
+  },
+
+  _clearDraft() {
+    try { sessionStorage.removeItem(this._wizardDirtyKey); } catch (_) {}
+    this._draftCleared = true;
+  },
+
+  _restoreDraft() {
+    try {
+      const saved = sessionStorage.getItem(this._wizardDirtyKey);
+      if (!saved) return false;
+      const data = JSON.parse(saved);
+      if (typeof data !== 'object' || !data.name) return false; // require at least a name
+      this._answers = data;
+      // Don't restore image state — images are blobs that can't be serialized
+      Ui.showToast(I18n.t('wizard.draftRestored'), 'info');
+      return true;
+    } catch (_) {
+      sessionStorage.removeItem(this._wizardDirtyKey);
+      return false;
+    }
   },
 
   _resetFormUI() {
@@ -47,6 +103,8 @@ const Wizard = {
       c.classList.remove('selected');
       const thumb = c.querySelector('.wiz-thumb');
       if (thumb) { thumb.src = ''; thumb.hidden = true; }
+      const loader = c.querySelector('.wiz-image-loader');
+      if (loader) loader.classList.add('d-none');
       const ph = c.querySelector('.wizard-image-placeholder');
       if (ph) ph.classList.remove('d-none');
     });
@@ -59,21 +117,25 @@ const Wizard = {
   _bindEvents() {
     const self = this;
 
-    // Next / Back
     document.querySelector('#wizBtnNext').addEventListener('click', () => self._next());
     document.querySelector('#wizBtnBack').addEventListener('click', () => self._back());
 
-    // Gender custom toggle
+    // Keyboard shortcuts within wizard
+    document.querySelector('#wizardModal').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && self._step === self._totalSteps) {
+        e.preventDefault();
+        self._generateWithAI();
+      }
+    });
+
     document.querySelector('#wizGender').addEventListener('change', (e) => {
       document.querySelector('#wizGenderCustom').classList.toggle('d-none', e.target.value !== 'other');
     });
 
-    // Language custom toggle
     document.querySelector('#wizLanguage').addEventListener('change', (e) => {
       document.querySelector('#wizLanguageCustom').classList.toggle('d-none', e.target.value !== 'other');
     });
 
-    // Chip selection (multi-select groups)
     document.querySelectorAll('.wizard-chip-group').forEach(group => {
       group.querySelectorAll('.wizard-chip').forEach(chip => {
         chip.addEventListener('click', () => {
@@ -83,16 +145,13 @@ const Wizard = {
       });
     });
 
-    // Generate buttons
     document.querySelector('#wizBtnAI').addEventListener('click', () => self._generateWithAI());
     document.querySelector('#wizBtnBlank').addEventListener('click', () => self._generateBlank());
 
-    // Image fetch buttons
     document.querySelector('#wizBtnFetchImage').addEventListener('click', () => self._fetchImage());
     document.querySelector('#wizBtnUseImage').addEventListener('click', () => self._useFetchedImage());
     document.querySelector('#wizBtnRemoveImage').addEventListener('click', () => self._removeFetchedImage());
 
-    // Image tag search
     const searchInput = document.querySelector('#wizImageTagSearch');
     const searchBtn = document.querySelector('#wizBtnSearchImages');
     if (searchInput) {
@@ -115,12 +174,11 @@ const Wizard = {
       });
     }
 
-    // Nav button and center button
     document.querySelector('#btnWizardNav').addEventListener('click', () => self.show());
     const centerBtn = document.querySelector('#btnWizard');
     if (centerBtn) centerBtn.addEventListener('click', () => self.show());
 
-    // Image selection (waifu.im fetched thumbnails)
+    // Image selection delegated in _bindImageEvents
     self._bindImageEvents();
   },
 
@@ -233,10 +291,9 @@ const Wizard = {
       document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.ready');
       this._renderSummary();
       this._renderQuickTags();
-      // Derive tags from wizard answers for initial pre-fill
       const derivedTags = this._deriveImageTags();
       const searchInput = document.querySelector('#wizImageTagSearch');
-      if (searchInput) {
+      if (searchInput && !this._autoFetched) {
         searchInput.value = derivedTags;
         this._tagSearch = derivedTags;
         this._renderQuickTags();
@@ -259,7 +316,6 @@ const Wizard = {
     const prevEl = document.querySelector('.wizard-step[data-step="' + prevStep + '"]');
     const nextEl = document.querySelector('.wizard-step[data-step="' + step + '"]');
 
-    // Clean up any lingering inline styles on all steps before animating
     document.querySelectorAll('.wizard-step').forEach(el => {
       el.style.opacity = '';
       el.style.transform = '';
@@ -280,25 +336,38 @@ const Wizard = {
   _showStep(step) {
     document.querySelectorAll('.wizard-step').forEach(el => {
       el.classList.add('d-none');
-      // Clean up any inline styles left from interrupted animations
       el.style.opacity = '';
       el.style.transform = '';
     });
     const target = document.querySelector('.wizard-step[data-step="' + step + '"]');
     if (target) target.classList.remove('d-none');
-
     this._renderStepNav(step);
   },
 
   _renderStepIndicator() {
-    const labels = [I18n.t('wizard.step.basics'), I18n.t('wizard.step.concept'), I18n.t('wizard.step.personality'), I18n.t('wizard.step.scenario'), I18n.t('wizard.step.generate')];
+    const labels = [
+      I18n.t('wizard.step.basics'),
+      I18n.t('wizard.step.concept'),
+      I18n.t('wizard.step.personality'),
+      I18n.t('wizard.step.scenario'),
+      I18n.t('wizard.step.generate')
+    ];
     const container = document.querySelector('#wizardStepsIndicator');
     container.innerHTML = labels.map((label, i) => {
       const stepNum = i + 1;
       const isActive = stepNum === this._step;
       const isDone = stepNum < this._step;
-      return '<div class="wizard-step-dot' + (isActive ? ' active' : '') + (isDone ? ' done' : '') + '">'
-        + (isDone ? '<i class="bi bi-check-lg"></i>' : stepNum)
+      const isFuture = stepNum > this._step;
+      let connectorHtml = '';
+      if (i < labels.length - 1) {
+        const prevDone = i < this._step - 1 || (i === this._step - 1 && !isActive);
+        connectorHtml = '<div class="wizard-connector' + (prevDone ? ' done' : '') + '"></div>';
+      }
+      return '<div class="wizard-step-dot-wrap">'
+        + '<div class="wizard-step-dot' + (isActive ? ' active' : '') + (isDone ? ' done' : '') + (isFuture ? ' future' : '') + '">'
+        + (isDone ? '<i class="bi bi-check-lg"></i>' : '<span>' + (stepNum === this._step ? '<i class="bi bi-chevron-right"></i>' : stepNum) + '</span>')
+        + '</div>'
+        + (i < labels.length - 1 ? connectorHtml : '')
         + '<span class="wizard-step-dot-label">' + label + '</span>'
         + '</div>';
     }).join('');
@@ -315,31 +384,51 @@ const Wizard = {
     const genderLabel = a.gender === 'other' ? a.genderCustom : a.gender;
     const langLabel = a.language === 'other' ? a.languageCustom : a.language;
 
+    function summaryItem(key, value, step, full) {
+      const stepIdx = step || -1;
+      const editBtn = stepIdx >= 0
+        ? '<button class="wizard-edit-btn btn btn-sm btn-link p-0 ms-1" data-step="' + stepIdx + '" title="' + I18n.t('wizard.editStep') + '" aria-label="' + I18n.t('wizard.editStep') + '"><i class="bi bi-pencil"></i></button>'
+        : '';
+      return '<div class="wizard-summary-item' + (full ? ' full' : '') + '">'
+        + '<span class="wizard-summary-label">' + I18n.t(key) + editBtn + '</span>'
+        + '<span class="wizard-summary-value">' + Ui.escapeHtml(value || '-') + '</span></div>';
+    }
+
     let html = '<div class="wizard-summary-grid">';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.name') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.name || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.gender') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(genderLabel || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.type') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.type ? I18n.t('wizard.type.' + a.type) : '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.language') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(langLabel || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.tags') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.tags || []).join(', ') || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.genres') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.genres || []).join(', ') || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.mood') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.moods || []).join(', ') || '-') + '</span></div>';
-    html += '<div class="wizard-summary-item"><span class="wizard-summary-label">' + I18n.t('wizard.summary.opening') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml((a.openingVibe || []).join(', ') || '-') + '</span></div>';
-    if (a.personalityDesc) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">' + I18n.t('wizard.summary.personality') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.personalityDesc) + '</span></div>';
-    if (a.appearance) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">' + I18n.t('wizard.summary.appearance') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.appearance) + '</span></div>';
-    if (a.scenario) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">' + I18n.t('wizard.summary.scenario') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.scenario) + '</span></div>';
-    if (a.relationship) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">' + I18n.t('wizard.summary.relationship') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.relationship) + '</span></div>';
-    if (a.notes) html += '<div class="wizard-summary-item full"><span class="wizard-summary-label">' + I18n.t('wizard.summary.notes') + '</span><span class="wizard-summary-value">' + Ui.escapeHtml(a.notes) + '</span></div>';
+    html += summaryItem('wizard.summary.name', a.name || '-', 1, false);
+    html += summaryItem('wizard.summary.gender', genderLabel || '-', 1, false);
+    html += summaryItem('wizard.summary.type', a.type ? I18n.t('wizard.type.' + a.type) : '-', 2, false);
+    html += summaryItem('wizard.summary.language', langLabel || '-', 2, false);
+    html += summaryItem('wizard.summary.tags', (a.tags || []).join(', ') || '-', 1, false);
+    html += summaryItem('wizard.summary.genres', (a.genres || []).join(', ') || '-', 2, false);
+    html += summaryItem('wizard.summary.mood', (a.moods || []).join(', ') || '-', 2, false);
+    html += summaryItem('wizard.summary.opening', (a.openingVibe || []).join(', ') || '-', 4, false);
+    if (a.personalityDesc) html += summaryItem('wizard.summary.personality', a.personalityDesc, 3, true);
+    if (a.appearance) html += summaryItem('wizard.summary.appearance', a.appearance, 3, true);
+    if (a.scenario) html += summaryItem('wizard.summary.scenario', a.scenario, 4, true);
+    if (a.relationship) html += summaryItem('wizard.summary.relationship', a.relationship, 4, true);
+    if (a.notes) html += summaryItem('wizard.summary.notes', a.notes, 4, true);
     html += '</div>';
 
     document.querySelector('#wizardSummary').innerHTML = html;
+
+    // Bind edit buttons
+    document.querySelectorAll('.wizard-edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const targetStep = parseInt(btn.dataset.step, 10);
+        if (targetStep >= 1 && targetStep <= 4) {
+          this._collectStep(this._step);
+          this._step = targetStep;
+          this._populateStep(targetStep);
+          this._showStepAnimated(targetStep, this._totalSteps, 'back');
+        }
+      });
+    });
   },
 
   // ─── IMAGE FETCH (waifu.im) ─────────────────────────
-  _fetchedImages: [],
-  _selectedImageIdx: -1,
-  _tagSearch: '',
 
-  // Popular SFW tags from waifu.im for quick-selection chips
   TAG_OPTIONS: [
     'waifu', 'maid', 'uniform', 'selfies', 'dress',
     'cat', 'neko', 'fox', 'witch', 'swimsuit',
@@ -352,10 +441,16 @@ const Wizard = {
     const container = document.querySelector('#wizQuickTags');
     if (!container) return;
 
-    // Keep the label, remove old chips
-    const label = container.querySelector('.wizard-quick-tags-label');
+    // Find or create the label
+    let label = container.querySelector('.wizard-quick-tags-label');
+    if (!label) {
+      label = document.createElement('span');
+      label.className = 'wizard-quick-tags-label';
+      label.setAttribute('data-i18n', 'wizard.quick');
+      label.textContent = I18n.t('wizard.quick');
+    }
     container.innerHTML = '';
-    if (label) container.appendChild(label);
+    container.appendChild(label);
 
     const activeTags = this._tagSearch
       ? new Set(this._tagSearch.split(',').map(s => s.trim().toLowerCase()).filter(Boolean))
@@ -366,8 +461,8 @@ const Wizard = {
       chip.className = 'wizard-quick-tag' + (activeTags.has(tag) ? ' active' : '');
       chip.dataset.tag = tag;
       chip.textContent = tag;
-      chip.addEventListener('click', () => {
-        // Toggle this tag in the search input
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
         const input = document.querySelector('#wizImageTagSearch');
         if (!input) return;
         const current = input.value
@@ -403,7 +498,6 @@ const Wizard = {
     });
   },
 
-  // Synchronize _tagSearch from the search input field
   _syncTagSearch() {
     const input = document.querySelector('#wizImageTagSearch');
     if (input) {
@@ -412,7 +506,6 @@ const Wizard = {
     }
   },
 
-  // Derive waifu.im tags from the wizard answers (used only for initial pre-fill)
   _deriveImageTags() {
     const a = this._answers;
     const tagMap = {
@@ -434,7 +527,6 @@ const Wizard = {
     if (a.type === 'vtuber') tags.add('selfies');
     if (a.type === 'historical') tags.add('maid');
     if (a.type === 'anime') tags.add('neko');
-    // Add a couple from appearance keywords
     const appearance = (a.appearance || '').toLowerCase();
     if (appearance.includes('cat') || appearance.includes('feline') || appearance.includes('neko')) tags.add('cat');
     if (appearance.includes('fox') || appearance.includes('kitsune')) tags.add('fox');
@@ -451,51 +543,50 @@ const Wizard = {
   },
 
   async _fetchImage() {
+    if (this._fetching) return; // guard against double clicks
+    this._fetching = true;
+
     const btn = document.querySelector('#wizBtnFetchImage');
     const origHtml = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>' + I18n.t('wizard.fetching');
 
-    // Sync tags from search input
     this._syncTagSearch();
 
-    // Parse user-entered tags (comma-separated)
     const userTags = this._tagSearch
       .split(',')
       .map(s => s.trim().toLowerCase())
       .filter(Boolean);
 
-    // Fall back to 'waifu' if no tags entered
     if (!userTags.length) userTags.push('waifu');
 
     try {
-      // Determine which slots need new images (unselected ones).
       const slotsToFetch = [];
       for (let i = 0; i < 3; i++) {
-        if (i === this._selectedImageIdx) continue; // keep selected
+        if (i === this._selectedImageIdx) continue;
         slotsToFetch.push(i);
       }
-      if (!slotsToFetch.length) { btn.disabled = false; btn.innerHTML = origHtml; return; }
+      if (!slotsToFetch.length) { this._fetching = false; btn.disabled = false; btn.innerHTML = origHtml; return; }
 
-      // Clear unselected cards before fetching
+      // Show loading spinners on slots being fetched
       for (const i of slotsToFetch) {
         const card = document.querySelectorAll('.wizard-image-card')[i];
         card.classList.remove('selected');
         const thumb = card.querySelector('.wiz-thumb');
         thumb.src = '';
         thumb.hidden = true;
-        card.querySelector('.wizard-image-placeholder').classList.remove('d-none');
+        const loader = card.querySelector('.wiz-image-loader');
+        if (loader) loader.classList.remove('d-none');
+        const ph = card.querySelector('.wizard-image-placeholder');
+        if (ph) ph.classList.add('d-none');
         const prev = this._fetchedImages[i];
         if (prev && prev._objUrl) URL.revokeObjectURL(prev._objUrl);
         this._fetchedImages[i] = null;
       }
 
-      // Fetch each slot in parallel, using user's tags for variety
       await Promise.all(slotsToFetch.map(async (i) => {
         try {
-          // Use a subset of user tags per slot for diversity (up to 2 tags per request)
           const slotTags = [];
-          // Pick 1-2 tags for this slot, cycling through user's list
           const tagIdx1 = (i * 2) % userTags.length;
           slotTags.push(userTags[tagIdx1]);
           if (userTags.length > 1) {
@@ -511,7 +602,6 @@ const Wizard = {
           const data = await resp.json();
           const items = data.items || [];
           if (!items.length) throw new Error('No image for tags: ' + slotTags.join(', '));
-          // Pick a random image from the page for variety
           const item = items[Math.floor(Math.random() * items.length)];
           const imgResp = await fetch(item.url);
           const blob = await imgResp.blob();
@@ -526,16 +616,26 @@ const Wizard = {
           const thumb = card.querySelector('.wiz-thumb');
           thumb.src = objUrl;
           thumb.hidden = false;
+          const loader = card.querySelector('.wiz-image-loader');
+          if (loader) loader.classList.add('d-none');
           card.querySelector('.wizard-image-placeholder').classList.add('d-none');
         } catch (e) {
           console.error('waifu.im slot ' + i + ' fetch failed', e);
+          // Show error state in the card
+          const card = document.querySelectorAll('.wizard-image-card')[i];
+          const loader = card.querySelector('.wiz-image-loader');
+          if (loader) loader.classList.add('d-none');
+          const ph = card.querySelector('.wizard-image-placeholder');
+          if (ph) {
+            ph.classList.remove('d-none');
+            ph.innerHTML = '<i class="bi bi-exclamation-triangle"></i>';
+          }
         }
       }));
 
       const ok = slotsToFetch.some(i => this._fetchedImages[i]);
       if (!ok) throw new Error('All requests failed');
 
-      // Update buttons based on current selection
       if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
         document.querySelector('#wizBtnUseImage').classList.remove('d-none');
         document.querySelector('#wizBtnRemoveImage').classList.remove('d-none');
@@ -549,6 +649,7 @@ const Wizard = {
       console.error('waifu.im fetch failed', e);
       Ui.showToast(I18n.t('toast.wizardFetchFailed', { error: e.message }), 'danger');
     } finally {
+      this._fetching = false;
       btn.disabled = false;
       btn.innerHTML = origHtml;
     }
@@ -572,8 +673,13 @@ const Wizard = {
       c.classList.remove('selected');
       const thumb = c.querySelector('.wiz-thumb');
       if (thumb) { thumb.src = ''; thumb.hidden = true; }
+      const loader = c.querySelector('.wiz-image-loader');
+      if (loader) loader.classList.add('d-none');
       const ph = c.querySelector('.wizard-image-placeholder');
-      if (ph) ph.classList.remove('d-none');
+      if (ph) {
+        ph.classList.remove('d-none');
+        ph.innerHTML = '<i class="bi bi-image"></i>';
+      }
     });
     document.querySelector('#wizBtnUseImage').classList.add('d-none');
     document.querySelector('#wizBtnRemoveImage').classList.add('d-none');
@@ -583,6 +689,7 @@ const Wizard = {
   // ─── GENERATE ───────────────────────────────────────
   async _generateBlank() {
     this._collectStep(this._step);
+    this._clearDraft();
     this._modal.hide();
 
     const card = CardEngine.createEmptyCard(this._answers.name || 'New Character');
@@ -613,10 +720,10 @@ const Wizard = {
     }
     document.querySelector('#aiModelSelect').value = modelId;
 
+    this._clearDraft();
     this._modal.hide();
     const a = this._answers;
 
-    // Build the prompt
     const genderText = a.gender === 'other' ? a.genderCustom : (a.gender || 'unspecified');
     const langMap = { en: 'English', fr: 'French', de: 'German', ja: 'Japanese' };
     const langText = langMap[a.language] || a.languageCustom || 'English';
@@ -657,7 +764,6 @@ const Wizard = {
     prompt += '- Use {{char}} for the character name and {{user}} for the user in example messages\n';
     prompt += '- Keep the JSON structure clean and valid\n';
 
-    // Create the card first so we have something to work with
     const card = CardEngine.createEmptyCard(a.name || 'New Character');
     card.tags = a.tags || [];
     card.creator = a.creator || '';
@@ -669,7 +775,6 @@ const Wizard = {
     }
     CardManager.renderCardList();
 
-    // Send to AI as a single full-card request
     AiChat._sendFullCard(prompt);
   },
 };
