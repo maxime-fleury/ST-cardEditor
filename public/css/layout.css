@@ -51,7 +51,7 @@
 
 .panel-center {
   flex: 1;
-  min-width: 0;
+  min-width: 320px;
   order: 2;
 }
 

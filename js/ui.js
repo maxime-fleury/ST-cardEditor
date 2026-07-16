@@ -612,12 +612,42 @@ function bindEvents(settingsModal) {
 
   // ─── PANEL RESIZERS ───────────────────────────────
   function setupPanelResizers() {
+    const CENTER_MIN = 320;
     const root = document.documentElement;
     const app = document.querySelector('#appContainer');
+
+    function constrainRightWidth(w, containerWidth) {
+      const leftW = parseFloat(root.style.getPropertyValue('--panel-left-width')) || 300;
+      const maxForCenter = Math.max(280, containerWidth - leftW - CENTER_MIN);
+      return Math.max(280, Math.min(560, w, maxForCenter));
+    }
+
+    function constrainLeftWidth(w, containerWidth) {
+      const rightW = parseFloat(root.style.getPropertyValue('--panel-right-width')) || 360;
+      const maxForCenter = Math.max(220, containerWidth - rightW - CENTER_MIN);
+      return Math.max(220, Math.min(480, w, maxForCenter));
+    }
+
     const savedL = localStorage.getItem(CardStorage.PREFIX + 'panelLeft');
     const savedR = localStorage.getItem(CardStorage.PREFIX + 'panelRight');
     if (savedL) root.style.setProperty('--panel-left-width', savedL + 'px');
     if (savedR) root.style.setProperty('--panel-right-width', savedR + 'px');
+    // Clamp restored widths so centre never collapses
+    const containerRect = app.getBoundingClientRect();
+    if (savedR) {
+      const clampedR = constrainRightWidth(parseFloat(savedR), containerRect.width);
+      if (clampedR !== parseFloat(savedR)) {
+        root.style.setProperty('--panel-right-width', clampedR + 'px');
+        localStorage.setItem(CardStorage.PREFIX + 'panelRight', clampedR + 'px');
+      }
+    }
+    if (savedL) {
+      const clampedL = constrainLeftWidth(parseFloat(savedL), containerRect.width);
+      if (clampedL !== parseFloat(savedL)) {
+        root.style.setProperty('--panel-left-width', clampedL + 'px');
+        localStorage.setItem(CardStorage.PREFIX + 'panelLeft', clampedL + 'px');
+      }
+    }
 
     const startDrag = (which) => (e) => {
       e.preventDefault();
@@ -628,10 +658,12 @@ function bindEvents(settingsModal) {
         if (which === 'left') {
           let w = Math.round(x - rect.left);
           w = Math.max(220, Math.min(480, w));
+          w = constrainLeftWidth(w, rect.width);
           root.style.setProperty('--panel-left-width', w + 'px');
         } else {
           let w = Math.round(rect.right - x);
           w = Math.max(280, Math.min(560, w));
+          w = constrainRightWidth(w, rect.width);
           root.style.setProperty('--panel-right-width', w + 'px');
         }
       };
