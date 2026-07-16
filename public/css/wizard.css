@@ -24,6 +24,7 @@
   padding: 1.25rem 1.5rem;
   min-height: 420px;
   max-height: 60vh;
+  overflow-y: auto;
 }
 
 /* Progress */
@@ -82,6 +83,10 @@
   white-space: nowrap;
   color: var(--text-muted);
   font-weight: 500;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
 }
 .wizard-step-dot.active .wizard-step-dot-label {
   color: var(--text-accent);

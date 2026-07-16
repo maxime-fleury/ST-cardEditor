@@ -274,18 +274,22 @@ const CardEngine = {
       if (!base64) return resolve(null);
       const img = new Image();
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        const MAX = this.THUMBNAIL_MAX_SIZE;
-        let w = img.width, h = img.height;
-        if (w > h) {
-          if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
-        } else {
-          if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          const MAX = this.THUMBNAIL_MAX_SIZE;
+          let w = img.width, h = img.height;
+          if (w > h) {
+            if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+          } else {
+            if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+          }
+          canvas.width = w; canvas.height = h;
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', this.THUMBNAIL_JPEG_QUALITY));
+        } catch (_) {
+          resolve(null);
         }
-        canvas.width = w; canvas.height = h;
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', this.THUMBNAIL_JPEG_QUALITY));
       };
       img.onerror = () => resolve(null);
       img.src = base64;

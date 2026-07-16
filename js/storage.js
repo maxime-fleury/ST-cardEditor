@@ -185,6 +185,7 @@ const CardStorage = {
       this._migrationDone = true;
     } catch (e) {
       console.error('Migration failed:', e);
+      this._migrationDone = true;
     }
   },
 
@@ -444,7 +445,7 @@ const CardStorage = {
   /**
    * Clear ALL stored data.
    */
-  clearAll() {
+  async clearAll() {
     const keysToRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -453,8 +454,10 @@ const CardStorage = {
       }
     }
     keysToRemove.forEach(k => localStorage.removeItem(k));
-    this.DB.clear(this.DB.stores.cards).catch(() => {});
-    this.DB.clear(this.DB.stores.images).catch(() => {});
+    await Promise.all([
+      this.DB.clear(this.DB.stores.cards).catch(() => {}),
+      this.DB.clear(this.DB.stores.images).catch(() => {}),
+    ]);
   },
 
   // ─── Image Storage Helpers ─────────────────────────────

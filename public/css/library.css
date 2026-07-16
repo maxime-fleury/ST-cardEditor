@@ -79,7 +79,7 @@
 .drop-zone {
   margin: 0.65rem;
   padding: 1.5rem 1rem;
-  border: 2px dashed var(--border-default);px dashed var(--border-default);
+  border: 2px dashed var(--border-default);
   border-radius: var(--radius-md);
   text-align: center;
   transition: all var(--transition-normal);
@@ -98,6 +98,7 @@
   background-size: 300% 300%;
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask-composite: exclude;
   opacity: 0;
   transition: opacity var(--transition-normal);
@@ -152,7 +153,6 @@
   position: relative;
   overflow: hidden;
   transform-style: preserve-3d;
-  will-change: transform;
 }
 .card-list-item::before {
   content: '';

@@ -139,7 +139,11 @@
 [data-theme="light"] .toast { background: var(--bg-surface); color: var(--text-primary); }
 [data-theme="light"] .ai-input-area { background: var(--bg-deep); }
 [data-theme="light"] .editor-header { background: var(--glass-bg); }
-[data-theme="light"] .ai-input-area { background: var(--bg-deep); }
+[data-theme="light"] .lorebook-accordion-item { background: var(--bg-surface); }
+[data-theme="light"] .lorebook-accordion-header:hover { background: var(--bg-surface-hover); }
+[data-theme="light"] .greeting-item { background: var(--bg-surface); }
+[data-theme="light"] .typing-indicator span { background: var(--purple-500); }
+[data-theme="light"] .ai-input-area::before { opacity: 0.3; }
 
 /* ============================================================
    AURORA BACKDROP â€” visible behind glass surfaces

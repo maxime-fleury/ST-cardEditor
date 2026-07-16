@@ -107,18 +107,26 @@ window.Ui = {
     if (this._markdownReady) return;
     if (this._markdownLoading) return;
     this._markdownLoading = true;
+    let pending = 2;
+    const checkReady = () => { pending--; if (pending <= 0) { this._markdownReady = true; this._markdownLoading = null; } };
     if (typeof marked === 'undefined') {
       const s = document.createElement('script');
       s.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+      s.onload = checkReady;
+      s.onerror = checkReady;
       document.head.appendChild(s);
+    } else {
+      checkReady();
     }
     if (typeof DOMPurify === 'undefined') {
       const s = document.createElement('script');
       s.src = 'https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js';
+      s.onload = checkReady;
+      s.onerror = checkReady;
       document.head.appendChild(s);
+    } else {
+      checkReady();
     }
-    // Mark as ready on next tick (scripts load asynchronously)
-    setTimeout(() => { this._markdownReady = true; this._markdownLoading = null; }, 200);
   },
 
   renderMarkdown(text) {
@@ -284,7 +292,7 @@ async function init() {
   window.addEventListener('beforeunload', (e) => {
     if (window.AppState.activeCard && window.AppState._dirty) {
       Editor.syncGreetings();
-      Editor.syncEditorToCard();
+      Editor.syncEditorToCardSync();
       e.preventDefault();
       e.returnValue = '';
       return e.returnValue;

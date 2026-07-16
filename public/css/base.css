@@ -29,6 +29,7 @@ a:hover { color: var(--purple-400); text-decoration: underline; }
 ::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-accent); }
 ::-webkit-scrollbar-corner { background: transparent; }
+* { scrollbar-width: thin; scrollbar-color: var(--border-default) transparent; }
 
 /* ============================================================
    NAVBAR â€” Glass

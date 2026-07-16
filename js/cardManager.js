@@ -172,10 +172,10 @@ const CardManager = {
         sorted.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
         break;
       case 'newest':
-        sorted.sort((a, b) => (b._createdAt || b._id || '').localeCompare(a._createdAt || a._id || ''));
+        sorted.sort((a, b) => (b._createdAt || 0) - (a._createdAt || 0));
         break;
       case 'oldest':
-        sorted.sort((a, b) => (a._createdAt || a._id || '').localeCompare(b._createdAt || b._id || ''));
+        sorted.sort((a, b) => (a._createdAt || 0) - (b._createdAt || 0));
         break;
       case 'largest':
         sorted.sort((a, b) => (b._fileSize || 0) - (a._fileSize || 0));
@@ -547,8 +547,13 @@ const CardManager = {
           : 'Auto-hides in ' + secs + 's';
       };
       const timer = setInterval(tick, interval);
+      const clearTimer = () => { clearInterval(timer); toastEl.removeEventListener('hidden.bs.toast', clearTimer); };
+      toastEl.addEventListener('hidden.bs.toast', clearTimer);
+      const observer = new MutationObserver(() => {
+        if (!document.body.contains(toastEl)) { clearTimer(); observer.disconnect(); }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
       toastEl.addEventListener('hidden.bs.toast', () => {
-        clearInterval(timer);
         toastEl.remove();
         if (!undone) return;
       });

@@ -167,8 +167,7 @@ const AiChat = {
       AIService.chatStream(prompt, this.buildSystemPrompt(field, capturedGreetingCount), modelId,
         (fullText) => {
           contentEl.innerHTML = Ui.escapeHtml(fullText)
-            .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')
-            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/`([^`\n]+)`/g, '<code>$1</code>')
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.+?)\*/g, '<em>$1</em>')
             .replace(/\n/g, '<br>');
@@ -569,8 +568,16 @@ const AiChat = {
       const acceptBtn = document.querySelector('#btnAcceptAI');
       const modalEl = document.querySelector('#aiPreviewModal');
       let applied = false;
+
+      if (this._previewCleanup) this._previewCleanup();
+
       const handler = () => { applied = true; applyFn(); modal.hide(); };
-      const cleanup = () => { acceptBtn.removeEventListener('click', handler); modalEl.removeEventListener('hidden.bs.modal', cleanup); };
+      const cleanup = () => {
+        acceptBtn.removeEventListener('click', handler);
+        modalEl.removeEventListener('hidden.bs.modal', cleanup);
+        if (this._previewCleanup === cleanup) this._previewCleanup = null;
+      };
+      this._previewCleanup = cleanup;
       acceptBtn.addEventListener('click', handler);
       modalEl.addEventListener('hidden.bs.modal', cleanup);
       modal.show();
@@ -933,6 +940,12 @@ const AiChat = {
       CardStorage.saveChatSession(cardId, currentSession);
       CardStorage.saveSessionMessages(cardId, currentSession.id, chatHistory);
     } else {
+      if (currentSession) {
+        currentSession.lastUpdated = now;
+        currentSession.messageCount = chatHistory.length;
+        CardStorage.saveChatSession(cardId, currentSession);
+        CardStorage.saveSessionMessages(cardId, currentSession.id, chatHistory);
+      }
       const session = {
         id: 'ses_' + now + '_' + Math.random().toString(36).slice(2, 7),
         created: now,

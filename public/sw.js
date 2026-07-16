@@ -57,26 +57,36 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: serve from cache first, fall back to network
+// Fetch: network-first for non-shell files, cache-first for app shell
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests and API calls
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.pathname.startsWith('/api/')) return;
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request).then((response) => {
-        // Cache successful responses
+  const isShellFile = SHELL_FILES.some(f => url.pathname === f || url.pathname === f.replace(/^\//, '/'));
+
+  if (isShellFile) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        const fetchPromise = fetch(event.request).then((response) => {
+          if (response.ok && response.type === 'basic') {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => { cache.put(event.request, clone); });
+          }
+          return response;
+        }).catch(() => cached);
+        return cached || fetchPromise;
+      })
+    );
+  } else {
+    event.respondWith(
+      fetch(event.request).then((response) => {
         if (response.ok && response.type === 'basic') {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, clone);
-          });
+          caches.open(CACHE_NAME).then((cache) => { cache.put(event.request, clone); });
         }
         return response;
-      });
-      return cached || fetchPromise;
-    })
-  );
+      }).catch(() => caches.match(event.request))
+    );
+  }
 });

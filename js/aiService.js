@@ -65,8 +65,8 @@ const AIService = {
     return model;
   },
 
-  setApiKey(key) { this._apiKey = key; },
-  getApiKey() { return this._apiKey || ''; },
+  setApiKey(key) { this._apiKey = key; if (this._provider === 'openrouter') { CardStorage.setApiKey(key); } else { CardStorage.setCustomApiKey(key); } },
+  getApiKey() { return this._getApiKeyForProvider(); },
 
   hasApiKey() {
     const info = this.getProviderInfo(this._provider);

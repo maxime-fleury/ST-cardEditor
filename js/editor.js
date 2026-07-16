@@ -179,6 +179,60 @@ const Editor = {
     Ui.setDirty(true);
   },
 
+  syncEditorToCardSync() {
+    const { activeCard } = window.AppState;
+    if (!activeCard) return;
+    const $ = (sel) => document.querySelector(sel);
+    activeCard.name = $('#editName').value.trim();
+    activeCard.description = $('#editDescription').value;
+    activeCard.personality = $('#editPersonality').value;
+    activeCard.scenario = $('#editScenario').value;
+    activeCard.first_mes = $('#editFirstMes').value;
+    activeCard.mes_example = $('#editMesExample').value;
+    activeCard.creator_notes = $('#editCreatorNotes').value;
+    activeCard.system_prompt = $('#editSystemPrompt').value;
+    activeCard.post_history_instructions = $('#editPostHistory').value;
+    this.syncGreetings();
+    activeCard.creator = $('#editCreator').value.trim();
+    activeCard.character_version = $('#editVersion').value.trim();
+    activeCard.tags = $('#editTags').value.split(',').map(s => s.trim()).filter(Boolean);
+    activeCard._fileSize = JSON.stringify({
+      spec: activeCard.spec || 'chara_card_v2',
+      spec_version: activeCard.spec_version || '2.0',
+      data: {
+        name: activeCard.name || '', description: activeCard.description || '',
+        personality: activeCard.personality || '', scenario: activeCard.scenario || '',
+        first_mes: activeCard.first_mes || '', mes_example: activeCard.mes_example || '',
+        creator_notes: activeCard.creator_notes || '',
+        system_prompt: activeCard.system_prompt || '',
+        post_history_instructions: activeCard.post_history_instructions || '',
+        alternate_greetings: activeCard.alternate_greetings || [],
+        tags: activeCard.tags || [], creator: activeCard.creator || '',
+        character_version: activeCard.character_version || '',
+        character_book: activeCard.character_book || { entries: [] },
+        extensions: activeCard.extensions || {},
+      },
+    }).length;
+    try {
+      const { DB } = CardStorage;
+      const toSave = { ...activeCard };
+      delete toSave._imageBase64;
+      const req = indexedDB.open(DB.dbName, DB.version);
+      req.onsuccess = () => {
+        const db = req.result;
+        if (db.objectStoreNames.contains(DB.stores.cards)) {
+          db.transaction(DB.stores.cards, 'readwrite').objectStore(DB.stores.cards).put(toSave, activeCard._id);
+        }
+      };
+    } catch (_) {}
+    const index = CardStorage.getCards();
+    const idx = index.findIndex(c => c._id === activeCard._id);
+    const meta = CardStorage._extractMeta(activeCard);
+    if (idx >= 0) { index[idx] = meta; } else { index.unshift(meta); }
+    try { localStorage.setItem(CardStorage.PREFIX + CardStorage._keys.cardIndex, JSON.stringify(index)); } catch (_) {}
+    window.AppState._dirty = true;
+  },
+
   showEditor() {
     const $ = (sel) => document.querySelector(sel);
     $('#noCardSelected').classList.add('d-none');
@@ -325,9 +379,12 @@ const Editor = {
     const { activeCard } = window.AppState;
     const $ = (sel) => document.querySelector(sel);
     const greetings = [];
-    $('#greetingsList').querySelectorAll('.greeting-textarea').forEach(ta => {
-      greetings.push(ta.value);
-    });
+    const list = $('#greetingsList');
+    if (list) {
+      list.querySelectorAll('.greeting-textarea').forEach(ta => {
+        greetings.push(ta.value);
+      });
+    }
     activeCard.alternate_greetings = greetings;
   },
 

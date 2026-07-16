@@ -9,7 +9,7 @@
 @media (max-width: 992px) {
   .card-preview-tooltip { left: auto; right: 105%; }
   .panel-resizer { display: none; }
-  .panel-right { display: none; position: fixed; top: 0; right: 0; bottom: 0; width: 320px; z-index: 1040; background: var(--bg-primary); border-left: 1px solid var(--surface-border); box-shadow: -4px 0 20px rgba(0,0,0,.5); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
+  .panel-right { display: none; position: fixed; top: 0; right: 0; bottom: 0; width: 320px; z-index: 1035; background: var(--bg-primary); border-left: 1px solid var(--surface-border); box-shadow: -4px 0 20px rgba(0,0,0,.5); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
   .panel-right.mobile-open { display: flex; flex-direction: column; }
   .panel-left { width: 240px; min-width: 240px; }
 }

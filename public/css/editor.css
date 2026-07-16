@@ -55,6 +55,7 @@
   background: linear-gradient(135deg, var(--purple-500), var(--magenta-500)) border-box;
   -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
   mask-composite: exclude;
   opacity: 0;
   transition: opacity var(--transition-fast);
@@ -220,7 +221,6 @@
   border-color: var(--border-accent) !important;
   box-shadow: 0 0 0 0.15rem var(--purple-glow) !important;
   background: var(--bg-surface-hover) !important;
-  transform: translateY(-1px);
 }
 .editor-textarea::placeholder { color: var(--text-placeholder); opacity: 1; }
 
@@ -238,7 +238,6 @@
 .form-control:focus {
   border-color: var(--border-accent) !important;
   box-shadow: 0 0 0 0.15rem var(--purple-glow) !important;
-  transform: translateY(-1px);
 }
 .form-label { color: var(--text-secondary); }
 .form-text { color: var(--text-muted) !important; }

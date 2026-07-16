@@ -75,7 +75,7 @@
   border-bottom-right-radius: 4px;
   box-shadow: 0 4px 12px rgba(119, 44, 232, 0.25);
 }
-.ai-message.user:hover { box-shadow: 0 6px 18px rgba(119, 44, 232, 0.4); transform: translateY(-1px); }
+.ai-message.user:hover { box-shadow: 0 6px 18px rgba(119, 44, 232, 0.4); }
 .ai-message.assistant {
   align-self: flex-start;
   background: var(--bg-surface);
@@ -83,7 +83,7 @@
   border-bottom-left-radius: 4px;
   color: var(--text-primary);
 }
-.ai-message.assistant:hover { border-color: var(--border-default); box-shadow: 0 4px 12px rgba(0,0,0,0.2); transform: translateY(-1px); }
+.ai-message.assistant:hover { border-color: var(--border-default); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
 .ai-message-content {
   max-width: 170px;
   word-break: break-word;

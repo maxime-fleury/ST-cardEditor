@@ -27,11 +27,11 @@
 }
 .diff-pane-old .diff-pane-header {
   background: var(--diff-del);
-  color: #fca5a5;
+  color: var(--danger);
 }
 .diff-pane-new .diff-pane-header {
   background: var(--diff-add);
-  color: #86efac;
+  color: var(--success);
 }
 .diff-pane-body {
   padding: 0.65rem 0.75rem;
@@ -49,15 +49,15 @@
 
 .diff-del {
   background: var(--diff-del-word);
-  color: #fca5a5;
+  color: var(--danger);
   border-radius: 2px;
   padding: 0.05em 0.1em;
   text-decoration: line-through;
-  text-decoration-color: rgba(252, 165, 165, 0.5);
+  text-decoration-color: rgba(239, 68, 68, 0.5);
 }
 .diff-add {
   background: var(--diff-add-word);
-  color: #86efac;
+  color: var(--success);
   border-radius: 2px;
   padding: 0.05em 0.1em;
 }
