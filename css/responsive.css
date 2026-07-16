@@ -1,0 +1,35 @@
+﻿/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 1200px) {
+  .panel-right { width: 320px; min-width: 320px; }
+  .panel-left { width: 260px; min-width: 260px; }
+}
+
+@media (max-width: 992px) {
+  .card-preview-tooltip { left: auto; right: 105%; }
+  .panel-resizer { display: none; }
+  .panel-right { display: none; position: fixed; top: 0; right: 0; bottom: 0; width: 320px; z-index: 1035; background: var(--bg-primary); border-left: 1px solid var(--surface-border); box-shadow: -4px 0 20px rgba(0,0,0,.5); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
+  .panel-right.mobile-open { display: flex; flex-direction: column; }
+  .panel-left { width: 240px; min-width: 240px; }
+}
+@media (max-width: 768px) {
+  .panel-left { width: 100%; min-width: 100%;
+    max-height: 38vh; border-right: none; border-bottom: 1px solid var(--surface-border); }
+  .app-container { flex-direction: column; overflow-y: auto; }
+  .panel-center { min-height: 60vh; }
+  .editor-header { flex-wrap: wrap; }
+  .editor-header-right { width: 100%; justify-content: flex-end; }
+  .no-card-selected { height: auto; min-height: 50vh; }
+  .ai-input-actions { flex-direction: column; align-items: stretch; gap: 0.35rem; }
+  .ai-target-group { justify-content: space-between; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .card-list-item { transform: none !important; }
+}
