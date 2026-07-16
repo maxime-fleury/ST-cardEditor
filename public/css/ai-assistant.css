@@ -136,12 +136,18 @@
   background: var(--bg-surface-hover);
   opacity: 1;
 }
-.ai-message-reapply:hover {
+.ai-message-reapply {
   color: var(--success);
-  border-color: var(--success);
+  background: var(--bg-surface);
+  border: 1px solid var(--success);
+  opacity: 1;
+  font-weight: 500;
 }
-.ai-message.assistant:hover .ai-message-retry,
-.ai-message.assistant:hover .ai-message-reapply {
+.ai-message-reapply:hover {
+  color: #fff;
+  background: var(--success);
+}
+.ai-message.assistant:hover .ai-message-retry {
   opacity: 0.8;
 }
 

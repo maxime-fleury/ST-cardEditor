@@ -251,22 +251,35 @@ const AIService = {
   },
 
   /**
+   * Build messages array with system prompt, history, and user prompt.
+   */
+  _buildMessages(systemPrompt, prompt, history = []) {
+    const messages = [];
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+    for (const msg of history) {
+      if (msg.role === 'user' || msg.role === 'assistant') {
+        messages.push({ role: msg.role, content: msg.content || '' });
+      }
+    }
+    messages.push({ role: 'user', content: prompt });
+    return messages;
+  },
+
+  /**
    * Send a chat completion request.
    * @param {string} prompt - User prompt
    * @param {string} systemPrompt - System instructions
    * @param {string} model - Model ID
-   * @param {object} opts - { jsonMode, signal }
+   * @param {object} opts - { jsonMode, signal, history }
    * @returns {Promise<object>} { content, usage, model }
    */
   async chat(prompt, systemPrompt = '', model = '', opts = {}) {
-    const { jsonMode = false, signal } = typeof opts === 'object' ? opts : { signal: opts };
+    const { jsonMode = false, signal, history = [] } = typeof opts === 'object' ? opts : { signal: opts };
     const apiKey = this._getApiKeyForProvider();
     const info = this.getProviderInfo(this._provider);
     if (!apiKey && info.requiresKey) throw new Error(I18n.t('error.apiKeyNotSet'));
     
-    const messages = [];
-    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
-    messages.push({ role: 'user', content: prompt });
+    const messages = this._buildMessages(systemPrompt, prompt, history);
     
     const useModel = this._resolveModel(model);
     if (!useModel) throw new Error(I18n.t('error.noModel'));
@@ -328,14 +341,12 @@ const AIService = {
     return `$${perMillion.toFixed(3)}/M`;
   },
 
-  async chatStream(prompt, systemPrompt = '', model = '', onChunk, signal, jsonMode = false) {
+  async chatStream(prompt, systemPrompt = '', model = '', onChunk, signal, jsonMode = false, history = []) {
     const apiKey = this._getApiKeyForProvider();
     const info = this.getProviderInfo(this._provider);
     if (!apiKey && info.requiresKey) throw new Error(I18n.t('error.apiKeyNotSet'));
 
-    const messages = [];
-    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
-    messages.push({ role: 'user', content: prompt });
+    const messages = this._buildMessages(systemPrompt, prompt, history);
 
     const useModel = this._resolveModel(model);
     if (!useModel) throw new Error(I18n.t('error.noModelSimple'));

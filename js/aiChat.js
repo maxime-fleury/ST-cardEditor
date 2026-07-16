@@ -144,13 +144,16 @@ const AiChat = {
       const section = this._addFieldSection(groupedCard, field, fieldLabel(field));
       const contentEl = section.querySelector('.multi-field-content');
 
+      const history = this._getRecentHistory(10);
       AIService.chatStream(prompt, this.buildSystemPrompt(field, capturedGreetingCount), modelId,
         (fullText) => {
           contentEl.textContent = fullText;
           const container = document.querySelector('#aiChatMessages');
           container.scrollTop = container.scrollHeight;
         },
-        controller.signal
+        controller.signal,
+        false,
+        history
       )
         .then(result => {
           try {
@@ -390,6 +393,16 @@ const AiChat = {
     this._abortControllers = [];
   },
 
+  /**
+   * Get recent chat history for AI context (last N message pairs).
+   * Excludes the last entry (the current user message just pushed).
+   */
+  _getRecentHistory(maxMessages = 10) {
+    const { chatHistory } = window.AppState;
+    if (!chatHistory || chatHistory.length <= 1) return [];
+    return chatHistory.slice(0, -1).slice(-maxMessages);
+  },
+
   // ─── SINGLE FULL-CARD REQUEST (translate, wizard) ────
 
   _sendFullCard(prompt) {
@@ -434,7 +447,8 @@ const AiChat = {
         container.scrollTop = container.scrollHeight;
       },
       controller.signal,
-      true
+      true,
+      this._getRecentHistory(10)
     )
       .then(result => {
         streamingEl.remove();
@@ -742,8 +756,8 @@ const AiChat = {
         el.setAttribute('data-apply-id', msgId);
         const reapplyBtn = document.createElement('button');
         reapplyBtn.className = 'ai-message-reapply';
-        reapplyBtn.innerHTML = '<i class="bi bi-check2-circle"></i> ' + (I18n.t ? I18n.t('ai.reapply') : 'Re-apply');
-        reapplyBtn.title = I18n.t ? I18n.t('ai.reapplyTitle') : 'Re-open diff to apply these changes';
+        reapplyBtn.innerHTML = '<i class="bi bi-check2-circle"></i> ' + (I18n.t ? I18n.t('ai.apply') : 'Apply');
+        reapplyBtn.title = I18n.t ? I18n.t('ai.applyTitle') : 'Apply these changes to the card';
         reapplyBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           const stored = this._applyStore.get(msgId);
