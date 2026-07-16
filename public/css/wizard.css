@@ -193,11 +193,11 @@
   margin: 0;
   font-size: 0.85rem;
   font-weight: 500;
-  color: var(--text-placeholder);
+  color: var(--text-secondary);
   pointer-events: none;
   z-index: 2;
   transform-origin: left top;
-  opacity: 0;
+  opacity: 1;
   transition: all 0.18s ease;
 }
 .wizard-step .floating-label > label small {
