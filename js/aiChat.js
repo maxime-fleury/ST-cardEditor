@@ -725,9 +725,12 @@ const AiChat = {
       enhance: 'Enhance the character description to be more detailed and vivid. Add sensory details and specific traits.\n\nCurrent:\n' + (activeCard.description || '(empty)'),
       personality: 'Expand the personality to be more nuanced. Add quirks, habits, fears, and motivations.\n\nCurrent:\n' + (activeCard.personality || '(empty)'),
       firstmes: 'Improve the first message to be more engaging and in-character.\n\nCurrent:\n' + (activeCard.first_mes || '(empty)'),
+      scenario: 'Expand the scenario to be more detailed, immersive, and vivid. Add sensory atmosphere and narrative depth.\n\nCurrent:\n' + (activeCard.scenario || '(empty)'),
       shorten: 'Shorten and tighten the following text while preserving the core meaning and character voice. Remove redundancies.\n\nCurrent:\n' + (activeCard.description || activeCard.personality || activeCard.first_mes || '(empty)'),
       tone: null,
       grammar: 'Fix all grammar, spelling, and punctuation errors in the following text. Improve clarity without changing the meaning or voice.\n\nCurrent:\n' + (activeCard.description || activeCard.personality || activeCard.first_mes || '(empty)'),
+      greetings: 'Generate alternate greetings for this character.',
+      systemprompt: 'Enhance this system prompt to be more effective and comprehensive. Improve the instructions for the AI roleplay assistant.\n\nCurrent:\n' + (activeCard.system_prompt || '(empty)'),
     };
 
     if (action === 'translate') {
@@ -750,10 +753,13 @@ const AiChat = {
       translate: null,
       personality: 'personality',
       firstmes: 'first_mes',
+      scenario: 'scenario',
       enhance: 'description',
       shorten: 'description',
       tone: 'description',
       grammar: 'description',
+      greetings: 'alternate_greetings',
+      systemprompt: 'system_prompt',
     };
 
     if (action === 'translate') {
@@ -1051,6 +1057,9 @@ const AiChat = {
       + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="grammar"><i class="bi bi-check2-all me-1"></i> ' + I18n.t('ai.actionGrammar') + '</button>'
       + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="personality"><i class="bi bi-emoji-smile me-1"></i> ' + I18n.t('ai.actionPersonality') + '</button>'
       + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="firstmes"><i class="bi bi-chat-dots me-1"></i> ' + I18n.t('ai.actionFirstMes') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="scenario"><i class="bi bi-geo-alt me-1"></i> ' + I18n.t('ai.actionScenario') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="greetings"><i class="bi bi-list-ol me-1"></i> ' + I18n.t('ai.actionGreetings') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="systemprompt"><i class="bi bi-terminal me-1"></i> ' + I18n.t('ai.actionSystemprompt') + '</button>'
       + '</div></div>';
     const self = this;
     $('#aiChatMessages').querySelectorAll('.quick-action').forEach(btn => {
