@@ -8,7 +8,8 @@ const AiChat = {
   _selectedFields: new Set(), // fields selected for editing
   _greetingCount: 3,
   _applyStore: new Map(),     // msgId → { content, field } for re-apply
-  MAX_PARALLEL_FIELDS: 5,     // cap parallel API requests
+  _currentSessionId: null,    // active session ID for per-session storage
+  MAX_PARALLEL_FIELDS: 20,    // cap parallel API requests
 
   FIELD_DEFS: [
     { id: 'description', labelKey: 'ai.target.description', icon: 'bi-card-text' },
@@ -129,6 +130,21 @@ const AiChat = {
 
     window.AppState.chatHistory.push({ role: 'user', content: prompt });
     CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
+    // Create a new session if none exists
+    const cardId = window.AppState.activeCard?._id || 'global';
+    if (!this._currentSessionId) {
+      const now = Date.now();
+      const session = {
+        id: 'ses_' + now + '_' + Math.random().toString(36).slice(2, 7),
+        created: now,
+        lastUpdated: now,
+        preview: prompt.length > 80 ? prompt.slice(0, 80) + '...' : prompt,
+        messageCount: 1,
+      };
+      this._currentSessionId = session.id;
+      CardStorage.saveChatSession(cardId, session);
+    }
+    CardStorage.saveSessionMessages(cardId, this._currentSessionId, window.AppState.chatHistory);
 
     const groupedCard = this._createGroupedCard(selectedFields);
     this._abortAll();
@@ -436,6 +452,21 @@ const AiChat = {
     this.addChatMessage('user', prompt);
     window.AppState.chatHistory.push({ role: 'user', content: prompt });
     CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
+    // Create a new session if none exists
+    const cardId = activeCard?._id || 'global';
+    if (!this._currentSessionId) {
+      const now = Date.now();
+      const session = {
+        id: 'ses_' + now + '_' + Math.random().toString(36).slice(2, 7),
+        created: now,
+        lastUpdated: now,
+        preview: prompt.length > 80 ? prompt.slice(0, 80) + '...' : prompt,
+        messageCount: 1,
+      };
+      this._currentSessionId = session.id;
+      CardStorage.saveChatSession(cardId, session);
+    }
+    CardStorage.saveSessionMessages(cardId, this._currentSessionId, window.AppState.chatHistory);
 
     const streamingEl = this.createStreamingMessage();
 
@@ -829,6 +860,11 @@ const AiChat = {
     chatHistory.splice(lastUserIdx);
     window.AppState.isAiLoading = false;
     CardStorage.saveChatHistory(chatHistory, window.AppState.activeCard?._id);
+    // Also save to current session
+    if (this._currentSessionId) {
+      const cardId = window.AppState.activeCard?._id || 'global';
+      CardStorage.saveSessionMessages(cardId, this._currentSessionId, chatHistory);
+    }
 
     // Clean up DOM — remove the last user + assistant message pair
     const $ = (sel) => document.querySelector(sel);
@@ -885,13 +921,17 @@ const AiChat = {
     const now = Date.now();
     const SESSION_TIMEOUT = 30 * 60 * 1000;
 
-    let currentSession = sessions.length > 0 ? sessions[0] : null;
+    let currentSession = this._currentSessionId
+      ? sessions.find(s => s.id === this._currentSessionId)
+      : (sessions.length > 0 ? sessions[0] : null);
 
     if (currentSession && (now - (currentSession.lastUpdated || currentSession.created)) < SESSION_TIMEOUT) {
       currentSession.lastUpdated = now;
       currentSession.preview = preview;
       currentSession.messageCount = chatHistory.length;
+      this._currentSessionId = currentSession.id;
       CardStorage.saveChatSession(cardId, currentSession);
+      CardStorage.saveSessionMessages(cardId, currentSession.id, chatHistory);
     } else {
       const session = {
         id: 'ses_' + now + '_' + Math.random().toString(36).slice(2, 7),
@@ -900,7 +940,9 @@ const AiChat = {
         preview: preview,
         messageCount: chatHistory.length,
       };
+      this._currentSessionId = session.id;
       CardStorage.saveChatSession(cardId, session);
+      CardStorage.saveSessionMessages(cardId, session.id, chatHistory);
     }
   },
 
@@ -941,12 +983,22 @@ const AiChat = {
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
 
+    // Load this session's messages into chatHistory
+    const sessionMessages = CardStorage.getSessionMessages(cardId, sessionId);
+    window.AppState.chatHistory = sessionMessages;
+    this._currentSessionId = sessionId;
     this._historyRendered = false;
+    this._applyStore.clear();
+
+    // Clear the DOM and re-render
+    const $ = (sel) => document.querySelector(sel);
+    const container = $('#aiChatMessages');
+    if (container) container.innerHTML = '';
+
     this.toggleHistory(false);
     this.renderChatHistory();
 
     this._renderHistoryList();
-    const $ = (sel) => document.querySelector(sel);
     const item = $('#aiHistoryList')?.querySelector('[data-session-id="' + sessionId + '"]');
     if (item) item.classList.add('active');
   },
@@ -972,6 +1024,7 @@ const AiChat = {
     this._historyRendered = false;
     this._selectedFields.clear();
     this._applyStore.clear();
+    this._currentSessionId = null;
     this._renderFieldChips();
     window.AppState.chatHistory = [];
     CardStorage.clearChatHistory(window.AppState.activeCard?._id);

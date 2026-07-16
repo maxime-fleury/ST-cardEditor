@@ -367,9 +367,13 @@ const CardStorage = {
   clearChatHistory(cardId) {
     if (cardId) {
       localStorage.removeItem(this._chatKey(cardId));
+      const sessions = this.getChatSessions(cardId);
+      sessions.forEach(s => localStorage.removeItem(this._sessionMsgKey(cardId, s.id)));
       localStorage.removeItem(this._sessionKey(cardId));
     } else {
       localStorage.removeItem(this._chatKey('global'));
+      const sessions = this.getChatSessions('global');
+      sessions.forEach(s => localStorage.removeItem(this._sessionMsgKey('global', s.id)));
       localStorage.removeItem(this._sessionKey('global'));
     }
   },
@@ -402,6 +406,36 @@ const CardStorage = {
     try {
       const sessions = this.getChatSessions(cardId).filter(s => s.id !== sessionId);
       localStorage.setItem(this._sessionKey(cardId), JSON.stringify(sessions));
+      // Also remove the session's messages
+      localStorage.removeItem(this._sessionMsgKey(cardId, sessionId));
+    } catch { /* silently fail */ }
+  },
+
+  // ─── Per-Session Messages ──────────────────────────────
+
+  _sessionMsgKey(cardId, sessionId) {
+    return this.PREFIX + 'sessionMsgs_' + (cardId || 'global') + '_' + sessionId;
+  },
+
+  getSessionMessages(cardId, sessionId) {
+    try {
+      const raw = localStorage.getItem(this._sessionMsgKey(cardId, sessionId));
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  saveSessionMessages(cardId, sessionId, messages) {
+    try {
+      const trimmed = messages.slice(-this.CHAT_HISTORY_LIMIT);
+      localStorage.setItem(this._sessionMsgKey(cardId, sessionId), JSON.stringify(trimmed));
+    } catch { /* silently fail */ }
+  },
+
+  deleteSessionMessages(cardId, sessionId) {
+    try {
+      localStorage.removeItem(this._sessionMsgKey(cardId, sessionId));
     } catch { /* silently fail */ }
   },
 

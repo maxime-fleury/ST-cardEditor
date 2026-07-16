@@ -438,6 +438,22 @@ const CardManager = {
     }
 
     window.AppState.chatHistory = CardStorage.getChatHistory(fullCard._id);
+    // Load the latest session's messages if available
+    const sessions = CardStorage.getChatSessions(fullCard._id);
+    if (sessions.length > 0) {
+      const latestSession = sessions[0]; // sessions are sorted newest first
+      const sessionMessages = CardStorage.getSessionMessages(fullCard._id, latestSession.id);
+      if (sessionMessages.length > 0) {
+        window.AppState.chatHistory = sessionMessages;
+        AiChat._currentSessionId = latestSession.id;
+      } else {
+        // Fallback: migrate old chatHistory into a session
+        AiChat._currentSessionId = latestSession.id;
+        CardStorage.saveSessionMessages(fullCard._id, latestSession.id, window.AppState.chatHistory);
+      }
+    } else {
+      AiChat._currentSessionId = null;
+    }
     AiChat._historyRendered = false;
     AiChat.renderChatHistory();
     Editor.populateEditor(fullCard);
