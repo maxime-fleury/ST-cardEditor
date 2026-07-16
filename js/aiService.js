@@ -4,7 +4,7 @@
 
 const AIService = {
   DEFAULT_TEMPERATURE: 0.7,
-  DEFAULT_MAX_TOKENS: 8192,
+  DEFAULT_MAX_TOKENS: 16384,
 
   PROVIDERS: {
     openrouter: { name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', requiresKey: true },
@@ -224,31 +224,54 @@ const AIService = {
   },
 
   /**
+   * Build request body for chat completion.
+   */
+  _buildRequestBody(model, messages, { jsonMode = false, stream = false } = {}) {
+    const body = {
+      model,
+      messages,
+      temperature: this.DEFAULT_TEMPERATURE,
+      stream,
+    };
+    const userMax = CardStorage.getMaxTokens();
+    if (userMax > 0) body.max_tokens = userMax;
+    if (jsonMode) body.response_format = { type: 'json_object' };
+    if (stream) body.stream_options = { include_usage: true };
+    return body;
+  },
+
+  /**
+   * Check if an error is caused by unsupported response_format.
+   */
+  _isUnsupportedFormatError(errMsg) {
+    if (!errMsg) return false;
+    const lower = errMsg.toLowerCase();
+    return lower.includes('response_format') || lower.includes('unsupported') ||
+      lower.includes('not support') || lower.includes('invalid parameter');
+  },
+
+  /**
    * Send a chat completion request.
    * @param {string} prompt - User prompt
    * @param {string} systemPrompt - System instructions
    * @param {string} model - Model ID
+   * @param {object} opts - { jsonMode, signal }
    * @returns {Promise<object>} { content, usage, model }
    */
-  async chat(prompt, systemPrompt = '', model = '', signal) {
+  async chat(prompt, systemPrompt = '', model = '', opts = {}) {
+    const { jsonMode = false, signal } = typeof opts === 'object' ? opts : { signal: opts };
     const apiKey = this._getApiKeyForProvider();
     const info = this.getProviderInfo(this._provider);
     if (!apiKey && info.requiresKey) throw new Error(I18n.t('error.apiKeyNotSet'));
     
     const messages = [];
-    if (systemPrompt) {
-      messages.push({ role: 'system', content: systemPrompt });
-    }
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
     messages.push({ role: 'user', content: prompt });
     
     const useModel = this._resolveModel(model);
-    if (!useModel) {
-      throw new Error(I18n.t('error.noModel'));
-    }
+    if (!useModel) throw new Error(I18n.t('error.noModel'));
 
-    const maxTokens = await this.resolveMaxTokens(useModel, messages);
     const baseUrl = this._getBaseUrl();
-
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
     if (this._provider === 'openrouter') {
@@ -256,28 +279,33 @@ const AIService = {
       headers['X-Title'] = 'ST Card Editor';
     }
 
-    const resp = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: useModel,
-        messages: messages,
-        temperature: this.DEFAULT_TEMPERATURE,
-        max_tokens: maxTokens,
-        stream: false,
-      }),
-      signal: signal || AbortSignal.timeout(120000),
-    });
-    
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      if (resp.status === 402) throw new Error(I18n.t('error.insufficientCredits'));
-      throw new Error(err.error?.message || `HTTP ${resp.status}`);
+    const fetchChat = async (useJsonMode) => {
+      const resp = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: false })),
+        signal: signal || AbortSignal.timeout(120000),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        if (resp.status === 402) throw new Error(I18n.t('error.insufficientCredits'));
+        throw new Error(err.error?.message || `HTTP ${resp.status}`);
+      }
+      return resp.json();
+    };
+
+    let data;
+    try {
+      data = await fetchChat(jsonMode);
+    } catch (e) {
+      if (jsonMode && this._isUnsupportedFormatError(e.message)) {
+        data = await fetchChat(false);
+      } else {
+        throw e;
+      }
     }
-    
-    const data = await resp.json();
+
     const choice = data.choices?.[0];
-    
     return {
       content: choice?.message?.content || '',
       usage: data.usage ? {
@@ -299,7 +327,7 @@ const AIService = {
     return `$${perMillion.toFixed(3)}/M`;
   },
 
-  async chatStream(prompt, systemPrompt = '', model = '', onChunk, signal) {
+  async chatStream(prompt, systemPrompt = '', model = '', onChunk, signal, jsonMode = false) {
     const apiKey = this._getApiKeyForProvider();
     const info = this.getProviderInfo(this._provider);
     if (!apiKey && info.requiresKey) throw new Error(I18n.t('error.apiKeyNotSet'));
@@ -311,9 +339,7 @@ const AIService = {
     const useModel = this._resolveModel(model);
     if (!useModel) throw new Error(I18n.t('error.noModelSimple'));
 
-    const maxTokens = await this.resolveMaxTokens(useModel, messages);
     const baseUrl = this._getBaseUrl();
-
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
     if (this._provider === 'openrouter') {
@@ -321,17 +347,30 @@ const AIService = {
       headers['X-Title'] = 'ST Card Editor';
     }
 
-    const resp = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ model: useModel, messages, temperature: this.DEFAULT_TEMPERATURE, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true } }),
-      signal,
-    });
+    const doStream = async (useJsonMode) => {
+      const resp = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: true })),
+        signal,
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        if (resp.status === 402) throw new Error(I18n.t('error.insufficientCredits'));
+        throw new Error(err.error?.message || `HTTP ${resp.status}`);
+      }
+      return resp;
+    };
 
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      if (resp.status === 402) throw new Error(I18n.t('error.insufficientCredits'));
-      throw new Error(err.error?.message || `HTTP ${resp.status}`);
+    let resp;
+    try {
+      resp = await doStream(jsonMode);
+    } catch (e) {
+      if (jsonMode && this._isUnsupportedFormatError(e.message)) {
+        resp = await doStream(false);
+      } else {
+        throw e;
+      }
     }
 
     if (!resp.body) throw new Error('Empty response from API (no body)');
@@ -386,9 +425,9 @@ const AIService = {
   },
 
   /**
-   * Resolve max_tokens: user setting > model limit > default.
-   * Caps output so that input + max_tokens <= context_length,
-   * reserving 20 % of context for input (safe for all languages).
+   * Estimate max output tokens for UI display (context bar).
+   * Returns the model's reported max_output_tokens or DEFAULT_MAX_TOKENS,
+   * capped by available context space.
    */
   async resolveMaxTokens(modelId, messages = []) {
     const ctxLength = this._getContextLength(modelId);
@@ -407,20 +446,10 @@ const AIService = {
     const safetyMargin = Math.max(512, Math.floor(ctxLength * 0.05));
     const available = Math.max(512, ctxLength - inputTokens - safetyMargin);
 
-    const userMax = CardStorage.getMaxTokens();
-    if (userMax > 0) return Math.min(userMax, available);
-
     let maxTokens = this.DEFAULT_MAX_TOKENS;
     if (modelId && window.AppState.models) {
       const m = window.AppState.models.find(x => x.id === modelId);
-      if (m && m.max_output_tokens > 0) {
-        // Some models report their context_length as max_completion_tokens.
-        // If the reported max is more than half the context length, it's
-        // likely a misreported context window — cap to the default instead.
-        if (m.max_output_tokens < ctxLength / 2) {
-          maxTokens = m.max_output_tokens;
-        }
-      }
+      if (m && m.max_output_tokens > 0) maxTokens = m.max_output_tokens;
     }
 
     return Math.min(maxTokens, available);

@@ -427,7 +427,8 @@ const AiChat = {
         const container = document.querySelector('#aiChatMessages');
         container.scrollTop = container.scrollHeight;
       },
-      controller.signal
+      controller.signal,
+      true
     )
       .then(result => {
         streamingEl.remove();
