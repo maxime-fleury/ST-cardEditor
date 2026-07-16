@@ -303,19 +303,17 @@
                 </div>
               </div>
               <div class="col-12">
-                <div class="floating-label">
-                  <label class="form-label field-label">
-                    <span data-i18n="editor.mesExample">Example Messages</span>
-                    <span class="field-toggle-group" data-target="editMesExample">
-                      <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
-                      <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
-                    </span>
-                  </label>
-                  <textarea class="form-control editor-textarea font-mono" id="editMesExample" rows="16" 
+                <label class="form-label field-label editor-field-label">
+                  <span data-i18n="editor.mesExample">Example Messages</span>
+                  <span class="field-toggle-group" data-target="editMesExample">
+                    <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
+                    <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
+                  </span>
+                </label>
+                <textarea class="form-control editor-textarea font-mono" id="editMesExample" rows="16" 
                             placeholder="&lt;START&gt;&#10;{{char}}: Example dialogue here...&#10;{{user}}: User response...&#10;&lt;START&gt;&#10;{{char}}: Another example..."></textarea>
                   <div class="md-preview" id="previewMesExample"></div>
                   <small class="form-text text-muted" data-i18n="editor.mesExampleFormat">Format: &lt;START&gt; blocks with {{char}}: and {{user}}: prefixes</small>
-                </div>
               </div>
             </div>
           </div>
