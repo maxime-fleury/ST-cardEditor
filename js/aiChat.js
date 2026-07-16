@@ -201,7 +201,7 @@ const AiChat = {
             section.classList.remove('streaming');
             const label = section.querySelector('.multi-field-label');
             if (label) label.innerHTML = label.innerHTML.replace(I18n.t ? I18n.t('ai.streaming') : 'streaming...', I18n.t ? I18n.t('ai.failed') : 'failed');
-            contentEl.textContent = err.name === 'AbortError' ? (I18n.t ? I18n.t('ai.cancelled') : 'Cancelled.') : 'Error: ' + err.message;
+            contentEl.textContent = err.name === 'AbortError' ? (I18n.t ? I18n.t('ai.cancelled') : 'Cancelled.') : (I18n.t ? I18n.t('ai.errorPrefix') : 'Error: ') + err.message;
           } catch (_) {}
 
           completedCount++;
@@ -515,7 +515,7 @@ const AiChat = {
         if (err && err.name === 'AbortError') {
           this.addChatMessage('system', I18n.t ? I18n.t('toast.genStopped') : 'Generation stopped.');
         } else {
-          this.addChatMessage('system', 'Error: ' + err.message);
+          this.addChatMessage('system', (I18n.t ? I18n.t('ai.errorPrefix') : 'Error: ') + err.message);
           Ui.showToast(I18n.t('toast.aiError', { error: err.message }), 'danger');
         }
       })
@@ -530,7 +530,7 @@ const AiChat = {
     if (!oldEl || !newEl) return;
 
     if (typeof Diff === 'undefined') {
-      oldEl.textContent = oldText || '(empty)';
+      oldEl.textContent = oldText || (I18n.t ? I18n.t('gen.empty') : '(empty)');
       newEl.textContent = newText;
       return;
     }
@@ -552,8 +552,8 @@ const AiChat = {
       }
     });
 
-    oldEl.innerHTML = oldHtml || '<span class="diff-empty">(empty)</span>';
-    newEl.innerHTML = newHtml || '<span class="diff-empty">(empty)</span>';
+    oldEl.innerHTML = oldHtml || '<span class="diff-empty">' + (I18n.t ? I18n.t('gen.empty') : '(empty)') + '</span>';
+    newEl.innerHTML = newHtml || '<span class="diff-empty">' + (I18n.t ? I18n.t('gen.empty') : '(empty)') + '</span>';
   },
 
   tryApplyAIResponse(content, targetField) {
@@ -731,13 +731,13 @@ const AiChat = {
     };
 
     if (action === 'translate') {
-      const lang = window.prompt('Translate to which language?', 'French');
+      const lang = window.prompt(I18n.t ? I18n.t('ai.translatePrompt') : 'Translate to which language?', I18n.t ? I18n.t('ai.translateDefaultLang') : 'French');
       if (!lang) return;
       prompts.translate = 'Translate this character card to ' + lang + '. Output the COMPLETE card as valid JSON with all fields translated. Keep the exact same JSON structure. Translate ALL text fields.\n\nHere is the card JSON:\n' + CardEngine.toJSON(activeCard);
     }
 
     if (action === 'tone') {
-      const tone = window.prompt('Which tone? (e.g., formal, casual, dark, humorous, poetic)', 'formal');
+      const tone = window.prompt(I18n.t ? I18n.t('ai.tonePrompt') : 'Which tone? (e.g., formal, casual, dark, humorous, poetic)', I18n.t ? I18n.t('ai.toneDefault') : 'formal');
       if (!tone) return;
       prompts.tone = 'Rewrite the following text with a "' + tone + '" tone while preserving the character\'s core personality and key information.\n\nCurrent:\n' + (activeCard.description || activeCard.personality || activeCard.first_mes || '(empty)');
     }
@@ -923,7 +923,7 @@ const AiChat = {
     const firstUser = chatHistory.find(m => m.role === 'user');
     const preview = firstUser
       ? (firstUser.content.length > 80 ? firstUser.content.slice(0, 80) + '...' : firstUser.content)
-      : 'Chat session';
+      : (I18n.t ? I18n.t('ai.chatSession') : 'Chat session');
 
     const now = Date.now();
     const SESSION_TIMEOUT = 30 * 60 * 1000;
@@ -979,7 +979,7 @@ const AiChat = {
         + '<div class="ai-history-item-preview">' + Ui.escapeHtml(s.preview) + '</div>'
         + '<div class="ai-history-item-meta">'
         + '<span class="ai-history-item-time">' + dateStr + ' ' + timeStr + '</span>'
-        + '<span class="ai-history-item-count">' + (s.messageCount || '?') + ' msgs</span>'
+        + '<span class="ai-history-item-count">' + (I18n.t ? I18n.t('ai.msgs', { count: s.messageCount || '?' }) : (s.messageCount || '?') + ' msgs') + '</span>'
         + '</div></div>';
     }).join('');
 
@@ -1130,11 +1130,11 @@ const AiChat = {
     bar.classList.toggle('warn', ratio >= 0.9 && ratio < 1);
     bar.classList.toggle('danger', ratio >= 1);
 
-    let labelText = this._fmt(inputTokens) + ' in · ' + this._fmt(actualMaxOut) + ' out · ' + this._fmt(ctx) + ' ctx';
+    let labelText = this._fmt(inputTokens) + (I18n.t ? I18n.t('ai.tokensIn') : ' in · ') + this._fmt(actualMaxOut) + (I18n.t ? I18n.t('ai.tokensOut') : ' out · ') + this._fmt(ctx) + (I18n.t ? I18n.t('ai.tokensCtx') : ' ctx');
     if (ratio >= 1) {
-      labelText += ' ⚠ Exceeds limit!';
+      labelText += I18n.t ? I18n.t('ai.exceedsLimit') : ' ⚠ Exceeds limit!';
     } else if (ratio >= 0.9) {
-      labelText += ' ⚠ Approaching limit';
+      labelText += I18n.t ? I18n.t('ai.approachingLimit') : ' ⚠ Approaching limit';
     }
     label.textContent = labelText;
   },

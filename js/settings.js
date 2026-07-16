@@ -91,14 +91,14 @@ const Settings = {
         chutes: 'https://chutes.ai',
         deepseek: 'https://platform.deepseek.com',
       };
-      $('#namedProviderLink').innerHTML = '<a href="' + (linkMap[provider] || '#') + '" target="_blank" class="text-accent">Get API key from ' + info.name + ' <i class="bi bi-box-arrow-up-right ms-1"></i></a>';
+      $('#namedProviderLink').innerHTML = '<a href="' + (linkMap[provider] || '#') + '" target="_blank" class="text-accent">' + (I18n.t ? I18n.t('settings.getApiKeyFrom') : 'Get API key from ') + info.name + ' <i class="bi bi-box-arrow-up-right ms-1"></i></a>';
     }
 
     if (isCustom) {
-      $('#customModelInput').placeholder = 'e.g. llama-3.2-8b-instruct';
+      $('#customModelInput').placeholder = I18n.t ? I18n.t('settings.customModelPlaceholder') : 'e.g. llama-3.2-8b-instruct';
       $('#modelIdHint').textContent = I18n.t('settings.modelIdHint');
     } else if (isNamed) {
-      $('#customModelInput').placeholder = 'e.g. ' + provider + '-latest';
+      $('#customModelInput').placeholder = I18n.t ? I18n.t('settings.namedModelPlaceholder', { provider: provider }) : ('e.g. ' + provider + '-latest');
       $('#modelIdHint').textContent = I18n.t('settings.modelIdHintNamed');
     }
   },
@@ -123,9 +123,9 @@ const Settings = {
     try {
       const info = await AIService.fetchKeyInfo();
       $('#creditsBadge').classList.remove('d-none');
-      $('#creditsAmount').textContent = info.limit_remaining !== null ? '$' + Number(info.limit_remaining).toFixed(2) : 'N/A';
-      $('#creditLimit').textContent = info.limit > 0 ? '$' + Number(info.limit).toFixed(2) : 'Unlimited';
-      $('#creditRemaining').textContent = info.limit_remaining !== null ? '$' + Number(info.limit_remaining).toFixed(2) : 'N/A';
+      $('#creditsAmount').textContent = info.limit_remaining !== null ? '$' + Number(info.limit_remaining).toFixed(2) : (I18n.t ? I18n.t('gen.notAvailable') : 'N/A');
+      $('#creditLimit').textContent = info.limit > 0 ? '$' + Number(info.limit).toFixed(2) : (I18n.t ? I18n.t('gen.unlimited') : 'Unlimited');
+      $('#creditRemaining').textContent = info.limit_remaining !== null ? '$' + Number(info.limit_remaining).toFixed(2) : (I18n.t ? I18n.t('gen.notAvailable') : 'N/A');
       $('#creditUsage').textContent = info.usage > 0 ? '$' + Number(info.usage).toFixed(2) : '$0.00';
     } catch (err) {
       console.error('Failed to fetch credits:', err);
@@ -152,8 +152,8 @@ const Settings = {
     const $ = (sel) => document.querySelector(sel);
     const d = CardStorage.getDefaultModel();
     const h = window.AppState.models.map(m => '<option value="' + Ui.escapeHtml(m.id) + '"' + (m.id === d ? ' selected' : '') + '>' + Ui.escapeHtml(m.name) + (m.is_free ? ' [' + I18n.t('gen.free') + ']' : '') + '</option>').join('');
-    $('#defaultModelSelect').innerHTML = '<option value="">Auto</option>' + h;
-    $('#aiModelSelect').innerHTML = '<option value="">Select model...</option>' + h;
+    $('#defaultModelSelect').innerHTML = '<option value="">' + (I18n.t ? I18n.t('settings.modelAuto') : 'Auto') + '</option>' + h;
+    $('#aiModelSelect').innerHTML = '<option value="">' + (I18n.t ? I18n.t('nav.selectModel') : 'Select model...') + '</option>' + h;
   },
 
   _modelPageSize: 50,
@@ -236,13 +236,13 @@ const Settings = {
     $('#customApiKeyInput').value = '';
     $('#customModelInput').value = '';
     this.toggleProvider();
-    $('#defaultModelSelect').innerHTML = '<option value="">Browse models below...</option>';
-    $('#aiModelSelect').innerHTML = '<option value="">Select model...</option>';
+    $('#defaultModelSelect').innerHTML = '<option value="">' + (I18n.t ? I18n.t('settings.browseModels') : 'Browse models below...') + '</option>';
+    $('#aiModelSelect').innerHTML = '<option value="">' + (I18n.t ? I18n.t('nav.selectModel') : 'Select model...') + '</option>';
     Editor.hideEditor();
     CardManager.renderCardList();
     this.renderModelList();
     $('#creditsBadge').classList.add('d-none');
-    $('#aiChatMessages').innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>AI Card Assistant</h6><p>Ask the AI to edit, translate, or enhance your character card.</p></div>';
+    $('#aiChatMessages').innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>' + (I18n.t ? I18n.t('ai.welcomeTitle') : 'AI Card Assistant') + '</h6><p>' + (I18n.t ? I18n.t('ai.welcomeText') : 'Ask the AI to edit, translate, or enhance your character card.') + '</p></div>';
     Ui.showToast(I18n.t('toast.dataCleared'), 'warning');
   },
 
@@ -317,7 +317,7 @@ const Settings = {
       },
     };
     Ui.downloadFile('st-card-editor-workspace-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(workspace, null, 2), 'application/json');
-    Ui.showToast('Workspace exported (' + fullCards.length + ' cards)', 'success');
+    Ui.showToast((I18n.t ? I18n.t('settings.workspaceExported', { count: fullCards.length }) : 'Workspace exported (' + fullCards.length + ' cards)'), 'success');
   },
 
   importWorkspace() {
@@ -331,7 +331,7 @@ const Settings = {
         const text = await file.text();
         const workspace = JSON.parse(text);
         if (!workspace.cards || !Array.isArray(workspace.cards)) {
-          throw new Error('Invalid workspace format');
+          throw new Error((I18n.t ? I18n.t('settings.invalidWorkspace') : 'Invalid workspace format'));
         }
         let imported = 0;
         for (const card of workspace.cards) {
@@ -355,10 +355,10 @@ const Settings = {
         window.AppState.cards = CardStorage.getCards();
         CardManager.renderCardList();
         Settings.refreshModelsList();
-        Ui.showToast('Workspace imported (' + imported + ' cards)', 'success');
+        Ui.showToast((I18n.t ? I18n.t('settings.workspaceImported', { count: imported }) : 'Workspace imported (' + imported + ' cards)'), 'success');
       } catch (err) {
         console.error('Workspace import failed:', err);
-        Ui.showToast('Failed to import workspace: ' + err.message, 'danger');
+        Ui.showToast((I18n.t ? I18n.t('settings.workspaceImportFailed', { error: err.message }) : 'Failed to import workspace: ' + err.message), 'danger');
       }
       input.remove();
     };

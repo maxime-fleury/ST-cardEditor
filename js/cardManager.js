@@ -104,11 +104,11 @@ const CardManager = {
   },
 
   async batchCompare() {
-    if (this._selectedIds.size !== 2) { Ui.showToast('Select exactly 2 cards to compare', 'info'); return; }
+    if (this._selectedIds.size !== 2) { Ui.showToast((I18n.t ? I18n.t('batch.select2ForCompare') : 'Select exactly 2 cards to compare'), 'info'); return; }
     const [idA, idB] = [...this._selectedIds];
     const cardA = await CardStorage.getCard(idA);
     const cardB = await CardStorage.getCard(idB);
-    if (!cardA || !cardB) { Ui.showToast('Failed to load cards for comparison', 'danger'); return; }
+    if (!cardA || !cardB) { Ui.showToast((I18n.t ? I18n.t('batch.compareLoadFailed') : 'Failed to load cards for comparison'), 'danger'); return; }
 
     const jsonA = CardEngine.toJSON(cardA);
     const jsonB = CardEngine.toJSON(cardB);
@@ -118,7 +118,7 @@ const CardManager = {
     const titleEl = document.querySelector('#aiPreviewModal .modal-title');
     if (!oldEl || !newEl) return;
 
-    if (titleEl) titleEl.innerHTML = '<i class="bi bi-layout-sidebar-inset me-2 text-accent"></i>Compare: ' + Ui.escapeHtml(cardA.name || 'Card A') + ' vs ' + Ui.escapeHtml(cardB.name || 'Card B');
+    if (titleEl) titleEl.innerHTML = '<i class="bi bi-layout-sidebar-inset me-2 text-accent"></i>' + (I18n.t ? I18n.t('batch.comparePrefix') : 'Compare: ') + Ui.escapeHtml(cardA.name || (I18n.t ? I18n.t('batch.cardA') : 'Card A')) + (I18n.t ? I18n.t('batch.compareVs') : ' vs ') + Ui.escapeHtml(cardB.name || (I18n.t ? I18n.t('batch.cardB') : 'Card B'));
 
     // Reuse the existing diff renderer
     AiChat._renderDiff(jsonA, jsonB);

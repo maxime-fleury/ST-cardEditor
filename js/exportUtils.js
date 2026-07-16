@@ -112,7 +112,7 @@ const ExportUtils = {
     g.addColorStop(0, '#772ce8'); g.addColorStop(1, '#ec4899');
     ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
     ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('ST Card', 32, 36);
+    ctx.fillText(I18n.t ? I18n.t('export.minimalPngLabel') : 'ST Card', 32, 36);
     return new Promise((resolve) => {
       canvas.toBlob((blob) => {
         const reader = new FileReader();

@@ -268,7 +268,7 @@ const CardStorage = {
       localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
     } catch (e) {
       if (e.name === 'QuotaExceededError') {
-        throw new Error('Storage full! Try removing some cards or exporting them.');
+        throw new Error((I18n.t ? I18n.t('error.storageFull') : 'Storage full! Try removing some cards or exporting them.'));
       }
       throw e;
     }

@@ -165,7 +165,7 @@ const AIService = {
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error?.message || 'Failed to fetch models (HTTP ' + resp.status + ')');
+      throw new Error(err.error?.message || (I18n.t ? I18n.t('error.fetchModelsFailed', { status: resp.status }) : 'Failed to fetch models (HTTP ' + resp.status + ')'));
     }
 
     const data = await resp.json();
@@ -187,7 +187,7 @@ const AIService = {
 
     // Fallback: if no list but we have a custom model ID, return it
     if (customModelId) {
-      return [{ id: customModelId, name: customModelId, description: 'Custom model', context_length: 0, max_output_tokens: 0, pricing: { prompt: null, completion: null }, is_free: true, provider: 'custom' }];
+      return [{ id: customModelId, name: customModelId, description: (I18n.t ? I18n.t('settings.customModelDesc') : 'Custom model'), context_length: 0, max_output_tokens: 0, pricing: { prompt: null, completion: null }, is_free: true, provider: 'custom' }];
     }
 
     return [];
@@ -319,7 +319,7 @@ const AIService = {
     }
 
     const choice = data.choices?.[0];
-    if (!choice) throw new Error('API returned no response choices');
+    if (!choice) throw new Error((I18n.t ? I18n.t('error.noChoices') : 'API returned no response choices'));
     return {
       content: choice?.message?.content || '',
       usage: data.usage ? {
@@ -337,7 +337,7 @@ const AIService = {
    */
   formatPrice(perMillion) {
     if (perMillion === null || perMillion === undefined) return '—';
-    if (perMillion === 0) return 'Free';
+    if (perMillion === 0) return I18n.t ? I18n.t('gen.free') : 'Free';
     return `$${perMillion.toFixed(3)}/M`;
   },
 
@@ -385,7 +385,7 @@ const AIService = {
       }
     }
 
-    if (!resp.body) throw new Error('Empty response from API (no body)');
+    if (!resp.body) throw new Error((I18n.t ? I18n.t('error.emptyResponse') : 'Empty response from API (no body)'));
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();

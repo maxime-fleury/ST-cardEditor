@@ -33,7 +33,7 @@ const CardEngine = {
       card._thumbnail = await this._createThumbnail(card._imageBase64);
       return card;
     }
-    throw new Error('Unsupported file type: .' + ext);
+    throw new Error((I18n.t ? I18n.t('error.unsupportedFile', { ext: ext }) : 'Unsupported file type: .' + ext));
   },
 
   _uniqueId() {
@@ -47,7 +47,7 @@ const CardEngine = {
     filename = filename || 'untitled.json';
     let raw;
     try { raw = JSON.parse(jsonStr); }
-    catch (e) { throw new Error('Invalid JSON: ' + (e.message || 'parse error')); }
+    catch (e) { throw new Error((I18n.t ? I18n.t('error.invalidJson', { message: e.message || 'parse error' }) : 'Invalid JSON: ' + (e.message || 'parse error'))); }
     return this.normalize(raw, filename);
   },
 
@@ -56,7 +56,7 @@ const CardEngine = {
     const bytes = new Uint8Array(buffer);
     const sig = [137, 80, 78, 71, 13, 10, 26, 10];
     for (let i = 0; i < 8; i++) {
-      if (bytes[i] !== sig[i]) throw new Error('Not a valid PNG file');
+      if (bytes[i] !== sig[i]) throw new Error((I18n.t ? I18n.t('error.notPng') : 'Not a valid PNG file'));
     }
 
     let offset = 8;
@@ -156,7 +156,7 @@ const CardEngine = {
       card.spec_version = '2.0';
       source = raw;
     } else {
-      throw new Error('Unknown card format — not a SillyTavern character card');
+      throw new Error((I18n.t ? I18n.t('error.unknownFormat') : 'Unknown card format — not a SillyTavern character card'));
     }
 
     const fields = ['name', 'description', 'personality', 'scenario', 'first_mes',
@@ -178,7 +178,7 @@ const CardEngine = {
   },
 
   createEmptyCard(name) {
-    name = name || 'New Character';
+    name = name || (I18n.t ? I18n.t('gen.newCharacter') : 'New Character');
     const card = {
       _id: 'card_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9),
       _filename: name + '.json', _hasImage: false, _imageBase64: null,

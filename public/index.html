@@ -34,7 +34,7 @@
         <div class="brand-icon">
           <i class="bi bi-stars"></i>
         </div>
-        <span class="brand-text">ST Card Editor</span>
+        <span class="brand-text" data-i18n="nav.brand">ST Card Editor</span>
         <span class="badge bg-purple ms-2">v2.1</span>
       </a>
       
@@ -78,7 +78,7 @@
     
     <!-- LEFT PANEL — Card Library -->
     <aside class="panel panel-left" id="panelLeft">
-      <div class="panel-resizer" id="resizerLeft" role="separator" aria-label="Resize card library" tabindex="0"></div>
+      <div class="panel-resizer" id="resizerLeft" role="separator" aria-label="Resize card library" data-i18n-aria="left.resizeAria" tabindex="0"></div>
       <div class="panel-header">
         <h6 class="panel-title"><i class="bi bi-collection me-2"></i><span data-i18n="left.title">Card Library</span></h6>
         <span class="card-count" id="cardCount">0 cards</span>
@@ -107,7 +107,7 @@
 
       <!-- Sort & Filter Controls -->
       <div class="library-controls" id="libraryControls" style="display:none;">
-        <select class="form-select form-select-sm" id="cardSortSelect" title="Sort cards">
+        <select class="form-select form-select-sm" id="cardSortSelect" title="Sort cards" data-i18n-title="left.sortCards">
           <option value="name-asc" data-i18n="left.sort.nameAsc">Name A-Z</option>
           <option value="name-desc" data-i18n="left.sort.nameDesc">Name Z-A</option>
           <option value="newest" data-i18n="left.sort.newest">Newest first</option>
@@ -131,14 +131,14 @@
           <span class="text-accent fw-semibold" style="font-size:0.8rem;" id="batchCount">0 selected</span>
           <div class="d-flex gap-1">
             <button class="btn btn-outline-accent btn-sm" id="btnBatchExport" title="Export selected as JSON" data-i18n-title="left.exportSelected"><i class="bi bi-download"></i></button>
-            <button class="btn btn-outline-accent btn-sm d-none" id="btnBatchCompare" title="Compare selected cards"><i class="bi bi-layout-sidebar-inset"></i></button>
+            <button class="btn btn-outline-accent btn-sm d-none" id="btnBatchCompare" title="Compare selected cards" data-i18n-title="left.compareSelected"><i class="bi bi-layout-sidebar-inset"></i></button>
             <button class="btn btn-outline-danger btn-sm" id="btnBatchDelete" title="Delete selected" data-i18n-title="left.deleteSelected"><i class="bi bi-trash"></i></button>
           </div>
         </div>
       </div>
       
       <!-- Card list -->
-      <div class="card-list" id="cardList" role="listbox" aria-label="Card library" aria-live="polite"></div>
+      <div class="card-list" id="cardList" role="listbox" aria-label="Card library" data-i18n-aria="left.cardListAria" aria-live="polite"></div>
       
       <!-- Empty state -->
       <div class="empty-state" id="emptyState">
@@ -384,7 +384,7 @@
     
     <!-- RIGHT PANEL — AI Assistant -->
     <aside class="panel panel-right" id="panelRight">
-      <div class="panel-resizer" id="resizerRight" role="separator" aria-label="Resize AI assistant" tabindex="0"></div>
+      <div class="panel-resizer" id="resizerRight" role="separator" aria-label="Resize AI assistant" data-i18n-aria="ai.resizeAria" tabindex="0"></div>
       <div class="panel-header">
         <h6 class="panel-title"><i class="bi bi-robot me-2"></i><span data-i18n="ai.title">AI Assistant</span></h6>
         <div class="d-flex gap-1">
@@ -398,7 +398,7 @@
       </div>
       
       <!-- AI Chat Messages -->
-      <div class="ai-chat-messages" id="aiChatMessages" role="log" aria-live="polite" aria-label="AI chat messages">
+      <div class="ai-chat-messages" id="aiChatMessages" role="log" aria-live="polite" aria-label="AI chat messages" data-i18n-aria="ai.chatMessagesAria">
           <div class="ai-welcome">
           <div class="ai-welcome-icon">
             <i class="bi bi-magic"></i>
@@ -467,7 +467,7 @@
            </div>
            <div class="ai-field-chips" id="aiFieldChips"></div>
            <div class="ai-greeting-count" id="aiGreetingCount" style="display:none;">
-             <label class="ai-greeting-count-label"><i class="bi bi-list-ol"></i> Count:</label>
+             <label class="ai-greeting-count-label" data-i18n="ai.count"><i class="bi bi-list-ol"></i> Count:</label>
              <input type="number" class="ai-greeting-count-input" id="aiGreetingCountInput" value="3" min="1" max="20">
            </div>
        </div>
@@ -479,7 +479,7 @@
     <div class="modal-dialog modal-dialog-centered modal-lg">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title"><i class="bi bi-gear-fill me-2"></i>Settings</h5>
+          <h5 class="modal-title"><i class="bi bi-gear-fill me-2"></i><span data-i18n="settings.title">Settings</span></h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
@@ -514,7 +514,7 @@
               <option value="zai">Z.AI (GLM)</option>
               <option value="chutes">Chutes</option>
               <option value="deepseek">DeepSeek</option>
-              <option value="custom">Custom (OpenAI-compatible)</option>
+              <option value="custom" data-i18n="settings.providerCustom">Custom (OpenAI-compatible)</option>
             </select>
             <small class="form-text text-muted" id="providerHint" data-i18n="settings.providerHint">
               Hosted model providers or a custom endpoint (LM Studio, Ollama, etc.)
@@ -596,7 +596,7 @@
                 <i class="bi bi-cpu me-2 text-accent"></i><span data-i18n="settings.modelId">Model ID</span>
               </label>
               <input type="text" class="form-control" id="customModelInput"
-                     placeholder="e.g. deepseek-v4-flash">
+                     placeholder="e.g. deepseek-v4-flash" data-i18n-placeholder="settings.modelIdPlaceholder">
               <small class="form-text text-muted" id="modelIdHint" data-i18n="settings.modelIdHint">
                 The exact model ID your provider expects.
               </small>
@@ -708,17 +708,17 @@
           <button type="button" class="btn btn-outline-danger btn-sm me-auto" id="btnClearStorage">
             <i class="bi bi-trash me-1"></i> <span data-i18n="settings.clearAll">Clear All Data</span>
           </button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnExportSettings" title="Export settings">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnExportSettings" title="Export settings" data-i18n-title="settings.exportTitle">
             <i class="bi bi-download me-1"></i> <span data-i18n="settings.export">Export</span>
           </button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnImportSettings" title="Import settings">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnImportSettings" title="Import settings" data-i18n-title="settings.importTitle">
             <i class="bi bi-upload me-1"></i> <span data-i18n="settings.import">Import</span>
           </button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnExportWorkspace" title="Backup all cards">
-            <i class="bi bi-archive me-1"></i> Backup
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnExportWorkspace" title="Backup all cards" data-i18n-title="settings.backupTitle">
+            <i class="bi bi-archive me-1"></i> <span data-i18n="settings.backup">Backup</span>
           </button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnImportWorkspace" title="Restore backup">
-            <i class="bi bi-box-arrow-in-down me-1"></i> Restore
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnImportWorkspace" title="Restore backup" data-i18n-title="settings.restoreTitle">
+            <i class="bi bi-box-arrow-in-down me-1"></i> <span data-i18n="settings.restore">Restore</span>
           </button>
           <input type="file" id="settingsFileInput" accept=".json" hidden>
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="settings.close">Close</button>
@@ -797,11 +797,11 @@
               <div class="col-md-6">
                 <label class="form-label field-label"><span data-i18n="wizard.languageLabel">Language</span></label>
                 <select class="form-select" id="wizLanguage">
-                  <option value="en">English</option>
-                  <option value="fr">French</option>
-                  <option value="de">German</option>
-                  <option value="ja">Japanese</option>
-                  <option value="other">Other</option>
+                  <option value="en" data-i18n="wizard.language.en">English</option>
+                  <option value="fr" data-i18n="wizard.language.fr">French</option>
+                  <option value="de" data-i18n="wizard.language.de">German</option>
+                  <option value="ja" data-i18n="wizard.language.ja">Japanese</option>
+                  <option value="other" data-i18n="wizard.language.other">Other</option>
                 </select>
                 <input type="text" class="form-control mt-2 d-none" id="wizLanguageCustom" data-i18n-placeholder="wizard.languageSpecify" placeholder="Specify language">
               </div>
@@ -912,14 +912,14 @@
               <div class="wizard-image-search">
                 <div class="wizard-search-row">
                   <input type="text" class="form-control wizard-search-input" id="wizImageTagSearch"
-                    placeholder="Search tags: cat, dress, uniform, cyberpunk..."
+                    placeholder="Search tags: cat, dress, uniform, cyberpunk..." data-i18n-placeholder="wizard.imageSearchPlaceholder"
                     spellcheck="false" autocomplete="off">
                   <button class="btn btn-accent btn-sm" id="wizBtnSearchImages" type="button">
-                    <i class="bi bi-search me-1"></i>Search
+                    <i class="bi bi-search me-1"></i><span data-i18n="wizard.search">Search</span>
                   </button>
                 </div>
                 <div class="wizard-quick-tags" id="wizQuickTags">
-                  <span class="wizard-quick-tags-label">Quick:</span>
+                  <span class="wizard-quick-tags-label" data-i18n="wizard.quick">Quick:</span>
                 </div>
               </div>
 
@@ -1059,11 +1059,11 @@
 
   <!-- AI Panel Toggle (mobile) -->
   <button class="btn btn-accent d-lg-none position-fixed bottom-0 end-0 m-3 rounded-circle shadow"
-          id="btnToggleAI" style="width:48px;height:48px;z-index:1050;" title="Toggle AI Assistant" aria-label="Toggle AI Assistant">
+          id="btnToggleAI" style="width:48px;height:48px;z-index:1050;" title="Toggle AI Assistant" aria-label="Toggle AI Assistant" data-i18n-title="nav.toggleAI" data-i18n-aria="nav.toggleAIAria">
     <i class="bi bi-robot"></i>
   </button>
 
-  <div class="toast-container position-fixed top-0 start-50 translate-middle-x p-3" id="toastContainer" role="status" aria-live="polite" aria-label="Notifications" style="z-index:9999;"></div>
+  <div class="toast-container position-fixed top-0 start-50 translate-middle-x p-3" id="toastContainer" role="status" aria-live="polite" aria-label="Notifications" data-i18n-aria="nav.notificationsAria" style="z-index:9999;"></div>
 
   <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

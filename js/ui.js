@@ -159,9 +159,9 @@ window.Ui = {
   // ─── Format File Size ──────────────────────────────────
   formatFileSize(bytes) {
     if (!bytes || bytes <= 0) return '';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / 1048576).toFixed(1) + ' MB';
+    if (bytes < 1024) return bytes + (I18n.t ? I18n.t('gen.bytes') : ' B');
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + (I18n.t ? I18n.t('gen.kilobytes') : ' KB');
+    return (bytes / 1048576).toFixed(1) + (I18n.t ? I18n.t('gen.megabytes') : ' MB');
   },
 
   // ─── Saved Indicator ──────────────────────────────────
@@ -170,7 +170,7 @@ window.Ui = {
     const btn = document.querySelector('#btnSaveCard');
     if (!btn) return;
     const origHTML = btn.innerHTML;
-    btn.innerHTML = '<i class="bi bi-check2-all me-1"></i> Saved';
+    btn.innerHTML = '<i class="bi bi-check2-all me-1"></i>' + (I18n.t ? I18n.t('ui.saved') : ' Saved');
     btn.classList.add('btn-saved-flash');
     if (this._savedTimer) clearTimeout(this._savedTimer);
     this._savedTimer = setTimeout(() => {
@@ -332,12 +332,12 @@ function setupModalFocusTraps() {
 // ─── GLOBAL ERROR BOUNDARY ────────────────────────────
 function setupErrorBoundary() {
   window.addEventListener('error', (e) => {
-    const msg = e.error?.message || e.message || 'Unknown error';
+    const msg = e.error?.message || e.message || (I18n.t ? I18n.t('error.unknown') : 'Unknown error');
     console.error('Global error:', e.error || e);
     // Avoid flooding toasts for cascading errors
     if (!window._errorThrottled) {
       window._errorThrottled = true;
-      Ui.showToast('Unexpected error: ' + msg, 'danger');
+      Ui.showToast(I18n.t ? I18n.t('error.unexpected', { message: msg }) : ('Unexpected error: ' + msg), 'danger');
       setTimeout(() => { window._errorThrottled = false; }, 5000);
     }
     // Reset AI loading state on error to prevent UI lockup
@@ -352,7 +352,7 @@ function setupErrorBoundary() {
     console.error('Unhandled rejection:', e.reason);
     if (!window._errorThrottled) {
       window._errorThrottled = true;
-      Ui.showToast('Request failed: ' + msg, 'danger');
+      Ui.showToast(I18n.t ? I18n.t('error.requestFailed', { message: msg }) : ('Request failed: ' + msg), 'danger');
       setTimeout(() => { window._errorThrottled = false; }, 5000);
     }
     if (window.AppState.isAiLoading) {

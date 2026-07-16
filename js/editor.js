@@ -286,7 +286,7 @@ const Editor = {
       if (!countEl) continue;
       const len = (el.value || '').length;
       const tokens = Math.ceil(len / 4);
-      countEl.textContent = len + ' chars ~' + tokens + ' tokens';
+      countEl.textContent = I18n.t ? I18n.t('editor.charCount', { chars: len, tokens: tokens }) : (len + ' chars ~' + tokens + ' tokens');
     }
   },
 
@@ -307,14 +307,14 @@ const Editor = {
       const isDefault = g === card.first_mes;
       return '<div class="greeting-item' + (isDefault ? ' default-greeting' : '') + '" data-greeting-idx="' + idx + '">'
         + '<div class="greeting-item-actions">'
-        + '<button class="btn btn-outline-secondary btn-sm greeting-up" data-idx="' + idx + '" title="Move up"><i class="bi bi-chevron-up"></i></button>'
-        + '<button class="btn btn-outline-secondary btn-sm greeting-down" data-idx="' + idx + '" title="Move down"><i class="bi bi-chevron-down"></i></button>'
+        + '<button class="btn btn-outline-secondary btn-sm greeting-up" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t('editor.greetingMoveUp') : 'Move up') + '"><i class="bi bi-chevron-up"></i></button>'
+        + '<button class="btn btn-outline-secondary btn-sm greeting-down" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t('editor.greetingMoveDown') : 'Move down') + '"><i class="bi bi-chevron-down"></i></button>'
         + (isDefault
-            ? '<span class="greeting-item-badge bg-purple" title="This is the current first message"><i class="bi bi-star-fill"></i></span>'
-            : '<button class="btn btn-outline-accent btn-sm greeting-set-default" data-idx="' + idx + '" title="Set as first message"><i class="bi bi-star"></i></button>')
-        + '<button class="btn btn-outline-danger btn-sm greeting-delete" data-idx="' + idx + '" title="Remove"><i class="bi bi-x-lg"></i></button>'
+            ? '<span class="greeting-item-badge bg-purple" title="' + (I18n.t ? I18n.t('editor.greetingIsDefault') : 'This is the current first message') + '"><i class="bi bi-star-fill"></i></span>'
+            : '<button class="btn btn-outline-accent btn-sm greeting-set-default" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t('editor.greetingSetDefault') : 'Set as first message') + '"><i class="bi bi-star"></i></button>')
+        + '<button class="btn btn-outline-danger btn-sm greeting-delete" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t('editor.greetingRemove') : 'Remove') + '"><i class="bi bi-x-lg"></i></button>'
         + '</div>'
-        + '<textarea class="form-control greeting-textarea" rows="4" placeholder="Greeting ' + (idx + 1) + '..." data-greeting-idx="' + idx + '">' + Ui.escapeHtml(g) + '</textarea>'
+        + '<textarea class="form-control greeting-textarea" rows="4" placeholder="' + (I18n.t ? I18n.t('editor.greetingPlaceholder', { num: idx + 1 }) : 'Greeting ' + (idx + 1) + '...') + '" data-greeting-idx="' + idx + '">' + Ui.escapeHtml(g) + '</textarea>'
         + '</div>';
     }).join('');
 
@@ -438,7 +438,7 @@ const Editor = {
       + filteredEntries.map(({ entry, idx }) => {
         const keys = (entry.key || '').split(',').map(s => s.trim()).filter(Boolean);
         const secondary = (entry.keysecondary || []);
-        const label = entry.comment || entry.key || 'Entry ' + (idx + 1);
+        const label = entry.comment || entry.key || (I18n.t ? I18n.t('editor.loreEntry', { num: idx + 1 }) : 'Entry ' + (idx + 1));
 
         const keyTagsHtml = keys.slice(0, 3).map(k =>
           '<span class="lorebook-key-tag primary">' + Ui.escapeHtml(k) + '</span>'
@@ -451,24 +451,24 @@ const Editor = {
           + '<i class="bi bi-chevron-right lorebook-chevron"></i>'
           + '<span class="lorebook-entry-label">' + Ui.escapeHtml(label) + '</span>'
           + '<div class="lorebook-key-tags">' + keyTagsHtml + '</div>'
-          + '<button class="btn btn-outline-danger btn-sm lorebook-delete-btn" data-idx="' + idx + '" title="Delete entry"><i class="bi bi-trash"></i></button>'
+          + '<button class="btn btn-outline-danger btn-sm lorebook-delete-btn" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t('editor.loreDeleteEntry') : 'Delete entry') + '"><i class="bi bi-trash"></i></button>'
           + '</div>'
           + '<div class="lorebook-accordion-body">'
           + '<div class="row g-2 mb-2" style="font-size:0.8rem;">'
-          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">Primary Keywords</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.key || '') + '" placeholder="Primary keywords — comma separated" data-lore-key-idx="' + idx + '"></div>'
-          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">Secondary Keywords</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(', ')) + '" placeholder="Secondary keywords" data-lore-secondary-idx="' + idx + '"></div>'
-          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">Comment</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || '') + '" placeholder="Comment" data-lore-comment-idx="' + idx + '"></div>'
-          + '           <div class="col-6"><label class="form-label" style="font-size:0.72rem;">Order</label><input type="number" class="form-control form-control-sm" value="' + (entry.order ?? 100) + '" placeholder="Order" data-lore-order-idx="' + idx + '"></div>'
+          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.lorePrimaryKeys') : 'Primary Keywords') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.key || '') + '" placeholder="' + (I18n.t ? I18n.t('editor.lorePrimaryKeysPlaceholder') : 'Primary keywords \u2014 comma separated') + '" data-lore-key-idx="' + idx + '"></div>'
+          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreSecondaryKeys') : 'Secondary Keywords') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(', ')) + '" placeholder="' + (I18n.t ? I18n.t('editor.loreSecondaryKeysPlaceholder') : 'Secondary keywords') + '" data-lore-secondary-idx="' + idx + '"></div>'
+          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreComment') : 'Comment') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || '') + '" placeholder="' + (I18n.t ? I18n.t('editor.loreCommentPlaceholder') : 'Comment') + '" data-lore-comment-idx="' + idx + '"></div>'
+          + '           <div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreOrder') : 'Order') + '</label><input type="number" class="form-control form-control-sm" value="' + (entry.order ?? 100) + '" placeholder="' + (I18n.t ? I18n.t('editor.loreOrderPlaceholder') : 'Order') + '" data-lore-order-idx="' + idx + '"></div>'
           + '</div>'
           + '<div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">'
-          + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? ' checked' : '') + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">Constant</label></div>'
-          + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.selective ? ' checked' : '') + ' data-lore-selective-idx="' + idx + '"><label class="form-check-label">Selective</label></div>'
+          + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? ' checked' : '') + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">' + (I18n.t ? I18n.t('editor.loreConstant') : 'Constant') + '</label></div>'
+          + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.selective ? ' checked' : '') + ' data-lore-selective-idx="' + idx + '"><label class="form-check-label">' + (I18n.t ? I18n.t('editor.loreSelective') : 'Selective') + '</label></div>'
           + '<select class="form-select form-select-sm" style="width:auto;" data-lore-position-idx="' + idx + '">'
-          + '<option value="before_char"' + (entry.position === 'before_char' ? ' selected' : '') + '>Before char</option>'
-          + '<option value="after_char"' + (entry.position !== 'before_char' ? ' selected' : '') + '>After char</option></select>'
+          + '<option value="before_char"' + (entry.position === 'before_char' ? ' selected' : '') + '>' + (I18n.t ? I18n.t('editor.loreBeforeChar') : 'Before char') + '</option>'
+          + '<option value="after_char"' + (entry.position !== 'before_char' ? ' selected' : '') + '>' + (I18n.t ? I18n.t('editor.loreAfterChar') : 'After char') + '</option></select>'
           + '</div>'
-          + '<label class="form-label" style="font-size:0.72rem;">Content</label>'
-          + '<textarea class="form-control editor-textarea font-mono" rows="6" placeholder="Entry content..." data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || '') + '</textarea>'
+          + '<label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreContent') : 'Content') + '</label>'
+          + '<textarea class="form-control editor-textarea font-mono" rows="6" placeholder="' + (I18n.t ? I18n.t('editor.loreContentPlaceholder') : 'Entry content...') + '" data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || '') + '</textarea>'
           + '</div>'
           + '</div>';
       }).join('')
@@ -573,7 +573,7 @@ const Editor = {
     if (!activeCard) return;
     if (!activeCard.character_book) activeCard.character_book = { entries: [] };
     if (!activeCard.character_book.entries) activeCard.character_book.entries = [];
-    activeCard.character_book.entries.push({ key: 'New Entry', content: '', keysecondary: [], constant: false, selective: false, position: 'after_char', order: 100, comment: '' });
+    activeCard.character_book.entries.push({ key: I18n.t ? I18n.t('editor.loreNewEntry') : 'New Entry', content: '', keysecondary: [], constant: false, selective: false, position: 'after_char', order: 100, comment: '' });
     this.renderLorebook(activeCard);
     await this.syncEditorToCard();
   },
