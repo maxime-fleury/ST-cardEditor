@@ -94,6 +94,7 @@ const Wizard = {
     body.querySelectorAll('.wizard-chip.active').forEach(c => c.classList.remove('active'));
     const gc = document.querySelector('#wizGenderCustom'); if (gc) { gc.value = ''; gc.classList.add('d-none'); }
     const lc = document.querySelector('#wizLanguageCustom'); if (lc) { lc.value = ''; lc.classList.add('d-none'); }
+    if (window.syncFloatLabels) window.syncFloatLabels();
   },
 
   _resetImageUI() {
@@ -242,6 +243,8 @@ const Wizard = {
         if (a.notes) document.querySelector('#wizNotes').value = a.notes;
         break;
     }
+    // Re-sync floating labels so restored/prefilled values show their floated labels
+    if (window.syncFloatLabels) window.syncFloatLabels();
   },
 
   _getChips(groupId) {
@@ -331,6 +334,16 @@ const Wizard = {
         Anims.staggerFadeIn(nextEl.querySelectorAll('.mb-3, .mb-4'), { stagger: 25, duration: 180 });
       }
     });
+
+    // Safety net: guarantee the target step is visible even if the
+    // slide animation is interrupted (e.g. rapid navigation).
+    setTimeout(() => {
+      if (nextEl) {
+        nextEl.classList.remove('d-none');
+        nextEl.style.opacity = '';
+        nextEl.style.transform = '';
+      }
+    }, 400);
   },
 
   _showStep(step) {

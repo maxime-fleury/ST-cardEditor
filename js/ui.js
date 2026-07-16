@@ -187,23 +187,24 @@ const DEBOUNCE_SEARCH_MS = 300;
 
 // ─── FLOATING LABELS ──────────────────────────────────────
 function initFloatingLabels() {
+  const SEL = '.floating-label input, .floating-label select, .floating-label textarea';
   function syncFloatLabels() {
     document.querySelectorAll('.floating-label').forEach(group => {
       const label = group.querySelector('label');
-      const input = group.querySelector('input, textarea');
+      const input = group.querySelector('input, select, textarea');
       if (!label || !input) return;
       const hasVal = input.value && input.value.trim().length > 0;
       label.classList.toggle('floated', hasVal || document.activeElement === input);
     });
   }
   document.addEventListener('focusin', (e) => {
-    if (e.target.matches('.floating-label input, .floating-label textarea')) {
+    if (e.target.matches(SEL)) {
       const label = e.target.closest('.floating-label')?.querySelector('label');
       if (label) label.classList.add('floated');
     }
   });
   document.addEventListener('focusout', (e) => {
-    if (e.target.matches('.floating-label input, .floating-label textarea')) {
+    if (e.target.matches(SEL)) {
       const label = e.target.closest('.floating-label')?.querySelector('label');
       if (label && !(e.target.value && e.target.value.trim().length > 0)) {
         label.classList.remove('floated');
@@ -211,7 +212,16 @@ function initFloatingLabels() {
     }
   });
   document.addEventListener('input', (e) => {
-    if (e.target.matches('.floating-label input, .floating-label textarea')) {
+    if (e.target.matches(SEL)) {
+      const label = e.target.closest('.floating-label')?.querySelector('label');
+      if (label) {
+        const hasVal = e.target.value && e.target.value.trim().length > 0;
+        label.classList.toggle('floated', hasVal || document.activeElement === e.target);
+      }
+    }
+  });
+  document.addEventListener('change', (e) => {
+    if (e.target.matches('.floating-label select')) {
       const label = e.target.closest('.floating-label')?.querySelector('label');
       if (label) {
         const hasVal = e.target.value && e.target.value.trim().length > 0;

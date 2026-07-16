@@ -751,27 +751,39 @@
             <div class="wizard-form-card">
               <div class="row g-3">
                 <div class="col-md-8">
-                  <label class="field-label"><span data-i18n="wizard.nameLabel">Character Name</span> <span class="text-danger">*</span></label>
-                  <input type="text" class="form-control" id="wizName" data-i18n-placeholder="wizard.namePlaceholder" placeholder="e.g. Elara Nightwhisper" maxlength="200">
+                  <div class="floating-label">
+                    <input type="text" class="form-control" id="wizName" maxlength="200" data-i18n-placeholder="wizard.namePlaceholder" placeholder="e.g. Elara Nightwhisper">
+                    <label><span data-i18n="wizard.nameLabel">Character Name</span> <span class="text-danger">*</span></label>
+                  </div>
                 </div>
                 <div class="col-md-4">
-                  <label class="field-label"><span data-i18n="wizard.genderLabel">Gender / Pronouns</span></label>
-                  <select class="form-select" id="wizGender">
-                    <option value="" data-i18n="wizard.genderSelect">Select...</option>
-                    <option value="female" data-i18n="wizard.gender.female">Female (she/her)</option>
-                    <option value="male" data-i18n="wizard.gender.male">Male (he/him)</option>
-                    <option value="nonbinary" data-i18n="wizard.gender.nonbinary">Non-binary (they/them)</option>
-                    <option value="other" data-i18n="wizard.gender.other">Other...</option>
-                  </select>
-                  <input type="text" class="form-control mt-2 d-none" id="wizGenderCustom" data-i18n-placeholder="wizard.genderCustom" placeholder="Custom pronouns (e.g. it/its)">
+                  <div class="floating-label">
+                    <select class="form-select" id="wizGender">
+                      <option value="" data-i18n="wizard.genderSelect">Select...</option>
+                      <option value="female" data-i18n="wizard.gender.female">Female (she/her)</option>
+                      <option value="male" data-i18n="wizard.gender.male">Male (he/him)</option>
+                      <option value="nonbinary" data-i18n="wizard.gender.nonbinary">Non-binary (they/them)</option>
+                      <option value="other" data-i18n="wizard.gender.other">Other...</option>
+                    </select>
+                    <label><span data-i18n="wizard.genderLabel">Gender / Pronouns</span></label>
+                  </div>
+                  <div class="floating-label mt-2">
+                    <input type="text" class="form-control d-none" id="wizGenderCustom" data-i18n-placeholder="wizard.genderCustom" placeholder="Custom pronouns (e.g. it/its)">
+                    <label><span data-i18n="wizard.genderCustom">Custom pronouns</span></label>
+                  </div>
                 </div>
                 <div class="col-12">
-                  <label class="field-label"><span data-i18n="wizard.tagsLabel">Tags</span> <small data-i18n="wizard.tagsSub">(comma-separated, helps organize your library)</small></label>
-                  <input type="text" class="form-control" id="wizTags" data-i18n-placeholder="wizard.tagsPlaceholder" placeholder="fantasy, warrior, elf, original">
+                  <div class="floating-label">
+                    <input type="text" class="form-control" id="wizTags" data-i18n-placeholder="wizard.tagsPlaceholder" placeholder="fantasy, warrior, elf, original">
+                    <label><span data-i18n="wizard.tagsLabel">Tags</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.tagsSub">comma-separated, helps organize your library</small>
                 </div>
                 <div class="col-md-6">
-                  <label class="field-label"><span data-i18n="wizard.creatorLabel">Creator</span></label>
-                  <input type="text" class="form-control" id="wizCreator" data-i18n-placeholder="wizard.creatorPlaceholder" placeholder="Your name / alias">
+                  <div class="floating-label">
+                    <input type="text" class="form-control" id="wizCreator" data-i18n-placeholder="wizard.creatorPlaceholder" placeholder="Your name / alias">
+                    <label><span data-i18n="wizard.creatorLabel">Creator</span></label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -783,69 +795,77 @@
             <div class="wizard-form-card">
               <div class="row g-3">
                 <div class="col-md-6">
-                <label class="form-label field-label"><span data-i18n="wizard.typeLabel">Character Type</span></label>
-                <select class="form-select" id="wizType">
-                  <option value="" data-i18n="wizard.genderSelect">Select...</option>
-                  <option value="original" data-i18n="wizard.type.original">Original Character</option>
-                  <option value="fanfic" data-i18n="wizard.type.fanfic">Fan Fiction</option>
-                  <option value="game" data-i18n="wizard.type.game">Game Character</option>
-                  <option value="anime" data-i18n="wizard.type.anime">Anime / Manga</option>
-                  <option value="book" data-i18n="wizard.type.book">Book / Movie / Show</option>
-                  <option value="historical" data-i18n="wizard.type.historical">Historical Figure</option>
-                  <option value="mythological" data-i18n="wizard.type.mythological">Mythological / Folklore</option>
-                  <option value="vtuber" data-i18n="wizard.type.vtuber">VTuber / Streamer</option>
-                  <option value="other" data-i18n="wizard.type.other">Other</option>
-                </select>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label field-label"><span data-i18n="wizard.languageLabel">Language</span></label>
-                <select class="form-select" id="wizLanguage">
-                  <option value="en" data-i18n="wizard.language.en">English</option>
-                  <option value="fr" data-i18n="wizard.language.fr">French</option>
-                  <option value="de" data-i18n="wizard.language.de">German</option>
-                  <option value="ja" data-i18n="wizard.language.ja">Japanese</option>
-                  <option value="other" data-i18n="wizard.language.other">Other</option>
-                </select>
-                <input type="text" class="form-control mt-2 d-none" id="wizLanguageCustom" data-i18n-placeholder="wizard.languageSpecify" placeholder="Specify language">
-              </div>
-              <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="wizard.genreLabel">Genre / World</span> <small data-i18n="wizard.genreSub">(select all that apply)</small></label>
-                <div class="wizard-chip-group" id="wizGenre">
-                  <button class="wizard-chip" data-value="fantasy" data-i18n="wizard.chip.fantasy">Fantasy</button>
-                  <button class="wizard-chip" data-value="scifi" data-i18n="wizard.chip.scifi">Sci-Fi</button>
-                  <button class="wizard-chip" data-value="modern" data-i18n="wizard.chip.modern">Modern</button>
-                  <button class="wizard-chip" data-value="historical" data-i18n="wizard.chip.historical">Historical</button>
-                  <button class="wizard-chip" data-value="horror" data-i18n="wizard.chip.horror">Horror</button>
-                  <button class="wizard-chip" data-value="romance" data-i18n="wizard.chip.romance">Romance</button>
-                  <button class="wizard-chip" data-value="comedy" data-i18n="wizard.chip.comedy">Comedy</button>
-                  <button class="wizard-chip" data-value="slice-of-life" data-i18n="wizard.chip.sliceOfLife">Slice of Life</button>
-                  <button class="wizard-chip" data-value="adventure" data-i18n="wizard.chip.adventure">Adventure</button>
-                  <button class="wizard-chip" data-value="mystery" data-i18n="wizard.chip.mystery">Mystery</button>
-                  <button class="wizard-chip" data-value="cyberpunk" data-i18n="wizard.chip.cyberpunk">Cyberpunk</button>
-                  <button class="wizard-chip" data-value="post-apocalyptic" data-i18n="wizard.chip.postApocalyptic">Post-Apocalyptic</button>
-                  <button class="wizard-chip" data-value="supernatural" data-i18n="wizard.chip.supernatural">Supernatural</button>
-                  <button class="wizard-chip" data-value="military" data-i18n="wizard.chip.military">Military</button>
-                  <button class="wizard-chip" data-value="surreal" data-i18n="wizard.chip.surreal">Surreal</button>
+                  <div class="floating-label">
+                    <select class="form-select" id="wizType">
+                      <option value="" data-i18n="wizard.genderSelect">Select...</option>
+                      <option value="original" data-i18n="wizard.type.original">Original Character</option>
+                      <option value="fanfic" data-i18n="wizard.type.fanfic">Fan Fiction</option>
+                      <option value="game" data-i18n="wizard.type.game">Game Character</option>
+                      <option value="anime" data-i18n="wizard.type.anime">Anime / Manga</option>
+                      <option value="book" data-i18n="wizard.type.book">Book / Movie / Show</option>
+                      <option value="historical" data-i18n="wizard.type.historical">Historical Figure</option>
+                      <option value="mythological" data-i18n="wizard.type.mythological">Mythological / Folklore</option>
+                      <option value="vtuber" data-i18n="wizard.type.vtuber">VTuber / Streamer</option>
+                      <option value="other" data-i18n="wizard.type.other">Other</option>
+                    </select>
+                    <label><span data-i18n="wizard.typeLabel">Character Type</span></label>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="floating-label">
+                    <select class="form-select" id="wizLanguage">
+                      <option value="en" data-i18n="wizard.language.en">English</option>
+                      <option value="fr" data-i18n="wizard.language.fr">French</option>
+                      <option value="de" data-i18n="wizard.language.de">German</option>
+                      <option value="ja" data-i18n="wizard.language.ja">Japanese</option>
+                      <option value="other" data-i18n="wizard.language.other">Other</option>
+                    </select>
+                    <label><span data-i18n="wizard.languageLabel">Language</span></label>
+                  </div>
+                  <div class="floating-label mt-2">
+                    <input type="text" class="form-control d-none" id="wizLanguageCustom" data-i18n-placeholder="wizard.languageSpecify" placeholder="Specify language">
+                    <label><span data-i18n="wizard.languageSpecify">Specify language</span></label>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <label class="field-label"><span data-i18n="wizard.genreLabel">Genre / World</span> <small data-i18n="wizard.genreSub">(select all that apply)</small></label>
+                  <div class="wizard-chip-group" id="wizGenre">
+                    <button class="wizard-chip" data-value="fantasy" data-i18n="wizard.chip.fantasy">Fantasy</button>
+                    <button class="wizard-chip" data-value="scifi" data-i18n="wizard.chip.scifi">Sci-Fi</button>
+                    <button class="wizard-chip" data-value="modern" data-i18n="wizard.chip.modern">Modern</button>
+                    <button class="wizard-chip" data-value="historical" data-i18n="wizard.chip.historical">Historical</button>
+                    <button class="wizard-chip" data-value="horror" data-i18n="wizard.chip.horror">Horror</button>
+                    <button class="wizard-chip" data-value="romance" data-i18n="wizard.chip.romance">Romance</button>
+                    <button class="wizard-chip" data-value="comedy" data-i18n="wizard.chip.comedy">Comedy</button>
+                    <button class="wizard-chip" data-value="slice-of-life" data-i18n="wizard.chip.sliceOfLife">Slice of Life</button>
+                    <button class="wizard-chip" data-value="adventure" data-i18n="wizard.chip.adventure">Adventure</button>
+                    <button class="wizard-chip" data-value="mystery" data-i18n="wizard.chip.mystery">Mystery</button>
+                    <button class="wizard-chip" data-value="cyberpunk" data-i18n="wizard.chip.cyberpunk">Cyberpunk</button>
+                    <button class="wizard-chip" data-value="post-apocalyptic" data-i18n="wizard.chip.postApocalyptic">Post-Apocalyptic</button>
+                    <button class="wizard-chip" data-value="supernatural" data-i18n="wizard.chip.supernatural">Supernatural</button>
+                    <button class="wizard-chip" data-value="military" data-i18n="wizard.chip.military">Military</button>
+                    <button class="wizard-chip" data-value="surreal" data-i18n="wizard.chip.surreal">Surreal</button>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <label class="field-label"><span data-i18n="wizard.moodLabel">Mood / Tone</span> <small data-i18n="wizard.moodSub">(select all that apply)</small></label>
+                  <div class="wizard-chip-group" id="wizMood">
+                    <button class="wizard-chip" data-value="serious" data-i18n="wizard.chip.serious">Serious</button>
+                    <button class="wizard-chip" data-value="playful" data-i18n="wizard.chip.playful">Playful</button>
+                    <button class="wizard-chip" data-value="dark" data-i18n="wizard.chip.dark">Dark</button>
+                    <button class="wizard-chip" data-value="lighthearted" data-i18n="wizard.chip.lighthearted">Lighthearted</button>
+                    <button class="wizard-chip" data-value="mysterious" data-i18n="wizard.chip.mysterious">Mysterious</button>
+                    <button class="wizard-chip" data-value="romantic" data-i18n="wizard.chip.romantic">Romantic</button>
+                    <button class="wizard-chip" data-value="intense" data-i18n="wizard.chip.intense">Intense</button>
+                    <button class="wizard-chip" data-value="wholesome" data-i18n="wizard.chip.wholesome">Wholesome</button>
+                    <button class="wizard-chip" data-value="chaotic" data-i18n="wizard.chip.chaotic">Chaotic</button>
+                    <button class="wizard-chip" data-value="melancholic" data-i18n="wizard.chip.melancholic">Melancholic</button>
+                    <button class="wizard-chip" data-value="sarcastic" data-i18n="wizard.chip.sarcastic">Sarcastic</button>
+                    <button class="wizard-chip" data-value="stoic" data-i18n="wizard.chip.stoic">Stoic</button>
+                  </div>
                 </div>
               </div>
-              <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="wizard.moodLabel">Mood / Tone</span> <small data-i18n="wizard.moodSub">(select all that apply)</small></label>
-                <div class="wizard-chip-group" id="wizMood">
-                  <button class="wizard-chip" data-value="serious" data-i18n="wizard.chip.serious">Serious</button>
-                  <button class="wizard-chip" data-value="playful" data-i18n="wizard.chip.playful">Playful</button>
-                  <button class="wizard-chip" data-value="dark" data-i18n="wizard.chip.dark">Dark</button>
-                  <button class="wizard-chip" data-value="lighthearted" data-i18n="wizard.chip.lighthearted">Lighthearted</button>
-                  <button class="wizard-chip" data-value="mysterious" data-i18n="wizard.chip.mysterious">Mysterious</button>
-                  <button class="wizard-chip" data-value="romantic" data-i18n="wizard.chip.romantic">Romantic</button>
-                  <button class="wizard-chip" data-value="intense" data-i18n="wizard.chip.intense">Intense</button>
-                  <button class="wizard-chip" data-value="wholesome" data-i18n="wizard.chip.wholesome">Wholesome</button>
-                  <button class="wizard-chip" data-value="chaotic" data-i18n="wizard.chip.chaotic">Chaotic</button>
-                  <button class="wizard-chip" data-value="melancholic" data-i18n="wizard.chip.melancholic">Melancholic</button>
-                  <button class="wizard-chip" data-value="sarcastic" data-i18n="wizard.chip.sarcastic">Sarcastic</button>
-                  <button class="wizard-chip" data-value="stoic" data-i18n="wizard.chip.stoic">Stoic</button>
-                </div> <!-- .col-12 mood -->
-              </div> <!-- .row g-3 -->
-            </div> <!-- wizard-form-card -->
+            </div>
           </div>
 
           <!-- Step 3: Personality & Appearance -->
@@ -854,22 +874,28 @@
             <div class="wizard-form-card">
               <div class="row g-3">
                 <div class="col-12">
-                  <label class="field-label"><span data-i18n="wizard.personalityTraits">Personality Traits</span> <small data-i18n="wizard.personalityTraitsSub">(describe 3-5 key traits, this helps the AI)</small></label>
-                <textarea class="form-control" id="wizPersonalityDesc" rows="4" 
-                          data-i18n-placeholder="wizard.personalityTraitsPlaceholder" placeholder="e.g. Brave but reckless, fiercely loyal to friends, has a dry sense of humor, struggles with trust, secretly loves animals"></textarea>
-              </div>
-              <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="wizard.appearanceLabel">Physical Appearance</span> <small data-i18n="wizard.appearanceSub">(brief description of how they look)</small></label>
-                <textarea class="form-control" id="wizAppearance" rows="4" 
-                          data-i18n-placeholder="wizard.appearancePlaceholder" placeholder="e.g. Tall woman with silver hair down to her waist, scarred hands, wears a dark leather jacket, piercing green eyes"></textarea>
-              </div>
-              <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="wizard.abilitiesLabel">Special Abilities / Quirks</span> <small data-i18n="wizard.abilitiesSub">(optional, any unique traits)</small></label>
-                <textarea class="form-control" id="wizAbilities" rows="3" 
-                          data-i18n-placeholder="wizard.abilitiesPlaceholder" placeholder="e.g. Can speak to animals, has a photographic memory, always carries a worn journal"></textarea>
+                  <div class="floating-label">
+                    <textarea class="form-control" id="wizPersonalityDesc" rows="4" data-i18n-placeholder="wizard.personalityTraitsPlaceholder" placeholder="e.g. Brave but reckless, fiercely loyal to friends, has a dry sense of humor, struggles with trust, secretly loves animals"></textarea>
+                    <label><span data-i18n="wizard.personalityTraits">Personality Traits</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.personalityTraitsSub">describe 3-5 key traits, this helps the AI</small>
+                </div>
+                <div class="col-12">
+                  <div class="floating-label">
+                    <textarea class="form-control" id="wizAppearance" rows="4" data-i18n-placeholder="wizard.appearancePlaceholder" placeholder="e.g. Tall woman with silver hair down to her waist, scarred hands, wears a dark leather jacket, piercing green eyes"></textarea>
+                    <label><span data-i18n="wizard.appearanceLabel">Physical Appearance</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.appearanceSub">brief description of how they look</small>
+                </div>
+                <div class="col-12">
+                  <div class="floating-label">
+                    <textarea class="form-control" id="wizAbilities" rows="3" data-i18n-placeholder="wizard.abilitiesPlaceholder" placeholder="e.g. Can speak to animals, has a photographic memory, always carries a worn journal"></textarea>
+                    <label><span data-i18n="wizard.abilitiesLabel">Special Abilities / Quirks</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.abilitiesSub">optional, any unique traits</small>
+                </div>
               </div>
             </div>
-            </div> <!-- wizard-form-card -->
           </div>
 
           <!-- Step 4: Scenario & First Message -->
@@ -878,33 +904,39 @@
             <div class="wizard-form-card">
               <div class="row g-3">
                 <div class="col-12">
-                  <label class="field-label"><span data-i18n="wizard.scenarioLabel">Scenario / Setting</span> <small data-i18n="wizard.scenarioSub">(where does the story begin?)</small></label>
-                <textarea class="form-control" id="wizScenario" rows="4" 
-                          data-i18n-placeholder="wizard.scenarioPlaceholder" placeholder="e.g. A rainy night in a neon-lit city. The character runs a small repair shop that fixes both machines and broken hearts."></textarea>
-              </div>
-              <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="wizard.relationshipLabel">Relationship to {{user}}</span> <small data-i18n="wizard.relationshipSub">(how does the character see the user?)</small></label>
-                <textarea class="form-control" id="wizRelationship" rows="3" 
-                          data-i18n-placeholder="wizard.relationshipPlaceholder" placeholder="e.g. A new customer who walked into the shop with a mysterious broken device. The character is curious but cautious."></textarea>
-              </div>
-              <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="wizard.openingLabel">First Message Vibe</span> <small data-i18n="wizard.openingSub">(what should the opening message feel like?)</small></label>
-                <div class="wizard-chip-group" id="wizOpening">
-                  <button class="wizard-chip" data-value="greeting" data-i18n="wizard.chip.greeting">Warm Greeting</button>
-                  <button class="wizard-chip" data-value="action" data-i18n="wizard.chip.action">In Media Res</button>
-                  <button class="wizard-chip" data-value="question" data-i18n="wizard.chip.question">Curious Question</button>
-                  <button class="wizard-chip" data-value="mysterious" data-i18n="wizard.chip.mysterious">Mysterious</button>
-                  <button class="wizard-chip" data-value="conflict" data-i18n="wizard.chip.conflict">Immediate Conflict</button>
-                  <button class="wizard-chip" data-value="atmospheric" data-i18n="wizard.chip.atmospheric">Atmospheric</button>
+                  <div class="floating-label">
+                    <textarea class="form-control" id="wizScenario" rows="4" data-i18n-placeholder="wizard.scenarioPlaceholder" placeholder="e.g. A rainy night in a neon-lit city. The character runs a small repair shop that fixes both machines and broken hearts."></textarea>
+                    <label><span data-i18n="wizard.scenarioLabel">Scenario / Setting</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.scenarioSub">where does the story begin?</small>
+                </div>
+                <div class="col-12">
+                  <div class="floating-label">
+                    <textarea class="form-control" id="wizRelationship" rows="3" data-i18n-placeholder="wizard.relationshipPlaceholder" placeholder="e.g. A new customer who walked into the shop with a mysterious broken device. The character is curious but cautious."></textarea>
+                    <label><span data-i18n="wizard.relationshipLabel">Relationship to {{user}}</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.relationshipSub">how does the character see the user?</small>
+                </div>
+                <div class="col-12">
+                  <label class="field-label"><span data-i18n="wizard.openingLabel">First Message Vibe</span> <small data-i18n="wizard.openingSub">(what should the opening message feel like?)</small></label>
+                  <div class="wizard-chip-group" id="wizOpening">
+                    <button class="wizard-chip" data-value="greeting" data-i18n="wizard.chip.greeting">Warm Greeting</button>
+                    <button class="wizard-chip" data-value="action" data-i18n="wizard.chip.action">In Media Res</button>
+                    <button class="wizard-chip" data-value="question" data-i18n="wizard.chip.question">Curious Question</button>
+                    <button class="wizard-chip" data-value="mysterious" data-i18n="wizard.chip.mysterious">Mysterious</button>
+                    <button class="wizard-chip" data-value="conflict" data-i18n="wizard.chip.conflict">Immediate Conflict</button>
+                    <button class="wizard-chip" data-value="atmospheric" data-i18n="wizard.chip.atmospheric">Atmospheric</button>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <div class="floating-label">
+                    <textarea class="form-control" id="wizNotes" rows="3" data-i18n-placeholder="wizard.notesPlaceholder" placeholder="e.g. Keep the dialogue natural, avoid being overly formal, include action descriptions in asterisks"></textarea>
+                    <label><span data-i18n="wizard.notesLabel">Additional Notes</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.notesSub">anything else the AI should know?</small>
                 </div>
               </div>
-              <div class="col-12">
-                <label class="form-label field-label"><span data-i18n="wizard.notesLabel">Additional Notes</span> <small data-i18n="wizard.notesSub">(anything else the AI should know?)</small></label>
-                <textarea class="form-control" id="wizNotes" rows="3" 
-                          data-i18n-placeholder="wizard.notesPlaceholder" placeholder="e.g. Keep the dialogue natural, avoid being overly formal, include action descriptions in asterisks"></textarea>
-              </div>
             </div>
-            </div> <!-- wizard-form-card -->
           </div>
 
           <!-- Step 5: Generate -->
