@@ -211,9 +211,11 @@
   border: 1px solid var(--border-subtle) !important;
   color: var(--text-primary) !important;
   font-size: 0.85rem !important;
+  line-height: 1.6 !important;
   border-radius: var(--radius-sm) !important;
   resize: vertical;
-  min-height: 80px !important;
+  min-height: 120px !important;
+  max-height: 300px;
   transition: all var(--transition-fast);
 }
 .editor-textarea:hover { border-color: var(--border-default) !important; }
