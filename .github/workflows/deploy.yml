@@ -1,19 +1,17 @@
-# 🚀 Deploy to GitHub Pages
+# 🚀 Deploy stable and development builds to GitHub Pages
 #
-# Automatically builds and deploys the static app to GitHub Pages
-# whenever changes are pushed to the main branch.
+# master → https://maxime-fleury.github.io/ST-cardEditor/
+# dev    → https://maxime-fleury.github.io/ST-cardEditor/dev/
 #
-# 💡 In your repo Settings > Pages:
-#    Source: "Deploy from a branch"
-#    Branch: "gh-pages" / "/ (root)"
-#
-# Deployment URL: https://maxime-fleury.github.io/ST-cardEditor/
+# Every deployment publishes both trees in one atomic gh-pages update. The
+# default URL is always built from master, so a broken dev build cannot hide
+# the last stable version. In Repository Settings > Pages, select gh-pages / root.
 
 name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "dev" ]
   workflow_dispatch:
 
 permissions:
@@ -27,26 +25,55 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout triggering branch
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      - name: Prepare static files
+      - name: Fetch stable and development source branches
         run: |
-          rm -rf deploy
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin master
+          if [ "${GITHUB_REF_NAME}" = "dev" ]; then
+            git fetch --no-tags --depth=1 origin dev
+          else
+            git fetch --no-tags --depth=1 origin dev || true
+          fi
+
+      - name: Prepare complete static site
+        run: |
+          set -euo pipefail
+          rm -rf deploy source-master source-dev
+          mkdir -p deploy source-master
+
+          git archive origin/master | tar -x -C source-master
           mkdir -p deploy/js
-          cp -r public/* deploy/
-          cp -r js/* deploy/js/
-          cp .nojekyll deploy/
+          cp -r source-master/public/* deploy/
+          cp -r source-master/js/* deploy/js/
+          cp source-master/.nojekyll deploy/
+
+          if git rev-parse --verify origin/dev >/dev/null 2>&1; then
+            mkdir -p source-dev deploy/dev/js
+            git archive origin/dev | tar -x -C source-dev
+            cp -r source-dev/public/* deploy/dev/
+            cp -r source-dev/js/* deploy/dev/js/
+            cp source-dev/.nojekyll deploy/dev/
+          fi
+
+          test -f deploy/index.html
+          if git rev-parse --verify origin/dev >/dev/null 2>&1; then
+            test -f deploy/dev/index.html
+          fi
+
           echo "=== Deploy contents ==="
           find deploy -type f | sort
 
-      - name: Deploy to gh-pages branch
+      - name: Deploy stable + dev trees to gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./deploy
           publish_branch: gh-pages
-          allow_empty_commit: false
           keep_files: false
           force_orphan: true
           user_name: 'github-actions[bot]'

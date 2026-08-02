@@ -391,7 +391,12 @@ Contributions are welcome! Feel free to open issues or submit pull requests for:
 
 ## CI/CD
 
-Every push to the `master` branch automatically deploys the latest version to GitHub Pages via [GitHub Actions](.github/workflows/deploy.yml).
+The [GitHub Actions workflow](.github/workflows/deploy.yml) keeps a stable build and a development build available at the same time:
+
+- **Stable (default):** [maxime-fleury.github.io/ST-cardEditor/](https://maxime-fleury.github.io/ST-cardEditor/), deployed from `master`
+- **Development:** [maxime-fleury.github.io/ST-cardEditor/dev/](https://maxime-fleury.github.io/ST-cardEditor/dev/), deployed from `dev`
+
+Each deployment publishes a complete tree: the root is always built from `master`, while `/dev/` is built from `dev`. Testing a broken development build therefore never removes the stable version, and future stable pushes continue to preserve the development page.
 
 Check the [Actions tab](https://github.com/maxime-fleury/ST-cardEditor/actions) for deployment status.
 
