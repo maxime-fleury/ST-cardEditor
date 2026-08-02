@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ST Card Editor — SillyTavern Character Card Studio</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  
+  <!-- Bootstrap 5.3 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- App CSS (split for maintainability) -->
+  <link rel="stylesheet" href="css/theme.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/library.css">
+  <link rel="stylesheet" href="css/editor.css">
+  <link rel="stylesheet" href="css/ai-assistant.css">
+  <link rel="stylesheet" href="css/modal.css">
+  <link rel="stylesheet" href="css/diff.css">
+  <link rel="stylesheet" href="css/wizard.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/responsive.css">
+</head>
+<body>
+  <!-- ========== NAVBAR ========== -->
+  <nav class="navbar navbar-dark sticky-top" id="topNav">
+    <div class="container-fluid px-3">
+      <a class="navbar-brand d-flex align-items-center gap-2" href="#">
+        <div class="brand-icon">
+          <i class="bi bi-stars"></i>
+        </div>
+        <span class="brand-text" data-i18n="nav.brand">ST Card Editor</span>
+        <span class="badge bg-purple ms-2">v2.1</span>
+      </a>
+      
+      <div class="d-flex align-items-center gap-2">
+        <!-- Credits indicator -->
+        <div id="creditsBadge" class="credits-badge d-none">
+          <i class="bi bi-coin"></i>
+          <span id="creditsAmount">--</span>
+        </div>
+        
+        <!-- AI Wizard -->
+        <button class="btn btn-accent btn-sm" id="btnWizardNav" title="Create character with AI wizard" aria-label="Create with AI wizard" data-i18n-title="nav.wizard" data-i18n-aria="nav.wizard">
+          <i class="bi bi-magic"></i>
+        </button>
+        
+        <!-- Save card -->
+         <button class="btn btn-accent btn-sm" id="btnSaveCard" title="Save card" data-i18n-title="nav.save">
+           <i class="bi bi-check-lg me-1"></i> <span data-i18n="nav.save">Save</span>
+        </button>
+        
+        <!-- Theme toggle -->
+        <button class="btn btn-outline-light btn-sm" id="btnThemeToggle" title="Toggle theme" aria-label="Toggle theme" data-i18n-title="nav.theme" data-i18n-aria="nav.theme">
+          <i class="bi bi-moon-fill"></i>
+        </button>
+
+        <!-- Help / Shortcuts -->
+        <button class="btn btn-outline-light btn-sm" id="btnHelp" title="Shortcuts & help" aria-label="Shortcuts and help" data-i18n-title="nav.shortcuts" data-i18n-aria="nav.shortcuts">
+          <i class="bi bi-question-lg"></i>
+        </button>
+
+        <!-- Settings -->
+        <button class="btn btn-outline-light btn-sm" id="btnSettings" title="Settings" aria-label="Settings" data-i18n-title="nav.settings" data-i18n-aria="nav.settings">
+          <i class="bi bi-gear-fill"></i>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ========== MAIN LAYOUT ========== -->
+  <div class="app-container" id="appContainer">
+    
+    <!-- LEFT PANEL — Card Library -->
+    <aside class="panel panel-left" id="panelLeft">
+      <div class="panel-resizer" id="resizerLeft" role="separator" aria-label="Resize card library" data-i18n-aria="left.resizeAria" tabindex="0"></div>
+      <div class="panel-header">
+        <h6 class="panel-title"><i class="bi bi-collection me-2"></i><span data-i18n="left.title">Card Library</span></h6>
+        <span class="card-count" id="cardCount">0 cards</span>
+      </div>
+      
+      <!-- Drop Zone -->
+      <div class="drop-zone" id="dropZone">
+        <div class="drop-zone-content">
+          <i class="bi bi-cloud-upload drop-icon"></i>
+          <p class="drop-text" data-i18n="left.drop">Drag & drop</p>
+          <p class="drop-subtext" data-i18n="left.dropSub">PNG or JSON character cards</p>
+          <button class="btn btn-outline-accent btn-sm mt-2" id="btnBrowse">
+            <i class="bi bi-folder2-open me-1"></i> <span data-i18n="left.browse">Browse files</span>
+          </button>
+          <input type="file" id="fileInput" accept=".png,.json" multiple hidden>
+        </div>
+      </div>
+      
+      <!-- Card search -->
+      <div class="px-3 pb-2" id="cardSearchWrap" style="display:none;">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" class="form-control" id="cardSearchInput" data-i18n-placeholder="left.search" placeholder="Search cards...">
+        </div>
+      </div>
+
+      <!-- Sort & Filter Controls -->
+      <div class="library-controls" id="libraryControls" style="display:none;">
+        <select class="form-select form-select-sm" id="cardSortSelect" title="Sort cards" data-i18n-title="left.sortCards">
+          <option value="name-asc" data-i18n="left.sort.nameAsc">Name A-Z</option>
+          <option value="name-desc" data-i18n="left.sort.nameDesc">Name Z-A</option>
+          <option value="newest" data-i18n="left.sort.newest">Newest first</option>
+          <option value="oldest" data-i18n="left.sort.oldest">Oldest first</option>
+          <option value="largest" data-i18n="left.sort.largest">Largest</option>
+          <option value="smallest" data-i18n="left.sort.smallest">Smallest</option>
+        </select>
+        <button class="btn btn-outline-accent btn-sm" id="btnToggleTagCloud" title="Filter by tags" data-i18n-title="left.filterTags">
+          <i class="bi bi-tags"></i>
+        </button>
+      </div>
+
+      <!-- Tag Cloud -->
+      <div class="tag-cloud-wrap" id="tagCloudWrap">
+        <div class="tag-cloud" id="tagCloud"></div>
+      </div>
+
+      <!-- Batch toolbar -->
+      <div class="px-3 pb-2 d-none" id="batchToolbar">
+        <div class="d-flex align-items-center justify-content-between">
+          <span class="text-accent fw-semibold" style="font-size:0.8rem;" id="batchCount">0 selected</span>
+          <div class="d-flex gap-1">
+            <button class="btn btn-outline-accent btn-sm" id="btnBatchExport" title="Export selected as JSON" data-i18n-title="left.exportSelected"><i class="bi bi-download"></i></button>
+            <button class="btn btn-outline-accent btn-sm d-none" id="btnBatchCompare" title="Compare selected cards" data-i18n-title="left.compareSelected"><i class="bi bi-layout-sidebar-inset"></i></button>
+            <button class="btn btn-outline-danger btn-sm" id="btnBatchDelete" title="Delete selected" data-i18n-title="left.deleteSelected"><i class="bi bi-trash"></i></button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Card list -->
+      <div class="card-list" id="cardList" role="listbox" aria-label="Card library" data-i18n-aria="left.cardListAria" aria-live="polite"></div>
+      
+      <!-- Empty state -->
+      <div class="empty-state" id="emptyState">
+        <i class="bi bi-inbox"></i>
+        <p data-i18n="left.empty">No cards loaded</p>
+        <small data-i18n="left.emptySub">Drop a card or click Browse</small>
+      </div>
+    </aside>
+    
+    <!-- CENTER PANEL — Card Editor -->
+    <main class="panel panel-center" id="panelCenter">
+      <!-- No card selected -->
+      <div class="no-card-selected" id="noCardSelected">
+        <div class="no-card-icon">
+          <i class="bi bi-file-earmark-person"></i>
+        </div>
+        <h3 data-i18n="center.noCard">No card selected</h3>
+        <p data-i18n="center.noCardSub">Select a card from the library or drag & drop a new one</p>
+        <div class="d-flex gap-2 justify-content-center flex-wrap">
+          <button class="btn btn-accent" id="btnWizard">
+            <i class="bi bi-magic me-2"></i><span data-i18n="center.createAI">Create with AI</span>
+          </button>
+          <button class="btn btn-outline-accent" id="btnNewCardCenter">
+            <i class="bi bi-plus-lg me-2"></i><span data-i18n="center.blankCard">Blank Card</span>
+          </button>
+        </div>
+      </div>
+      
+      <!-- Editor form -->
+      <div class="editor-container d-none" id="editorContainer">
+        <div class="editor-header">
+          <div class="editor-header-left">
+            <div class="char-avatar" id="charAvatar" title="Click or drop an image to set the avatar" role="button" tabindex="0" aria-label="Set character avatar" data-i18n-title="editor.avatar" data-i18n-aria="editor.avatarAria">
+              <img id="charAvatarImg" src="" alt="" hidden>
+              <i class="bi bi-person-fill avatar-placeholder" id="avatarPlaceholder"></i>
+            </div>
+            <input type="file" id="avatarInput" accept="image/*" hidden>
+            <div class="editor-title-group">
+              <input type="text" class="form-control form-control-lg editor-name" 
+                     id="editName" data-i18n-placeholder="editor.name" placeholder="Character Name" maxlength="200">
+              <div class="editor-meta">
+                <span class="meta-badge" id="metaCreator"></span>
+                <span class="meta-badge" id="metaVersion"></span>
+                <span class="meta-badge" id="metaTags"></span>
+              </div>
+            </div>
+          </div>
+          <div class="editor-header-right">
+            <button class="btn btn-outline-secondary btn-sm" id="btnExportJson" title="Export as JSON" aria-label="Export as JSON" data-i18n-title="editor.exportJson" data-i18n-aria="editor.exportJson">
+              <i class="bi bi-filetype-json me-1"></i> JSON
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" id="btnExportPng" title="Export as PNG" aria-label="Export as PNG" data-i18n-title="editor.exportPng" data-i18n-aria="editor.exportPng">
+              <i class="bi bi-filetype-png me-1"></i> PNG
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" id="btnDuplicateCard" title="Duplicate card" data-i18n-title="editor.duplicate">
+              <i class="bi bi-files"></i>
+            </button>
+            <button class="btn btn-outline-danger btn-sm" id="btnDeleteCard" title="Delete card" data-i18n-title="editor.delete">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        </div>
+        
+        <!-- Editor Tabs -->
+        <ul class="nav nav-tabs editor-tabs" id="editorTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabCore" type="button">
+              <i class="bi bi-person-badge me-1"></i> <span data-i18n="editor.tab.core">Core</span>
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabPersonality" type="button">
+              <i class="bi bi-brain me-1"></i> <span data-i18n="editor.tab.personality">Personality</span>
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabAdvanced" type="button">
+              <i class="bi bi-sliders me-1"></i> <span data-i18n="editor.tab.advanced">Advanced</span>
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabLorebook" type="button">
+              <i class="bi bi-book me-1"></i> <span data-i18n="editor.tab.lorebook">Lorebook</span>
+            </button>
+          </li>
+        </ul>
+        
+        <!-- Tab Content -->
+        <div class="tab-content editor-content" id="editorTabContent">
+          <!-- Core Tab -->
+          <div class="tab-pane fade show active" id="tabCore">
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label field-label editor-field-label">
+                  <span data-i18n="editor.desc">Description</span> <small data-i18n="editor.descSub">(appearance, backstory)</small>
+                  <span class="field-toggle-group" data-target="editDescription">
+                    <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
+                    <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
+                  </span>
+                </label>
+                <textarea class="form-control editor-textarea" id="editDescription" rows="10" 
+                          data-i18n-placeholder="editor.descPlaceholder" placeholder="Describe the character's appearance, background, and key traits..."></textarea>
+                <div class="md-preview" id="previewDescription"></div>
+                <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label field-label editor-field-label">
+                  <span data-i18n="editor.firstMes">First Message</span>
+                  <span class="field-toggle-group" data-target="editFirstMes">
+                    <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
+                    <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
+                  </span>
+                </label>
+                <textarea class="form-control editor-textarea" id="editFirstMes" rows="12" 
+                          data-i18n-placeholder="editor.firstMesPlaceholder" placeholder="The character's first message when starting a chat..."></textarea>
+                <div class="md-preview" id="previewFirstMes"></div>
+                <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label field-label editor-field-label">
+                  <span data-i18n="editor.scenario">Scenario</span>
+                  <span class="field-toggle-group" data-target="editScenario">
+                    <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
+                    <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
+                  </span>
+                </label>
+                <textarea class="form-control editor-textarea" id="editScenario" rows="10" 
+                          data-i18n-placeholder="editor.scenarioPlaceholder" placeholder="Current circumstances and context of the conversation..."></textarea>
+                <div class="md-preview" id="previewScenario"></div>
+              </div>
+              <div class="col-md-6">
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.creator">Creator</span></label>
+                  <input type="text" class="form-control" id="editCreator" data-i18n-placeholder="editor.creatorPlaceholder" placeholder="Card creator / author">
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.version">Character Version</span></label>
+                  <input type="text" class="form-control" id="editVersion" placeholder="v1.0">
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.tags">Tags</span> <small data-i18n="editor.tagsSub">(comma-separated)</small></label>
+                  <input type="text" class="form-control" id="editTags" data-i18n-placeholder="editor.tagsPlaceholder" placeholder="fantasy, warrior, elf" list="tagSuggestions">
+                  <datalist id="tagSuggestions"></datalist>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Personality Tab -->
+          <div class="tab-pane fade" id="tabPersonality">
+            <div class="row g-3">
+              <div class="col-12">
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.personalitySummary">Personality Summary</span></label>
+                  <textarea class="form-control editor-textarea" id="editPersonality" rows="14" 
+                            data-i18n-placeholder="editor.personalityPlaceholder" placeholder="A brief description of the character's personality... (used in character card format)"></textarea>
+                  <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
+                </div>
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label editor-field-label">
+                  <span data-i18n="editor.mesExample">Example Messages</span>
+                  <span class="field-toggle-group" data-target="editMesExample">
+                    <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
+                    <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
+                  </span>
+                </label>
+                <textarea class="form-control editor-textarea font-mono" id="editMesExample" rows="16" 
+                            placeholder="&lt;START&gt;&#10;{{char}}: Example dialogue here...&#10;{{user}}: User response...&#10;&lt;START&gt;&#10;{{char}}: Another example..."></textarea>
+                  <div class="md-preview" id="previewMesExample"></div>
+                  <small class="form-text text-muted" data-i18n="editor.mesExampleFormat">Format: &lt;START&gt; blocks with {{char}}: and {{user}}: prefixes</small>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Advanced Tab -->
+          <div class="tab-pane fade" id="tabAdvanced">
+            <div class="row g-3">
+              <div class="col-12">
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.systemPrompt">System Prompt</span></label>
+                  <textarea class="form-control editor-textarea font-mono" id="editSystemPrompt" rows="12" 
+                            data-i18n-placeholder="editor.systemPromptPlaceholder" placeholder="Override the system prompt. Use {{original}} to include the default."></textarea>
+                  <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.postHistory">Post-History Instructions</span></label>
+                  <textarea class="form-control editor-textarea font-mono" id="editPostHistory" rows="10" 
+                            data-i18n-placeholder="editor.postHistoryPlaceholder" placeholder="Instructions injected after the chat history. Use {{original}} for default."></textarea>
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="floating-label">
+                  <label class="form-label field-label"><span data-i18n="editor.creatorNotes">Creator Notes</span></label>
+<textarea class="form-control editor-textarea" id="editCreatorNotes" rows="5" 
+                          data-i18n-placeholder="editor.creatorNotesPlaceholder" placeholder="Notes for card users (model recommendations, usage tips...)"></textarea>
+                </div>
+              </div>
+              <div class="col-12">
+                <label class="form-label fw-semibold" style="font-size:0.85rem;color:var(--text-accent);"><span data-i18n="editor.greetings">Alternate Greetings</span> <span class="greeting-count" id="greetingCount"></span></label>
+                <div class="greetings-list" id="greetingsList"></div>
+                <button class="btn btn-outline-accent btn-sm mt-2" id="btnAddGreeting">
+                  <i class="bi bi-plus-lg me-1"></i> <span data-i18n="editor.addGreeting">Add Greeting</span>
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Lorebook Tab -->
+          <div class="tab-pane fade" id="tabLorebook">
+            <div id="lorebookContainer">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <label class="form-label field-label mb-0"><span data-i18n="editor.lorebookTitle">Character Lorebook Entries</span></label>
+                <button class="btn btn-outline-accent btn-sm" id="btnAddLoreEntry">
+                  <i class="bi bi-plus-lg me-1"></i> <span data-i18n="editor.addEntry">Add Entry</span>
+                </button>
+              </div>
+              <div class="lorebook-search">
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text"><i class="bi bi-search"></i></span>
+                  <input type="text" class="form-control" id="lorebookSearchInput" data-i18n-placeholder="editor.lorebookSearch" placeholder="Search entries by key, content, or comment...">
+                </div>
+              </div>
+              <div id="lorebookEntries">
+                <div class="text-center py-4" id="lorebookEmpty" style="color:var(--text-secondary);">
+                  <i class="bi bi-journal-text d-block mb-2" style="font-size: 2.5rem;color:var(--purple-400);"></i>
+                  <span data-i18n="editor.lorebookEmpty" style="font-size:0.85rem;">No lorebook entries yet. Add one to get started.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+    
+    <!-- RIGHT PANEL — AI Assistant -->
+    <aside class="panel panel-right" id="panelRight">
+      <div class="panel-resizer" id="resizerRight" role="separator" aria-label="Resize AI assistant" data-i18n-aria="ai.resizeAria" tabindex="0"></div>
+      <div class="panel-header">
+        <h6 class="panel-title"><i class="bi bi-robot me-2"></i><span data-i18n="ai.title">AI Assistant</span></h6>
+        <div class="d-flex gap-1">
+          <button class="btn btn-outline-secondary btn-sm" id="btnChatHistory" title="Chat history" data-i18n-title="ai.chatHistory">
+            <i class="bi bi-clock-history"></i>
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" id="btnClearChat" title="Clear chat" data-i18n-title="ai.clearChat">
+            <i class="bi bi-eraser"></i>
+          </button>
+        </div>
+      </div>
+      
+      <!-- AI Chat Messages -->
+      <div class="ai-chat-messages" id="aiChatMessages" role="log" aria-live="polite" aria-label="AI chat messages" data-i18n-aria="ai.chatMessagesAria">
+          <div class="ai-welcome">
+          <div class="ai-welcome-icon">
+            <i class="bi bi-magic"></i>
+          </div>
+          <h6 data-i18n="ai.welcomeTitle">AI Card Assistant</h6>
+          <p data-i18n="ai.welcomeText">Ask the AI to edit, translate, or enhance your character card.</p>
+          <div class="quick-actions">
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="newcard">
+              <i class="bi bi-magic me-1"></i> <span data-i18n="ai.quick.newCard">New Card</span>
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="translate">
+              <i class="bi bi-translate me-1"></i> <span data-i18n="ai.quick.translate">Translate</span>
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance">
+              <i class="bi bi-stars me-1"></i> <span data-i18n="ai.quick.enhance">Enhance</span>
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="shorten">
+              <i class="bi bi-arrows-angle-contract me-1"></i> <span data-i18n="ai.quick.shorten">Shorten</span>
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="tone">
+              <i class="bi bi-palette me-1"></i> <span data-i18n="ai.quick.tone">Change Tone</span>
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="grammar">
+              <i class="bi bi-check2-all me-1"></i> <span data-i18n="ai.quick.grammar">Fix Grammar</span>
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="personality">
+              <i class="bi bi-emoji-smile me-1"></i> <span data-i18n="ai.quick.personality">Expand Personality</span>
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="firstmes">
+              <i class="bi bi-chat-dots me-1"></i> <span data-i18n="ai.quick.firstmes">Improve First Message</span>
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="scenario">
+              <i class="bi bi-geo-alt me-1"></i> <span data-i18n="ai.quick.scenario">Expand Scenario</span>
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="greetings">
+              <i class="bi bi-list-ol me-1"></i> <span data-i18n="ai.quick.greetings">Generate Greetings</span>
+            </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="systemprompt">
+              <i class="bi bi-terminal me-1"></i> <span data-i18n="ai.quick.systemprompt">Enhance System Prompt</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      
+       <!-- Chat History Panel -->
+      <div class="ai-history-panel" id="aiHistoryPanel">
+        <div class="ai-history-title" data-i18n="ai.historyTitle">Chat History</div>
+        <div id="aiHistoryList">
+          <div class="ai-history-empty" data-i18n="ai.historyEmpty">No conversations yet</div>
+        </div>
+      </div>
+
+      <!-- AI Input -->
+       <div class="ai-input-area">
+          <div class="context-bar" id="contextBar" title="Estimated tokens used vs. model context limit" data-i18n-title="ai.contextTitle">
+           <div class="context-bar-fill" id="contextBarFill"></div>
+           <span class="context-bar-label" id="contextBarLabel">— / — tokens</span>
+         </div>
+         <div class="ai-input-row">
+           <textarea class="form-control ai-input" id="aiInput" 
+                     data-i18n-placeholder="ai.placeholder" placeholder="Ask AI to edit the card..." rows="2"></textarea>
+           <div class="ai-send-group">
+              <button class="btn btn-accent btn-sm ai-send-btn" id="btnAiSend" title="Send" data-i18n-title="ai.send">
+                <i class="bi bi-send-fill"></i>
+              </button>
+              <button class="btn btn-outline-danger btn-sm ai-send-btn d-none" id="btnAiStop" title="Stop generating" data-i18n-title="ai.stop">
+                <i class="bi bi-stop-fill"></i>
+              </button>
+           </div>
+         </div>
+           <div class="ai-input-actions">
+             <select class="form-select form-select-sm ai-model-select" id="aiModelSelect">
+               <option value="" data-i18n="nav.selectModel">Select model...</option>
+             </select>
+           </div>
+           <div class="ai-field-chips" id="aiFieldChips"></div>
+           <div class="ai-greeting-count" id="aiGreetingCount" style="display:none;">
+             <label class="ai-greeting-count-label" data-i18n="ai.count"><i class="bi bi-list-ol"></i> Count:</label>
+             <input type="number" class="ai-greeting-count-input" id="aiGreetingCountInput" value="3" min="1" max="20">
+           </div>
+       </div>
+    </aside>
+  </div>
+
+  <!-- ========== SETTINGS MODAL ========== -->
+  <div class="modal fade" id="settingsModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-gear-fill me-2"></i><span data-i18n="settings.title">Settings</span></h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <!-- Language -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold">
+               <i class="bi bi-translate me-2 text-accent"></i><span data-i18n="settings.languageLabel">Language</span>
+            </label>
+            <select class="form-select" id="languageSelect">
+              <option value="en">English</option>
+              <option value="fr">Français</option>
+              <option value="es">Español</option>
+              <option value="de">Deutsch</option>
+              <option value="pt">Português (BR)</option>
+              <option value="ja">日本語</option>
+              <option value="zh">中文</option>
+              <option value="ko">한국어</option>
+              <option value="el">Ελληνικά</option>
+              <option value="ru">Русский</option>
+            </select>
+          </div>
+
+          <!-- Provider -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold">
+              <i class="bi bi-hdd-network me-2 text-accent"></i><span data-i18n="settings.provider">Provider</span>
+            </label>
+            <select class="form-select" id="providerSelect">
+              <option value="openrouter">OpenRouter</option>
+              <option value="nanogpt">NanoGPT</option>
+              <option value="xai">xAI (Grok)</option>
+              <option value="zai">Z.AI (GLM)</option>
+              <option value="chutes">Chutes</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="custom" data-i18n="settings.providerCustom">Custom (OpenAI-compatible)</option>
+            </select>
+            <small class="form-text text-muted" id="providerHint" data-i18n="settings.providerHint">
+              Hosted model providers or a custom endpoint (LM Studio, Ollama, etc.)
+            </small>
+          </div>
+
+          <!-- OpenRouter Settings -->
+          <div id="openrouterSettings">
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-key-fill me-2 text-accent"></i><span data-i18n="settings.apiKey">API Key</span>
+              </label>
+              <div class="input-group">
+                <input type="password" class="form-control" id="apiKeyInput" 
+                       placeholder="sk-or-v1-...">
+                <button class="btn btn-outline-secondary" id="btnToggleApiKey" type="button">
+                  <i class="bi bi-eye-fill"></i>
+                </button>
+              </div>
+              <small class="form-text text-muted">
+                <a href="https://openrouter.ai/keys" target="_blank" class="text-accent" data-i18n="settings.getApiKey">
+                  Get your API key from OpenRouter <i class="bi bi-box-arrow-up-right ms-1"></i>
+                </a>
+              </small>
+            </div>
+          </div>
+
+          <!-- Named Provider Settings (NanoGPT, xAI, Z.AI, Chutes, DeepSeek) -->
+          <div id="namedProviderSettings" class="d-none">
+            <div class="mb-3">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-link-45deg me-2 text-accent"></i><span data-i18n="settings.baseUrl">API Base URL</span>
+              </label>
+              <input type="text" class="form-control" id="namedApiUrlInput" readonly>
+            </div>
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-key-fill me-2 text-accent"></i><span data-i18n="settings.apiKey">API Key</span>
+              </label>
+              <div class="input-group">
+                <input type="password" class="form-control" id="namedApiKeyInput"
+                       data-i18n-placeholder="settings.namedApiKeyPlaceholder" placeholder="Enter your API key">
+                <button class="btn btn-outline-secondary" id="btnToggleNamedApiKey" type="button">
+                  <i class="bi bi-eye-fill"></i>
+                </button>
+              </div>
+              <small class="form-text text-muted" id="namedProviderLink"></small>
+            </div>
+          </div>
+
+          <!-- Custom Provider Settings -->
+          <div id="customSettings" class="d-none">
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-link-45deg me-2 text-accent"></i><span data-i18n="settings.baseUrl">API Base URL</span>
+              </label>
+              <input type="text" class="form-control" id="customApiUrlInput"
+                     data-i18n-placeholder="settings.customApiPlaceholder" placeholder="http://localhost:1234/v1">
+              <small class="form-text text-muted" data-i18n="settings.customHint">
+                The OpenAI-compatible endpoint. Examples: LM Studio <code>http://localhost:1234/v1</code>, Ollama <code>http://localhost:11434/v1</code>
+              </small>
+            </div>
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-key me-2 text-accent"></i><span data-i18n="settings.apiKeyOptional">API Key</span> <small class="text-muted fw-normal" data-i18n="settings.apiKeyOptional">(optional)</small>
+              </label>
+              <input type="password" class="form-control" id="customApiKeyInput"
+                     data-i18n-placeholder="settings.apiKeyLocalPlaceholder" placeholder="Leave empty for local providers">
+              <small class="form-text text-muted" data-i18n="settings.apiKeyLocalHint">
+                Not needed for local servers like LM Studio or Ollama.
+              </small>
+            </div>
+          </div>
+
+          <!-- Model ID (shown for named + custom providers) -->
+          <div id="modelIdSection" class="d-none">
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-cpu me-2 text-accent"></i><span data-i18n="settings.modelId">Model ID</span>
+              </label>
+              <input type="text" class="form-control" id="customModelInput"
+                     placeholder="e.g. deepseek-v4-flash" data-i18n-placeholder="settings.modelIdPlaceholder">
+              <small class="form-text text-muted" id="modelIdHint" data-i18n="settings.modelIdHint">
+                The exact model ID your provider expects.
+              </small>
+            </div>
+          </div>
+
+          <!-- Security warning (OpenRouter only) -->
+          <div id="securityWarning" class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mb-0" style="font-size: 0.78rem;">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span data-i18n="settings.security">Your API key is stored locally in your browser's localStorage in plaintext. Do not use this app on shared devices.</span>
+          </div>
+          
+          <!-- OpenRouter-specific sections -->
+          <div id="openrouterExtras">
+            <!-- Model Selection -->
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-cpu-fill me-2 text-accent"></i><span data-i18n="settings.defaultModel">Default Model</span>
+              </label>
+              <div class="row g-2">
+                <div class="col-md-8">
+                  <select class="form-select" id="defaultModelSelect">
+                    <option value="" data-i18n="settings.browseModels">Browse models below...</option>
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <button class="btn btn-outline-accent w-100" id="btnRefreshModels">
+                    <i class="bi bi-arrow-clockwise me-1"></i> <span data-i18n="settings.refreshModels">Refresh Models</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          
+            <!-- Max Tokens -->
+            <div class="mb-4">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-speedometer me-2 text-accent"></i><span data-i18n="settings.maxTokens">Max Output Tokens</span>
+              </label>
+              <input type="number" class="form-control" id="maxTokensInput"
+                     min="0" step="1024" data-i18n-placeholder="settings.maxTokensPlaceholder" placeholder="0 = use model default">
+              <small class="form-text text-muted" data-i18n="settings.maxTokensHint">
+                Override the max output tokens per request. When set to 0, the provider uses the model's default output limit.
+              </small>
+            </div>
+
+            <!-- Copyright -->
+            <div class="mb-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="injectCopyrightToggle" checked>
+                <label class="form-check-label fw-semibold">
+                  <i class="bi bi-credit-card me-2 text-accent"></i><span data-i18n="settings.copyright">Inject editor credit on export</span>
+                </label>
+              </div>
+              <small class="form-text text-muted" data-i18n="settings.copyrightHint">
+                Adds a credit line to creator notes when exporting cards.
+              </small>
+            </div>
+          
+            <!-- Model List -->
+            <div class="mb-3">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <label class="form-label fw-semibold mb-0" data-i18n="settings.availableModels">Available Models</label>
+                <div class="input-group input-group-sm model-search-group">
+                  <span class="input-group-text"><i class="bi bi-search"></i></span>
+                  <input type="text" class="form-control" id="modelSearch" data-i18n-placeholder="settings.searchModels" placeholder="Search models...">
+                </div>
+              </div>
+              <div class="model-list" id="modelList">
+                <div class="text-center text-muted py-4">
+                  <i class="bi bi-cpu d-block mb-2" style="font-size: 2rem;"></i>
+                  <span data-i18n="settings.enterApiKey">Enter your API key and refresh to load models</span>
+                </div>
+              </div>
+            </div>
+          
+            <!-- Credits Info -->
+            <div class="credits-section" id="creditsSection">
+              <h6 class="fw-semibold mb-3"><i class="bi bi-coin me-2 text-accent"></i><span data-i18n="settings.credits">Credits & Usage</span></h6>
+              <div class="row g-3" id="creditsInfo">
+                <div class="col-md-3">
+                  <div class="stat-card">
+                    <div class="stat-value" id="creditLimit">--</div>
+                    <div class="stat-label" data-i18n="settings.creditLimit">Credit Limit</div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="stat-card">
+                    <div class="stat-value" id="creditRemaining">--</div>
+                    <div class="stat-label" data-i18n="settings.remaining">Remaining</div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="stat-card">
+                    <div class="stat-value" id="creditUsage">--</div>
+                    <div class="stat-label" data-i18n="settings.usedMonth">Used This Month</div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="stat-card">
+                    <div class="stat-value" id="storageUsage">--</div>
+                    <div class="stat-label" data-i18n="settings.localStorage">Local Storage</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div><!-- end openrouterExtras -->
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-danger btn-sm me-auto" id="btnClearStorage">
+            <i class="bi bi-trash me-1"></i> <span data-i18n="settings.clearAll">Clear All Data</span>
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnExportSettings" title="Export settings" data-i18n-title="settings.exportTitle">
+            <i class="bi bi-download me-1"></i> <span data-i18n="settings.export">Export</span>
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnImportSettings" title="Import settings" data-i18n-title="settings.importTitle">
+            <i class="bi bi-upload me-1"></i> <span data-i18n="settings.import">Import</span>
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnExportWorkspace" title="Backup all cards" data-i18n-title="settings.backupTitle">
+            <i class="bi bi-archive me-1"></i> <span data-i18n="settings.backup">Backup</span>
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btnImportWorkspace" title="Restore backup" data-i18n-title="settings.restoreTitle">
+            <i class="bi bi-box-arrow-in-down me-1"></i> <span data-i18n="settings.restore">Restore</span>
+          </button>
+          <input type="file" id="settingsFileInput" accept=".json" hidden>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="settings.close">Close</button>
+          <button type="button" class="btn btn-accent" id="btnSaveSettings">
+            <i class="bi bi-check-lg me-1"></i> <span data-i18n="settings.saveSettings">Save Settings</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== WIZARD MODAL ========== -->
+  <div class="modal fade" id="wizardModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content wizard-modal-content">
+        <div class="modal-header wizard-header">
+          <h5 class="modal-title"><i class="bi bi-magic me-2 text-accent"></i><span data-i18n="wizard.title">Create Character</span></h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body wizard-body">
+          <!-- Progress bar -->
+          <div class="wizard-progress">
+            <div class="wizard-progress-bar" id="wizardProgressBar"></div>
+          </div>
+          <div class="wizard-steps-indicator" id="wizardStepsIndicator"></div>
+
+          <!-- Step 1: Basics -->
+          <div class="wizard-step" data-step="1">
+            <h6 class="wizard-step-title"><i class="bi bi-person-fill"></i><span data-i18n="wizard.basicsTitle">Character Basics</span></h6>
+            <div class="wizard-form-card">
+              <div class="row g-3">
+                <div class="col-md-8">
+                  <div class="floating-label">
+                    <input type="text" class="form-control" id="wizName" maxlength="200" data-i18n-placeholder="wizard.namePlaceholder" placeholder="e.g. Elara Nightwhisper">
+                    <label><span data-i18n="wizard.nameLabel">Character Name</span> <span class="text-danger">*</span></label>
+                  </div>
+                </div>
+                <div class="col-md-4">
+                  <div class="floating-label">
+                    <select class="form-select" id="wizGender">
+                      <option value="" data-i18n="wizard.genderSelect">Select...</option>
+                      <option value="female" data-i18n="wizard.gender.female">Female (she/her)</option>
+                      <option value="male" data-i18n="wizard.gender.male">Male (he/him)</option>
+                      <option value="nonbinary" data-i18n="wizard.gender.nonbinary">Non-binary (they/them)</option>
+                      <option value="other" data-i18n="wizard.gender.other">Other...</option>
+                    </select>
+                    <label><span data-i18n="wizard.genderLabel">Gender / Pronouns</span></label>
+                  </div>
+                  <div class="floating-label mt-2">
+                    <input type="text" class="form-control d-none" id="wizGenderCustom" data-i18n-placeholder="wizard.genderCustom" placeholder="Custom pronouns (e.g. it/its)">
+                    <label><span data-i18n="wizard.genderCustom">Custom pronouns</span></label>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <div class="floating-label">
+                    <input type="text" class="form-control" id="wizTags" data-i18n-placeholder="wizard.tagsPlaceholder" placeholder="fantasy, warrior, elf, original">
+                    <label><span data-i18n="wizard.tagsLabel">Tags</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.tagsSub">comma-separated, helps organize your library</small>
+                </div>
+                <div class="col-md-6">
+                  <div class="floating-label">
+                    <input type="text" class="form-control" id="wizCreator" data-i18n-placeholder="wizard.creatorPlaceholder" placeholder="Your name / alias">
+                    <label><span data-i18n="wizard.creatorLabel">Creator</span></label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: Concept -->
+          <div class="wizard-step d-none" data-step="2">
+            <h6 class="wizard-step-title"><i class="bi bi-lightbulb"></i><span data-i18n="wizard.conceptTitle">Concept & Setting</span></h6>
+            <div class="wizard-form-card">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <div class="floating-label">
+                    <select class="form-select" id="wizType">
+                      <option value="" data-i18n="wizard.genderSelect">Select...</option>
+                      <option value="original" data-i18n="wizard.type.original">Original Character</option>
+                      <option value="fanfic" data-i18n="wizard.type.fanfic">Fan Fiction</option>
+                      <option value="game" data-i18n="wizard.type.game">Game Character</option>
+                      <option value="anime" data-i18n="wizard.type.anime">Anime / Manga</option>
+                      <option value="book" data-i18n="wizard.type.book">Book / Movie / Show</option>
+                      <option value="historical" data-i18n="wizard.type.historical">Historical Figure</option>
+                      <option value="mythological" data-i18n="wizard.type.mythological">Mythological / Folklore</option>
+                      <option value="vtuber" data-i18n="wizard.type.vtuber">VTuber / Streamer</option>
+                      <option value="other" data-i18n="wizard.type.other">Other</option>
+                    </select>
+                    <label><span data-i18n="wizard.typeLabel">Character Type</span></label>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="floating-label">
+                    <select class="form-select" id="wizLanguage">
+                      <option value="en" data-i18n="wizard.language.en">English</option>
+                      <option value="fr" data-i18n="wizard.language.fr">French</option>
+                      <option value="de" data-i18n="wizard.language.de">German</option>
+                      <option value="ja" data-i18n="wizard.language.ja">Japanese</option>
+                      <option value="other" data-i18n="wizard.language.other">Other</option>
+                    </select>
+                    <label><span data-i18n="wizard.languageLabel">Language</span></label>
+                  </div>
+                  <div class="floating-label mt-2">
+                    <input type="text" class="form-control d-none" id="wizLanguageCustom" data-i18n-placeholder="wizard.languageSpecify" placeholder="Specify language">
+                    <label><span data-i18n="wizard.languageSpecify">Specify language</span></label>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <label class="field-label"><span data-i18n="wizard.genreLabel">Genre / World</span> <small data-i18n="wizard.genreSub">(select all that apply)</small></label>
+                  <div class="wizard-chip-group" id="wizGenre">
+                    <button class="wizard-chip" data-value="fantasy" data-i18n="wizard.chip.fantasy">Fantasy</button>
+                    <button class="wizard-chip" data-value="scifi" data-i18n="wizard.chip.scifi">Sci-Fi</button>
+                    <button class="wizard-chip" data-value="modern" data-i18n="wizard.chip.modern">Modern</button>
+                    <button class="wizard-chip" data-value="historical" data-i18n="wizard.chip.historical">Historical</button>
+                    <button class="wizard-chip" data-value="horror" data-i18n="wizard.chip.horror">Horror</button>
+                    <button class="wizard-chip" data-value="romance" data-i18n="wizard.chip.romance">Romance</button>
+                    <button class="wizard-chip" data-value="comedy" data-i18n="wizard.chip.comedy">Comedy</button>
+                    <button class="wizard-chip" data-value="slice-of-life" data-i18n="wizard.chip.sliceOfLife">Slice of Life</button>
+                    <button class="wizard-chip" data-value="adventure" data-i18n="wizard.chip.adventure">Adventure</button>
+                    <button class="wizard-chip" data-value="mystery" data-i18n="wizard.chip.mystery">Mystery</button>
+                    <button class="wizard-chip" data-value="cyberpunk" data-i18n="wizard.chip.cyberpunk">Cyberpunk</button>
+                    <button class="wizard-chip" data-value="post-apocalyptic" data-i18n="wizard.chip.postApocalyptic">Post-Apocalyptic</button>
+                    <button class="wizard-chip" data-value="supernatural" data-i18n="wizard.chip.supernatural">Supernatural</button>
+                    <button class="wizard-chip" data-value="military" data-i18n="wizard.chip.military">Military</button>
+                    <button class="wizard-chip" data-value="surreal" data-i18n="wizard.chip.surreal">Surreal</button>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <label class="field-label"><span data-i18n="wizard.moodLabel">Mood / Tone</span> <small data-i18n="wizard.moodSub">(select all that apply)</small></label>
+                  <div class="wizard-chip-group" id="wizMood">
+                    <button class="wizard-chip" data-value="serious" data-i18n="wizard.chip.serious">Serious</button>
+                    <button class="wizard-chip" data-value="playful" data-i18n="wizard.chip.playful">Playful</button>
+                    <button class="wizard-chip" data-value="dark" data-i18n="wizard.chip.dark">Dark</button>
+                    <button class="wizard-chip" data-value="lighthearted" data-i18n="wizard.chip.lighthearted">Lighthearted</button>
+                    <button class="wizard-chip" data-value="mysterious" data-i18n="wizard.chip.mysterious">Mysterious</button>
+                    <button class="wizard-chip" data-value="romantic" data-i18n="wizard.chip.romantic">Romantic</button>
+                    <button class="wizard-chip" data-value="intense" data-i18n="wizard.chip.intense">Intense</button>
+                    <button class="wizard-chip" data-value="wholesome" data-i18n="wizard.chip.wholesome">Wholesome</button>
+                    <button class="wizard-chip" data-value="chaotic" data-i18n="wizard.chip.chaotic">Chaotic</button>
+                    <button class="wizard-chip" data-value="melancholic" data-i18n="wizard.chip.melancholic">Melancholic</button>
+                    <button class="wizard-chip" data-value="sarcastic" data-i18n="wizard.chip.sarcastic">Sarcastic</button>
+                    <button class="wizard-chip" data-value="stoic" data-i18n="wizard.chip.stoic">Stoic</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 3: Personality & Appearance -->
+          <div class="wizard-step d-none" data-step="3">
+            <h6 class="wizard-step-title"><i class="bi bi-brain"></i><span data-i18n="wizard.personalityTitle">Personality & Appearance</span></h6>
+            <div class="wizard-form-card">
+              <div class="row g-3">
+                <div class="col-12">
+                  <div class="floating-label">
+                    <textarea class="form-control" id="wizPersonalityDesc" rows="4" data-i18n-placeholder="wizard.personalityTraitsPlaceholder" placeholder="e.g. Brave but reckless, fiercely loyal to friends, has a dry sense of humor, struggles with trust, secretly loves animals"></textarea>
+                    <label><span data-i18n="wizard.personalityTraits">Personality Traits</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.personalityTraitsSub">describe 3-5 key traits, this helps the AI</small>
+                </div>
+                <div class="col-12">
+                  <div class="floating-label">
+                    <textarea class="form-control" id="wizAppearance" rows="4" data-i18n-placeholder="wizard.appearancePlaceholder" placeholder="e.g. Tall woman with silver hair down to her waist, scarred hands, wears a dark leather jacket, piercing green eyes"></textarea>
+                    <label><span data-i18n="wizard.appearanceLabel">Physical Appearance</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.appearanceSub">brief description of how they look</small>
+                </div>
+                <div class="col-12">
+                  <div class="floating-label">
+                    <textarea class="form-control" id="wizAbilities" rows="3" data-i18n-placeholder="wizard.abilitiesPlaceholder" placeholder="e.g. Can speak to animals, has a photographic memory, always carries a worn journal"></textarea>
+                    <label><span data-i18n="wizard.abilitiesLabel">Special Abilities / Quirks</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.abilitiesSub">optional, any unique traits</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 4: Scenario & First Message -->
+          <div class="wizard-step d-none" data-step="4">
+            <h6 class="wizard-step-title"><i class="bi bi-chat-dots"></i><span data-i18n="wizard.scenarioTitle">Scenario & First Message</span></h6>
+            <div class="wizard-form-card">
+              <div class="row g-3">
+                <div class="col-12">
+                  <div class="floating-label">
+                    <textarea class="form-control" id="wizScenario" rows="4" data-i18n-placeholder="wizard.scenarioPlaceholder" placeholder="e.g. A rainy night in a neon-lit city. The character runs a small repair shop that fixes both machines and broken hearts."></textarea>
+                    <label><span data-i18n="wizard.scenarioLabel">Scenario / Setting</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.scenarioSub">where does the story begin?</small>
+                </div>
+                <div class="col-12">
+                  <div class="floating-label">
+                    <textarea class="form-control" id="wizRelationship" rows="3" data-i18n-placeholder="wizard.relationshipPlaceholder" placeholder="e.g. A new customer who walked into the shop with a mysterious broken device. The character is curious but cautious."></textarea>
+                    <label><span data-i18n="wizard.relationshipLabel">Relationship to {{user}}</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.relationshipSub">how does the character see the user?</small>
+                </div>
+                <div class="col-12">
+                  <label class="field-label"><span data-i18n="wizard.openingLabel">First Message Vibe</span> <small data-i18n="wizard.openingSub">(what should the opening message feel like?)</small></label>
+                  <div class="wizard-chip-group" id="wizOpening">
+                    <button class="wizard-chip" data-value="greeting" data-i18n="wizard.chip.greeting">Warm Greeting</button>
+                    <button class="wizard-chip" data-value="action" data-i18n="wizard.chip.action">In Media Res</button>
+                    <button class="wizard-chip" data-value="question" data-i18n="wizard.chip.question">Curious Question</button>
+                    <button class="wizard-chip" data-value="mysterious" data-i18n="wizard.chip.mysterious">Mysterious</button>
+                    <button class="wizard-chip" data-value="conflict" data-i18n="wizard.chip.conflict">Immediate Conflict</button>
+                    <button class="wizard-chip" data-value="atmospheric" data-i18n="wizard.chip.atmospheric">Atmospheric</button>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <div class="floating-label">
+                    <textarea class="form-control" id="wizNotes" rows="3" data-i18n-placeholder="wizard.notesPlaceholder" placeholder="e.g. Keep the dialogue natural, avoid being overly formal, include action descriptions in asterisks"></textarea>
+                    <label><span data-i18n="wizard.notesLabel">Additional Notes</span></label>
+                  </div>
+                  <small class="field-hint" data-i18n="wizard.notesSub">anything else the AI should know?</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 5: Generate -->
+          <div class="wizard-step d-none" data-step="5">
+            <h6 class="wizard-step-title"><i class="bi bi-stars"></i><span data-i18n="wizard.generateTitle">Generate Character</span></h6>
+            <div class="wizard-summary" id="wizardSummary"></div>
+
+            <div class="wizard-image-section">
+              <label class="form-label field-label"><span data-i18n="wizard.refImage">Reference Image</span> <small data-i18n="wizard.refImageSub">(optional, from waifu.im)</small></label>
+              
+              <!-- Tag Search -->
+              <div class="wizard-image-search">
+                <div class="wizard-search-row">
+                  <input type="text" class="form-control wizard-search-input" id="wizImageTagSearch"
+                    placeholder="Search tags: cat, dress, uniform, cyberpunk..." data-i18n-placeholder="wizard.imageSearchPlaceholder"
+                    spellcheck="false" autocomplete="off">
+                  <button class="btn btn-accent btn-sm" id="wizBtnSearchImages" type="button">
+                    <i class="bi bi-search me-1"></i><span data-i18n="wizard.search">Search</span>
+                  </button>
+                </div>
+                <div class="wizard-quick-tags" id="wizQuickTags">
+                  <span class="wizard-quick-tags-label" data-i18n="wizard.quick">Quick:</span>
+                </div>
+              </div>
+
+              <div class="wizard-image-grid" id="wizImageGrid">
+                <div class="wizard-image-card" data-idx="0">
+                  <div class="wizard-image-preview">
+                    <img class="wiz-thumb" src="" alt="" hidden>
+                    <div class="wiz-image-loader d-none"><div class="spinner-border spinner-border-sm text-light" role="status"></div><span class="wiz-image-loader-text">Loading</span></div>
+                    <div class="wizard-image-placeholder"><i class="bi bi-camera"></i><span data-i18n="wizard.imagePlaceholder">Click Fetch</span></div>
+                    <div class="wizard-image-selected"><i class="bi bi-check-circle-fill"></i></div>
+                  </div>
+                </div>
+                <div class="wizard-image-card" data-idx="1">
+                  <div class="wizard-image-preview">
+                    <img class="wiz-thumb" src="" alt="" hidden>
+                    <div class="wiz-image-loader d-none"><div class="spinner-border spinner-border-sm text-light" role="status"></div><span class="wiz-image-loader-text">Loading</span></div>
+                    <div class="wizard-image-placeholder"><i class="bi bi-camera"></i><span data-i18n="wizard.imagePlaceholder">Click Fetch</span></div>
+                    <div class="wizard-image-selected"><i class="bi bi-check-circle-fill"></i></div>
+                  </div>
+                </div>
+                <div class="wizard-image-card" data-idx="2">
+                  <div class="wizard-image-preview">
+                    <img class="wiz-thumb" src="" alt="" hidden>
+                    <div class="wiz-image-loader d-none"><div class="spinner-border spinner-border-sm text-light" role="status"></div><span class="wiz-image-loader-text">Loading</span></div>
+                    <div class="wizard-image-placeholder"><i class="bi bi-camera"></i><span data-i18n="wizard.imagePlaceholder">Click Fetch</span></div>
+                    <div class="wizard-image-selected"><i class="bi bi-check-circle-fill"></i></div>
+                  </div>
+                </div>
+              </div>
+              <div class="wizard-image-actions">
+                <button class="btn btn-sm btn-outline-accent" id="wizBtnFetchImage" type="button">
+                  <i class="bi bi-shuffle me-1"></i><span data-i18n="wizard.fetchImages">Fetch 3 Images</span>
+                </button>
+                <button class="btn btn-sm btn-accent d-none" id="wizBtnUseImage" type="button">
+                  <i class="bi bi-check-lg me-1"></i><span data-i18n="wizard.useSelected">Use Selected</span>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary d-none" id="wizBtnRemoveImage" type="button">
+                  <i class="bi bi-x-lg me-1"></i><span data-i18n="wizard.clear">Clear</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="wizard-sticky-actions">
+              <div class="wizard-generate-options">
+                <button class="btn btn-accent btn-lg w-100 wizard-generate-btn" id="wizBtnAI">
+                  <i class="bi bi-magic me-2"></i><span data-i18n="wizard.generateAI">Generate with AI</span>
+                  <small class="d-block text opacity-75" style="font-size:0.7rem;" data-i18n="wizard.generateAISub">Full character card from your answers</small>
+                </button>
+                <button class="btn btn-outline-accent btn-lg w-100 wizard-generate-btn" id="wizBtnBlank">
+                  <i class="bi bi-plus-circle me-2"></i><span data-i18n="wizard.createBlank">Create Blank Card</span>
+                  <small class="d-block text opacity-75" style="font-size:0.7rem;" data-i18n="wizard.createBlankSub">Start with name and tags pre-filled</small>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Wizard Footer -->
+        <div class="modal-footer wizard-footer">
+          <button type="button" class="btn btn-outline-secondary" id="wizBtnBack" disabled>
+            <i class="bi bi-arrow-left me-1"></i> <span data-i18n="wizard.back">Back</span>
+          </button>
+          <div class="wizard-step-label" id="wizStepLabel">Step 1 of 5</div>
+          <button type="button" class="btn btn-accent" id="wizBtnNext">
+            <span data-i18n="wizard.next">Next</span> <i class="bi bi-arrow-right ms-1"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== AI FULL RESULT MODAL ========== -->
+  <div class="modal fade" id="aiResultModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" data-i18n="ai.resultTitle"><i class="bi bi-file-text me-2 text-accent"></i>Result</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body ai-result-body"></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-accent btn-sm" id="btnCopyResult" data-i18n="ai.copy"><i class="bi bi-clipboard me-1"></i>Copy</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal" data-i18n="ai.close"><i class="bi bi-x-lg me-1"></i>Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== AI DIFF MODAL ========== -->
+  <div class="modal fade" id="aiPreviewModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-split-cells me-2 text-accent"></i><span data-i18n="diff.title">AI Response Preview</span></h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="diff-legend">
+            <span><span class="diff-del">&nbsp;removed&nbsp;</span> <span data-i18n="diff.removed">Removed</span></span>
+            <span><span class="diff-add">&nbsp;added&nbsp;</span> <span data-i18n="diff.added">Added</span></span>
+          </div>
+          <div class="diff-container">
+            <div class="diff-pane diff-pane-old">
+              <div class="diff-pane-header"><i class="bi bi-dash-circle"></i> <span data-i18n="diff.current">Current</span></div>
+              <div class="diff-pane-body" id="aiDiffOld"><span class="diff-empty" data-i18n="diff.empty">(empty)</span></div>
+            </div>
+            <div class="diff-pane diff-pane-new">
+              <div class="diff-pane-header"><i class="bi bi-plus-circle"></i> <span data-i18n="diff.proposed">Proposed</span></div>
+              <div class="diff-pane-body" id="aiDiffNew"></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" data-i18n="diff.discard">Discard</button>
+          <button type="button" class="btn btn-accent" id="btnAcceptAI">
+            <i class="bi bi-check-lg me-1"></i><span data-i18n="diff.apply">Apply Changes</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Keyboard Shortcuts Help -->
+  <div class="modal fade" id="shortcutsModal" tabindex="-1">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-keyboard me-2 text-accent"></i><span data-i18n="shortcuts.title">Shortcuts</span></h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" style="font-size:0.85rem;">
+          <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span data-i18n="shortcuts.save">Save card</span><kbd>Ctrl+S</kbd></div>
+          <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span data-i18n="shortcuts.newCard">New card</span><kbd>Ctrl+N</kbd></div>
+          <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span data-i18n="shortcuts.undo">Undo</span><kbd>Ctrl+Z</kbd></div>
+          <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span data-i18n="shortcuts.redo">Redo</span><kbd>Ctrl+Y</kbd></div>
+          <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span data-i18n="shortcuts.sendAi">Send AI message</span><kbd>Enter</kbd></div>
+          <div class="d-flex justify-content-between py-1"><span data-i18n="shortcuts.newLine">New line in AI</span><kbd>Shift+Enter</kbd></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Panel Toggle (mobile) -->
+  <button class="btn btn-accent d-lg-none position-fixed bottom-0 end-0 m-3 rounded-circle shadow"
+          id="btnToggleAI" style="width:48px;height:48px;z-index:1050;" title="Toggle AI Assistant" aria-label="Toggle AI Assistant" data-i18n-title="nav.toggleAI" data-i18n-aria="nav.toggleAIAria">
+    <i class="bi bi-robot"></i>
+  </button>
+
+  <div class="toast-container position-fixed top-0 start-50 translate-middle-x p-3" id="toastContainer" role="status" aria-live="polite" aria-label="Notifications" data-i18n-aria="nav.notificationsAria" style="z-index:9999;"></div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- CDN Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/diff/dist/diff.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js"></script>
+  
+  <!-- App Modules -->
+  <script src="js/animations.js?v=22"></script>
+  <script src="js/tokenizer.js?v=22"></script>
+  <script src="js/cardEngine.js?v=22"></script>
+  <script src="js/aiService.js?v=22"></script>
+  <script src="js/storage.js?v=22"></script>
+  <script src="js/exportUtils.js?v=22"></script>
+  <script src="js/editor.js?v=22"></script>
+  <script src="js/cardManager.js?v=22"></script>
+  <script src="js/aiChat.js?v=22"></script>
+  <script src="js/wizard.js?v=22"></script>
+  <script src="js/settings.js?v=22"></script>
+  <script src="js/i18n.js?v=23"></script>
+  <script src="js/ui.js?v=23"></script>
+</body>
+</html>

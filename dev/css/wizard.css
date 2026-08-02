@@ -1,0 +1,554 @@
+﻿/* ============================================================
+   CARD CREATION WIZARD
+   ============================================================ */
+.wizard-modal-content {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg), 0 0 60px var(--purple-glow);
+}
+.wizard-header {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--surface-border);
+  padding: 1rem 1.25rem;
+}
+.wizard-header .modal-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--text-primary);
+}
+.wizard-body {
+  padding: 1.25rem 1.5rem;
+  min-height: 420px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* Progress */
+.wizard-progress {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-tertiary);
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+.wizard-progress-bar {
+  height: 100%;
+  background: var(--accent-gradient);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 8px var(--purple-glow);
+}
+
+/* ── Enhanced Stepper with Connectors ── */
+.wizard-steps-indicator {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+}
+.wizard-step-dot-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  flex: 1;
+  max-width: 80px;
+}
+.wizard-step-dot {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-subtle);
+  z-index: 2;
+}
+.wizard-step-dot.active {
+  color: #fff;
+  background: var(--purple-600);
+  border-color: var(--purple-400);
+  box-shadow: 0 0 12px var(--purple-glow);
+  transform: scale(1.12);
+}
+.wizard-step-dot.done {
+  color: #fff;
+  background: var(--success);
+  border-color: var(--success);
+}
+.wizard-step-dot.future {
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-color: var(--border-subtle);
+  opacity: 0.6;
+}
+.wizard-step-dot.active span i {
+  font-size: 0.85rem;
+}
+.wizard-step-dot.done i {
+  font-size: 0.85rem;
+}
+.wizard-step-dot-label {
+  font-size: 0.6rem;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-align: center;
+  margin-top: 6px;
+  max-width: 72px;
+  overflow: hidden;
+  line-height: 1.15;
+}
+.wizard-step-dot-wrap:hover .wizard-step-dot-label {
+  color: var(--text-accent);
+}
+.wizard-connector {
+  position: absolute;
+  top: 17px;
+  left: calc(50% + 17px);
+  right: calc(-50% + 17px);
+  height: 2px;
+  background: var(--border-subtle);
+  z-index: 1;
+}
+.wizard-connector.done {
+  background: var(--success);
+  box-shadow: 0 0 4px var(--success);
+}
+
+/* ── Floating Form Cards per Step ── */
+.wizard-form-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: 1.1rem 1rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+  margin-bottom: 0.8rem;
+}
+.wizard-form-card:hover {
+  border-color: var(--purple-500);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+
+/* Steps */
+.wizard-step-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--surface-border);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.wizard-step-title i {
+  color: var(--purple-400);
+}
+.wizard-step .field-label {
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.wizard-step .form-control,
+.wizard-step .form-select {
+  background: var(--bg-deep);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.wizard-step textarea.form-control {
+  resize: vertical;
+  min-height: 80px;
+}
+.wizard-step .form-control:focus,
+.wizard-step .form-select:focus {
+  border-color: var(--purple-500);
+  box-shadow: 0 0 0 2px var(--purple-glow);
+}
+
+/* ── Floating Labels (matching editor style) ── */
+.wizard-step .floating-label {
+  position: relative;
+}
+.wizard-step .floating-label > label {
+  position: absolute;
+  top: 0.7rem;
+  left: 0.8rem;
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  pointer-events: none;
+  z-index: 2;
+  transform-origin: left top;
+  opacity: 1;
+  transition: all 0.18s ease;
+}
+.wizard-step .floating-label > label small {
+  font-weight: 400;
+  opacity: 0.75;
+  font-size: 0.92em;
+}
+.wizard-step .floating-label > label.floated {
+  top: 0.28rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-accent);
+  opacity: 1;
+  letter-spacing: 0.02em;
+}
+.wizard-step .floating-label input,
+.wizard-step .floating-label select,
+.wizard-step .floating-label textarea {
+  padding-top: 1.35rem !important;
+  padding-bottom: 0.35rem !important;
+}
+.field-hint {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-top: 0.2rem;
+  margin-bottom: 0.1rem;
+  line-height: 1.3;
+}
+
+/* Chip Groups */
+.wizard-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.wizard-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 20px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-deep);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+.wizard-chip:hover {
+  border-color: var(--purple-500);
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+.wizard-chip.active {
+  background: var(--purple-600);
+  border-color: var(--purple-400);
+  color: #fff;
+  box-shadow: 0 0 8px var(--purple-glow);
+}
+
+/* Summary */
+.wizard-summary {
+  margin-bottom: 1rem;
+}
+.wizard-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.wizard-summary-item {
+  padding: 0.5rem 0.7rem;
+  background: var(--bg-deep);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-border);
+  position: relative;
+  transition: border-color var(--transition-fast);
+}
+.wizard-summary-item:hover {
+  border-color: var(--purple-500);
+}
+.wizard-summary-item.full {
+  grid-column: 1 / -1;
+}
+.wizard-summary-label {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.15rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.wizard-edit-btn {
+  font-size: 0.6rem !important;
+  color: var(--text-muted) !important;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  line-height: 1;
+}
+.wizard-summary-item:hover .wizard-edit-btn {
+  opacity: 0.6;
+}
+.wizard-edit-btn:hover {
+  opacity: 1 !important;
+  color: var(--purple-500) !important;
+}
+.wizard-summary-value {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+/* Generate Buttons (sticky) */
+.wizard-sticky-actions {
+  position: sticky;
+  bottom: -1.25rem;
+  background: var(--bg-surface);
+  padding: 0.6rem 0;
+  margin-bottom: 0;
+  z-index: 5;
+  border-top: 1px solid var(--surface-border);
+}
+.wizard-generate-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.wizard-generate-btn {
+  padding: 0.85rem !important;
+  font-weight: 600;
+  transition: all var(--transition-normal);
+}
+.wizard-generate-btn:hover {
+  transform: translateY(-1px);
+}
+
+/* Wizard image section */
+.wizard-image-section {
+  margin-bottom: 0.8rem;
+  padding: 0.8rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--surface-border);
+  background: var(--bg-deep);
+}
+.wizard-image-section .field-label {
+  font-size: 0.78rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Image tag search */
+.wizard-image-search {
+  margin-bottom: 0.5rem;
+}
+.wizard-search-row {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.3rem;
+}
+.wizard-search-input {
+  flex: 1;
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--text-primary) !important;
+  font-size: 0.78rem !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 0.3rem 0.5rem !important;
+  min-height: 0 !important;
+}
+.wizard-search-input:focus {
+  border-color: var(--purple-500) !important;
+  box-shadow: 0 0 0 2px var(--purple-glow) !important;
+}
+.wizard-search-input::placeholder {
+  color: var(--text-placeholder);
+  opacity: 1;
+}
+
+.wizard-quick-tags {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+.wizard-quick-tags-label {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+  margin-right: 0.15rem;
+}
+.wizard-quick-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.6rem;
+  font-weight: 500;
+  border-radius: 100px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+  white-space: nowrap;
+}
+.wizard-quick-tag:hover {
+  border-color: var(--purple-500);
+  color: var(--text-accent);
+  background: rgba(145, 71, 0.08);
+}
+.wizard-quick-tag.active {
+  background: var(--purple-600);
+  border-color: var(--purple-400);
+  color: #fff;
+}
+
+/* Image grid */
+.wizard-image-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+.wizard-image-card {
+  border-radius: var(--radius-md);
+  border: 2px solid var(--border-subtle);
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+  overflow: hidden;
+  min-height: 120px;
+}
+.wizard-image-card:hover {
+  border-color: var(--purple-400);
+}
+.wizard-image-card.selected {
+  border-color: var(--purple-500);
+  box-shadow: 0 0 0 3px var(--purple-500), 0 0 20px var(--purple-glow);
+  transform: scale(1.04);
+}
+.wizard-image-card.selected .wizard-image-selected {
+  opacity: 1;
+}
+.wizard-image-selected {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 1.3rem;
+  color: var(--purple-500);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  filter: drop-shadow(0 0 3px rgba(0,0,0,0.5));
+  line-height: 1;
+  pointer-events: none;
+}
+.wizard-image-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.wizard-image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.wizard-image-placeholder {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 1rem;
+  opacity: 0.5;
+  padding: 1rem;
+  gap: 0.2rem;
+  text-align: center;
+  transition: opacity var(--transition-fast);
+}
+.wizard-image-placeholder i {
+  font-size: 1.6rem;
+  margin-bottom: 0.15rem;
+}
+.wizard-image-placeholder span {
+  font-size: 0.55rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Loading spinner within image card */
+.wiz-image-loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.35);
+  z-index: 3;
+  color: #fff;
+  gap: 0.3rem;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.wiz-image-loader .spinner-border {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-width: 2px;
+}
+.wiz-image-loader-text {
+  font-size: 0.5rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+}
+
+.wizard-image-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+/* Footer */
+.wizard-footer {
+  border-top: 1px solid var(--surface-border);
+  padding: 0.75rem 1.25rem;
+}
+.wizard-step-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+@media (max-width: 768px) {
+  .diff-container { flex-direction: column; }
+  .wizard-summary-grid { grid-template-columns: 1fr; }
+  .wizard-steps-indicator { gap: 0.4rem; }
+  .wizard-step-dot { width: 28px; height: 28px; font-size: 0.65rem; }
+  .wizard-step-dot-label { font-size: 0.5rem; }
+  .wizard-connector { top: 14px; }
+  .wizard-image-grid { grid-template-columns: repeat(3, 1fr); gap: 0.3rem; }
+}
