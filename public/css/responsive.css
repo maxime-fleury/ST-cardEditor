@@ -14,7 +14,7 @@
   .panel-left { width: 240px; min-width: 240px; }
 }
 @media (max-width: 768px) {
-  .panel-left { width: 100%; min-width: 100%;
+  .panel-left { width: 100%; min-width: 100%; max-width: none;
     max-height: 38vh; border-right: none; border-bottom: 1px solid var(--surface-border); }
   .app-container { flex-direction: column; overflow-y: auto; }
   .panel-center { min-height: 60vh; }

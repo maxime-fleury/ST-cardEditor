@@ -3,7 +3,7 @@
    Caches the app shell (HTML/CSS/JS) for offline usage.
    ============================================================ */
 
-const CACHE_NAME = 'stce-v2.1';
+const CACHE_NAME = 'stce-v2.2';
 const SHELL_FILES = [
   '/',
   '/index.html',

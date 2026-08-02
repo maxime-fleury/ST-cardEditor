@@ -40,6 +40,7 @@
 .panel-left {
   width: var(--panel-left-width);
   min-width: var(--panel-left-width);
+  max-width: 480px;
   border-right: 1px solid var(--surface-border);
   position: relative;
   background: var(--glass-bg);
@@ -58,6 +59,7 @@
 .panel-right {
   width: var(--panel-right-width);
   min-width: var(--panel-right-width);
+  max-width: 560px;
   border-left: 1px solid var(--surface-border);
   position: relative;
   background: var(--glass-bg);

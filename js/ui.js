@@ -613,41 +613,66 @@ function bindEvents(settingsModal) {
   // ─── PANEL RESIZERS ───────────────────────────────
   function setupPanelResizers() {
     const CENTER_MIN = 320;
+    const LEFT_MIN = 220;
+    const LEFT_MAX = 480;
+    const RIGHT_MIN = 280;
+    const RIGHT_MAX = 560;
     const root = document.documentElement;
     const app = document.querySelector('#appContainer');
 
-    function constrainRightWidth(w, containerWidth) {
-      const leftW = parseFloat(root.style.getPropertyValue('--panel-left-width')) || 300;
-      const maxForCenter = Math.max(280, containerWidth - leftW - CENTER_MIN);
-      return Math.max(280, Math.min(560, w, maxForCenter));
+    // Read a saved width as a bare number, tolerating legacy values that were
+    // stored with a "px" suffix ("300px" or even the corrupt "300pxpx").
+    function readSavedWidth(key, fallback) {
+      const raw = localStorage.getItem(CardStorage.PREFIX + key);
+      const n = raw ? parseFloat(raw) : NaN;
+      return Number.isFinite(n) && n > 0 ? Math.round(n) : fallback;
     }
 
-    function constrainLeftWidth(w, containerWidth) {
-      const rightW = parseFloat(root.style.getPropertyValue('--panel-right-width')) || 360;
-      const maxForCenter = Math.max(220, containerWidth - rightW - CENTER_MIN);
-      return Math.max(220, Math.min(480, w, maxForCenter));
+    // Clamp both panels to their hard min/max while guaranteeing the center
+    // panel keeps at least CENTER_MIN. Always writes the corrected values back
+    // to localStorage so reloads are stable (self-healing).
+    function applyClampedWidths(persist) {
+      const containerWidth = app.getBoundingClientRect().width || window.innerWidth || 0;
+      let left = readSavedWidth('panelLeft', 300);
+      let right = readSavedWidth('panelRight', 360);
+
+      // Hard per-panel limits
+      left = Math.max(LEFT_MIN, Math.min(LEFT_MAX, left));
+      right = Math.max(RIGHT_MIN, Math.min(RIGHT_MAX, right));
+
+      // Make sure the center panel never collapses on small windows
+      const budget = Math.max(0, containerWidth - CENTER_MIN);
+      if (left + right > budget) {
+        const overflow = left + right - budget;
+        const headroom = (left - LEFT_MIN) + (right - RIGHT_MIN);
+        if (headroom > 0) {
+          const leftCut = Math.min(left - LEFT_MIN, Math.round(overflow * ((left - LEFT_MIN) / headroom)));
+          const rightCut = Math.min(right - RIGHT_MIN, Math.round(overflow * ((right - RIGHT_MIN) / headroom)));
+          left = Math.max(LEFT_MIN, left - leftCut);
+          right = Math.max(RIGHT_MIN, right - rightCut);
+          // Correct rounding leftovers so the center always fits
+          if (left + right > budget) {
+            if (left > LEFT_MIN) left = Math.max(LEFT_MIN, left - (left + right - budget));
+            else right = Math.max(RIGHT_MIN, right - (left + right - budget));
+          }
+        }
+      }
+
+      root.style.setProperty('--panel-left-width', left + 'px');
+      root.style.setProperty('--panel-right-width', right + 'px');
+      if (persist) {
+        localStorage.setItem(CardStorage.PREFIX + 'panelLeft', String(left));
+        localStorage.setItem(CardStorage.PREFIX + 'panelRight', String(right));
+      }
     }
 
-    const savedL = localStorage.getItem(CardStorage.PREFIX + 'panelLeft');
-    const savedR = localStorage.getItem(CardStorage.PREFIX + 'panelRight');
-    if (savedL) root.style.setProperty('--panel-left-width', savedL + 'px');
-    if (savedR) root.style.setProperty('--panel-right-width', savedR + 'px');
-    // Clamp restored widths so centre never collapses
-    const containerRect = app.getBoundingClientRect();
-    if (savedR) {
-      const clampedR = constrainRightWidth(parseFloat(savedR), containerRect.width);
-      if (clampedR !== parseFloat(savedR)) {
-        root.style.setProperty('--panel-right-width', clampedR + 'px');
-        localStorage.setItem(CardStorage.PREFIX + 'panelRight', clampedR + 'px');
-      }
-    }
-    if (savedL) {
-      const clampedL = constrainLeftWidth(parseFloat(savedL), containerRect.width);
-      if (clampedL !== parseFloat(savedL)) {
-        root.style.setProperty('--panel-left-width', clampedL + 'px');
-        localStorage.setItem(CardStorage.PREFIX + 'panelLeft', clampedL + 'px');
-      }
-    }
+    // Self-heal corrupt persisted widths on every load
+    applyClampedWidths(true);
+
+    // Re-clamp on window resize so panels shrink instead of breaking the layout
+    window.addEventListener('resize', () => {
+      requestAnimationFrame(() => applyClampedWidths(false));
+    });
 
     const startDrag = (which) => (e) => {
       e.preventDefault();
@@ -657,20 +682,25 @@ function bindEvents(settingsModal) {
         const x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
         if (which === 'left') {
           let w = Math.round(x - rect.left);
-          w = Math.max(220, Math.min(480, w));
-          w = constrainLeftWidth(w, rect.width);
+          w = Math.max(LEFT_MIN, Math.min(LEFT_MAX, w));
+          const rightW = parseFloat(root.style.getPropertyValue('--panel-right-width')) || 360;
+          w = Math.min(w, Math.max(LEFT_MIN, rect.width - rightW - CENTER_MIN));
           root.style.setProperty('--panel-left-width', w + 'px');
         } else {
           let w = Math.round(rect.right - x);
-          w = Math.max(280, Math.min(560, w));
-          w = constrainRightWidth(w, rect.width);
+          w = Math.max(RIGHT_MIN, Math.min(RIGHT_MAX, w));
+          const leftW = parseFloat(root.style.getPropertyValue('--panel-left-width')) || 300;
+          w = Math.min(w, Math.max(RIGHT_MIN, rect.width - leftW - CENTER_MIN));
           root.style.setProperty('--panel-right-width', w + 'px');
         }
       };
       const up = () => {
         document.body.classList.remove('resizing');
-        localStorage.setItem(CardStorage.PREFIX + 'panelLeft', root.style.getPropertyValue('--panel-left-width'));
-        localStorage.setItem(CardStorage.PREFIX + 'panelRight', root.style.getPropertyValue('--panel-right-width'));
+        // Persist bare numbers (never the "300px" CSS string)
+        const finalLeft = Math.round(parseFloat(root.style.getPropertyValue('--panel-left-width'))) || 300;
+        const finalRight = Math.round(parseFloat(root.style.getPropertyValue('--panel-right-width'))) || 360;
+        localStorage.setItem(CardStorage.PREFIX + 'panelLeft', String(finalLeft));
+        localStorage.setItem(CardStorage.PREFIX + 'panelRight', String(finalRight));
         window.removeEventListener('mousemove', move);
         window.removeEventListener('mouseup', up);
         window.removeEventListener('touchmove', move);
