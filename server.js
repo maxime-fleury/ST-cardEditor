@@ -1,7 +1,7 @@
 // Bun global — Bun.serve is always available
 // import.meta.dir is supported in Bun
 
-import { join, extname, resolve } from "path";
+import { join, extname, resolve, sep } from "path";
 
 const PORT = parseInt(process.env.PORT || '8182');
 const PUBLIC_DIR = resolve(join(import.meta.dir, "public"));
@@ -66,6 +66,16 @@ const server = Bun.serve({
 
     // API proxy — forwards requests to OpenRouter to avoid CORS
     if (pathname.startsWith("/api/")) {
+      // Handle CORS preflight before proxying API requests.
+      if (req.method === "OPTIONS") {
+        return new Response(null, {
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+          },
+        });
+      }
       const targetPath = pathname.slice(4); // remove /api prefix
       const targetUrl = `https://openrouter.ai/api${targetPath}${url.search}`;
       const headers = new Headers();
@@ -87,27 +97,16 @@ const server = Bun.serve({
       });
     }
 
-    // Handle CORS preflight for /api routes
-    if (req.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        },
-      });
-    }
-
     // Determine file path and prevent directory traversal
     let filePath;
     if (pathname.startsWith("/js/")) {
       filePath = resolve(join(import.meta.dir, pathname));
-      if (!filePath.startsWith(JS_DIR)) {
+      if (filePath !== JS_DIR && !filePath.startsWith(JS_DIR + sep)) {
         return new Response("Forbidden", { status: 403 });
       }
     } else {
       filePath = resolve(join(PUBLIC_DIR, pathname));
-      if (!filePath.startsWith(PUBLIC_DIR)) {
+      if (filePath !== PUBLIC_DIR && !filePath.startsWith(PUBLIC_DIR + sep)) {
         return new Response("Forbidden", { status: 403 });
       }
     }

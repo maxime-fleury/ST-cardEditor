@@ -78,7 +78,7 @@ const CardManager = {
     const count = document.querySelector('#batchCount');
     const compareBtn = document.querySelector('#btnBatchCompare');
     if (!toolbar) return;
-    if (this._selectedIds.size >= 2) {
+    if (this._selectedIds.size > 0) {
       toolbar.classList.remove('d-none');
       count.textContent = I18n.t('left.selected', { count: this._selectedIds.size });
       // Show compare button only when exactly 2 cards are selected
