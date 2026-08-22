@@ -188,12 +188,13 @@
 }
 .wizard-step .floating-label > label {
   position: absolute;
-  top: 0.7rem;
+  top: 0.28rem;
   left: 0.8rem;
   margin: 0;
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-accent);
+  letter-spacing: 0.02em;
   pointer-events: none;
   z-index: 2;
   transform-origin: left top;
