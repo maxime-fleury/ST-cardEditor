@@ -411,6 +411,8 @@ Check the [Actions tab](https://github.com/maxime-fleury/ST-cardEditor/actions) 
 
 This project is open source and available under the [MIT License](LICENSE).
 
+Copyright © 2026 [Maxime Fleury](https://github.com/maxime-fleury).
+
 ---
 
 ## Acknowledgments
