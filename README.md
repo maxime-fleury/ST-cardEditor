@@ -426,6 +426,8 @@ This project is open source and available under the [MIT License](LICENSE).
 Copyright © 2026 [Maxime Fleury](https://github.com/maxime-fleury).
 
 ---
+## AI usage
+This project may be used, modified, and incorporated into AI systems, including for training, inference, evaluation, research, and commercial purposes, subject to the terms of the MIT License.
 
 ## Acknowledgments
 
