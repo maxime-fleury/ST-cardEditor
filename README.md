@@ -30,6 +30,10 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 |:---:|:---:|
 | ![Settings](.github/screenshots/10-settings.png) | ![Full Dark](.github/screenshots/11-full-dark.png) |
 
+| Language Picker (21 languages) | Arabic — RTL layout |
+|:---:|:---:|
+| ![Language Picker](.github/screenshots/13-lang-picker.png) | ![Arabic RTL](.github/screenshots/14-arabic-rtl.png) |
+
 ---
 
 ## Features
