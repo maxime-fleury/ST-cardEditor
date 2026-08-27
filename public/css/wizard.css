@@ -113,8 +113,8 @@
 .wizard-connector {
   position: absolute;
   top: 17px;
-  left: calc(50% + 17px);
-  right: calc(-50% + 17px);
+  inset-inline-start: calc(50% + 17px);
+  inset-inline-end: calc(-50% + 17px);
   height: 2px;
   background: var(--border-subtle);
   z-index: 1;
@@ -189,7 +189,7 @@
 .wizard-step .floating-label > label {
   position: absolute;
   top: 0.28rem;
-  left: 0.8rem;
+  inset-inline-start: 0.8rem;
   margin: 0;
   font-size: 0.68rem;
   font-weight: 600;
@@ -394,7 +394,7 @@
   color: var(--text-muted);
   font-weight: 500;
   white-space: nowrap;
-  margin-right: 0.15rem;
+  margin-inline-end: 0.15rem;
 }
 .wizard-quick-tag {
   display: inline-flex;
@@ -452,7 +452,7 @@
 .wizard-image-selected {
   position: absolute;
   top: 4px;
-  right: 4px;
+  inset-inline-end: 4px;
   font-size: 1.3rem;
   color: var(--purple-500);
   opacity: 0;

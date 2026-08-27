@@ -203,7 +203,7 @@
 }
 .editor-field-label .field-toggle-group {
   opacity: 1 !important;
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 .editor-textarea {
@@ -251,7 +251,7 @@
 .floating-label > label {
   position: absolute;
   top: 10px;
-  left: 12px;
+  inset-inline-start: 12px;
   font-size: 0.85rem;
   color: var(--text-placeholder);
   pointer-events: none;
@@ -317,14 +317,14 @@
 .md-preview em { color: var(--text-secondary); font-style: italic; }
 
 .md-preview ul, .md-preview ol {
-  padding-left: 1.3em;
+  padding-inline-start: 1.3em;
   margin: 0.4em 0;
 }
 .md-preview li { margin: 0.15em 0; }
 
 .md-preview blockquote {
-  border-left: 3px solid var(--purple-500);
-  padding-left: 0.75em;
+  border-inline-start: 3px solid var(--purple-500);
+  padding-inline-start: 0.75em;
   margin: 0.5em 0;
   color: var(--text-secondary);
   font-style: italic;

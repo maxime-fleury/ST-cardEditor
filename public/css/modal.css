@@ -62,10 +62,10 @@
 }
 .model-item.selected {
   background: var(--bg-elevated);
-  border-left: 3px solid var(--purple-500);
+  border-inline-start: 3px solid var(--purple-500);
   box-shadow: inset 0 0 12px var(--purple-glow);
 }
-.model-item.selected:hover { border-left-color: var(--magenta-500); }
+.model-item.selected:hover { border-inline-start-color: var(--magenta-500); }
 
 .model-item-info { flex: 1; min-width: 0; }
 .model-item-name {
@@ -78,7 +78,7 @@
 .model-item-provider { font-size: 0.7rem; color: var(--text-muted); }
 
 .model-item-pricing {
-  text-align: right;
+  text-align: end;
   font-size: 0.72rem;
   color: var(--text-secondary);
   white-space: nowrap;

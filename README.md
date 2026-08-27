@@ -126,7 +126,7 @@ Powered by [anime.js](https://animejs.com/) with full `prefers-reduced-motion` s
 
 ### Localization (i18n)
 
-Full interface translation across **10 languages** with 340+ translation keys:
+Full interface translation across **21 languages** with 490+ translation keys:
 
 | Language | Key | Status |
 |----------|-----|--------|
@@ -140,12 +140,24 @@ Full interface translation across **10 languages** with 340+ translation keys:
 | Korean | `ko` | Complete |
 | Greek | `el` | Complete |
 | Russian | `ru` | Complete |
+| Italian | `it` | Complete |
+| Polish | `pl` | Complete |
+| Turkish | `tr` | Complete |
+| Dutch | `nl` | Complete |
+| Ukrainian | `uk` | Complete |
+| Vietnamese | `vi` | Complete |
+| Indonesian | `id` | Complete |
+| Hindi | `hi` | Complete |
+| Arabic | `ar` | Complete |
+| Hebrew | `he` | Complete |
+| Persian | `fa` | Complete |
 
 - **Auto-detection** from browser language (`navigator.language`)
 - **Manual switch** via Settings modal — changes apply instantly
 - **Persistent** via `localStorage`
+- **Full RTL support** for Arabic, Hebrew, and Persian — `dir="rtl"` is set automatically and the Bootstrap RTL build is swapped in (custom CSS uses logical properties)
 - Covers: navbar, card library, editor tabs, AI chat, wizard, settings, toasts, modals, error messages
-- Formal/polite register for all languages (Japanese です/ます, German Sie-form, formal Korean, formal Russian)
+- Formal/polite register for all languages (Japanese です/ます, German Sie-form, formal Korean, formal Russian, Italian Lei, Dutch u, Polish Pan/Pani, Turkish siz, Ukrainian Ви, Hindi आप)
 
 ### Storage & Export
 - **Auto-save** to browser localStorage + IndexedDB with debounced writes
@@ -328,7 +340,7 @@ The app is a **single-page application** built with vanilla JavaScript and **Boo
 - **`settings.js`** — Settings modal with provider selection (7 providers), API key management, model browsing/selection, credit tracking, storage usage display, language switching, and full workspace backup/restore.
 - **`tokenizer.js`** — Token estimation using lazy-loaded `gpt-tokenizer` BPE library with offline heuristic fallback.
 - **`animations.js`** — Reusable animation functions built on anime.js: stagger fade-in, slide transitions, pulse, shake, scale click, progress bounce, icon spin, skeleton reveal, toast entrance. All respect `prefers-reduced-motion`.
-- **`i18n.js`** — Internationalization module: `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings. 340+ keys across 10 languages.
+- **`i18n.js`** — Internationalization module: `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings. 490+ keys across 21 languages, with automatic RTL layout for Arabic/Hebrew/Persian.
 - **`ui.js`** — Thin controller: shared state (`AppState`), utility functions (`escapeHtml`, `debounce`, `showToast`, `renderMarkdown`), initialization, I18n boot, global error boundary, markdown library lazy-loading, and all event binding.
 
 ---

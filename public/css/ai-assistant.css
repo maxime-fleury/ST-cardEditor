@@ -271,8 +271,7 @@
   content: '';
   position: absolute;
   top: -1px;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--purple-500), var(--magenta-500), transparent);
   opacity: 0.5;
@@ -522,7 +521,7 @@
   content: 'Click to expand';
   position: absolute;
   bottom: 2px;
-  right: 4px;
+  inset-inline-end: 4px;
   font-size: 0.6rem;
   color: var(--text-accent);
   background: var(--bg-deep);
@@ -602,7 +601,7 @@
   gap: 0.25rem;
   font-size: 0.62rem;
   color: var(--text-muted);
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .multi-field-status .spinner-border {
   width: 10px;

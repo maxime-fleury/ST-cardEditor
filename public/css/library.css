@@ -157,14 +157,15 @@
 .card-list-item::before {
   content: '';
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   top: 0;
   bottom: 0;
   width: 3px;
   background: linear-gradient(180deg, var(--purple-500), var(--magenta-500));
   opacity: 0;
   transition: opacity var(--transition-fast);
-  border-radius: 2px 0 0 2px;
+  border-start-start-radius: 2px;
+  border-end-start-radius: 2px;
 }
 .card-list-item::after {
   content: '';
@@ -273,14 +274,14 @@
 
 /* Batch / drag / tooltip */
 .card-list-item.batch-selected { outline: 2px solid var(--purple-500); outline-offset: -2px; }
-.card-batch-check { position: absolute; top: 8px; right: 8px; z-index: 5; width: 16px; height: 16px; accent-color: var(--purple-500); cursor: pointer; opacity: 0; transition: opacity var(--transition-fast); }
+.card-batch-check { position: absolute; top: 8px; inset-inline-end: 8px; z-index: 5; width: 16px; height: 16px; accent-color: var(--purple-500); cursor: pointer; opacity: 0; transition: opacity var(--transition-fast); }
 .card-list-item:hover .card-batch-check { opacity: 1; }
 .card-batch-check:checked { opacity: 1; }
 .card-drag-handle { cursor: grab; color: var(--text-muted); font-size: 0.8rem; padding: 2px 4px; opacity: 0; transition: opacity var(--transition-fast); }
 .card-list-item:hover .card-drag-handle { opacity: 1; }
 .card-list-item.drag-over { border-top: 2px solid var(--purple-500); transition: border-top 150ms ease, transform 150ms ease; }
 .card-preview-tooltip {
-  display: none; position: absolute; left: 105%; top: 0; width: 260px;
+  display: none; position: absolute; inset-inline-start: 105%; top: 0; width: 260px;
   background: var(--bg-secondary); border: 1px solid var(--surface-border);
   border-radius: 8px; padding: 12px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.5);
   pointer-events: none; max-height: 300px; overflow-y: auto;
