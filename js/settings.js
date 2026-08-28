@@ -46,10 +46,8 @@ const Settings = {
 
     modal.hide();
     Ui.showToast(I18n.t('toast.settingsSaved'), 'success');
-    if (provider === 'openrouter' && apiKey) {
+    if (apiKey || customApiKey || provider === 'custom') {
       this.refreshCredits();
-      this.refreshModelsList();
-    } else if (provider !== 'custom' && customApiKey) {
       this.refreshModelsList();
     }
   },
@@ -82,6 +80,7 @@ const Settings = {
     $('#namedProviderSettings').classList.toggle('d-none', !isNamed);
     $('#modelIdSection').classList.toggle('d-none', isOpenRouter);
     $('#openrouterExtras').classList.toggle('d-none', !isOpenRouter);
+    document.querySelector('#modelSelectionSection').classList.toggle('d-none', false);
     $('#securityWarning').classList.toggle('d-none', !isOpenRouter);
 
     if (isNamed) {

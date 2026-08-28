@@ -635,6 +635,15 @@
             </div>
           </div>
 
+          <!-- Model selection -->
+          <div id="modelSelectionSection" class="mb-4">
+            <label class="form-label fw-semibold"><i class="bi bi-cpu-fill me-2 text-accent"></i><span data-i18n="settings.defaultModel">Default Model</span></label>
+            <div class="row g-2">
+              <div class="col-md-8"><select class="form-select" id="defaultModelSelect"><option value="" data-i18n="settings.modelAuto">Auto</option></select></div>
+              <div class="col-md-4"><button class="btn btn-outline-accent w-100" id="btnRefreshModels"><i class="bi bi-arrow-clockwise me-1"></i><span data-i18n="settings.refreshModels">Refresh Models</span></button></div>
+            </div>
+          </div>
+
           <!-- Security warning (OpenRouter only) -->
           <div id="securityWarning" class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mb-0" style="font-size: 0.78rem;">
             <i class="bi bi-exclamation-triangle-fill"></i>
