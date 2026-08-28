@@ -597,7 +597,17 @@ function bindEvents(settingsModal) {
     if (el) {
       const field = id.replace('edit', '');
       const camelField = field.charAt(0).toLowerCase() + field.slice(1);
-      el.addEventListener('focus', () => Editor._snapshot(camelField));
+      // Per-edit undo: snapshot before each edit (including deletions), but
+      // coalesce continuous edits to the same field into a single undo step so
+      // Ctrl+Z reverts a whole edit burst rather than one keystroke. A focus
+      // change starts a new burst.
+      el.addEventListener('focus', () => { Editor._lastSnapField = null; });
+      el.addEventListener('beforeinput', () => {
+        if (Editor._lastSnapField !== camelField) {
+          Editor._snapshot(camelField);
+          Editor._lastSnapField = camelField;
+        }
+      });
       el.addEventListener('input', Ui.debounce(() => {
         Editor.syncEditorToCard().catch(() => {});
         Editor.updateCharCounts();

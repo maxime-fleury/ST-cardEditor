@@ -7,6 +7,10 @@ const Editor = {
   _redoStack: [],
   _maxUndo: 50,
   _undoCardId: null,
+  // The field of the most recent undo snapshot. Used to coalesce continuous
+  // edits to one field into a single undo step (per edit burst), so Ctrl+Z
+  // reverts a whole burst instead of one character at a time.
+  _lastSnapField: null,
 
   _FIELD_MAP: {
     firstMes: 'first_mes',
@@ -45,6 +49,7 @@ const Editor = {
     if (!this._undoStack.length) return;
     const { activeCard } = window.AppState;
     if (!activeCard) return;
+    this._lastSnapField = null;
     const entry = this._undoStack.pop();
     this._redoStack.push({ ...entry, oldValue: entry.oldValue, newValue: activeCard[entry.prop] || '' });
     activeCard[entry.prop] = entry.oldValue;
@@ -61,6 +66,7 @@ const Editor = {
     if (!this._redoStack.length) return;
     const { activeCard } = window.AppState;
     if (!activeCard) return;
+    this._lastSnapField = null;
     const entry = this._redoStack.pop();
     this._undoStack.push({ ...entry, oldValue: activeCard[entry.prop] || '', newValue: entry.newValue });
     activeCard[entry.prop] = entry.newValue;
@@ -81,6 +87,7 @@ const Editor = {
     if (card._id !== this._undoCardId) {
       this._undoStack = [];
       this._redoStack = [];
+      this._lastSnapField = null;
       this._undoCardId = card._id;
     }
 
@@ -277,7 +284,11 @@ const Editor = {
       const countEl = el.parentElement.querySelector('.char-count');
       if (!countEl) continue;
       const len = (el.value || '').length;
-      const tokens = Math.ceil(len / 4);
+      // Use the same estimator as Tokenizer (which the context bar uses) so the
+      // char counts and the token context bar never disagree.
+      const tokens = typeof Tokenizer !== 'undefined' && Tokenizer.quickCount
+        ? Tokenizer.quickCount(el.value || '')
+        : Math.ceil(len / 3);
       countEl.textContent = I18n.t ? I18n.t('editor.charCount', { chars: len, tokens: tokens }) : (len + ' chars ~' + tokens + ' tokens');
     }
   },

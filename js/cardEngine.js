@@ -65,6 +65,10 @@ const CardEngine = {
     let offset = 8;
     let charaRaw = null;
     let ccv3Raw = null;
+    // A chara/ccv3 chunk we found but couldn't decode would otherwise silently
+    // become an image-only empty card, losing the character data. Track that so
+    // we can surface an error instead.
+    let cardChunkUnreadable = false;
 
     while (offset + 12 <= bytes.length) {
       const len = this._readUint32(bytes, offset);
@@ -109,6 +113,9 @@ const CardEngine = {
           if (valueBytes) {
             if (keyword === 'chara') charaRaw = valueBytes;
             else if (keyword === 'ccv3') ccv3Raw = valueBytes;
+          } else if (keyword === 'chara' || keyword === 'ccv3') {
+            // Compressed chara/ccv3 data present but not decompressible here.
+            cardChunkUnreadable = true;
           }
         }
       } else if (type === 'IEND') {
@@ -124,6 +131,12 @@ const CardEngine = {
       const rawStr = this._utf8Decoder.decode(rawBytes);
       const jsonStr = this._decodeCharaValue(rawStr);
       return this.parseJSON(jsonStr, filename);
+    }
+
+    // The file advertises card data but we couldn't read it. Surface an error
+    // rather than silently importing an image-only empty card over the data.
+    if (cardChunkUnreadable) {
+      throw new Error((I18n.t ? I18n.t('error.pngInflateFailed') : 'This PNG contains character data that could not be decompressed.'));
     }
 
     return this._createEmptyCard(filename);
