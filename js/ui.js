@@ -420,7 +420,6 @@ function bindEvents(settingsModal) {
   $('#btnToggleNamedApiKey').addEventListener('click', () => Settings.toggleNamedApiKeyVisibility());
   $('#btnSaveSettings').addEventListener('click', () => Settings.saveSettings(settingsModal));
   $('#btnResetPrompts').addEventListener('click', () => Settings.resetPrompts());
-  $('#btnResetPrompts').addEventListener('click', () => Settings.resetPrompts());
   $('#btnRefreshModels').addEventListener('click', () => Settings.refreshModelsList());
   $('#btnClearStorage').addEventListener('click', () => Settings.confirmClearStorage());
   $('#btnExportSettings').addEventListener('click', () => Settings.exportSettings());
@@ -588,7 +587,6 @@ function bindEvents(settingsModal) {
   const savedTheme = localStorage.getItem(CardStorage.PREFIX + 'theme') || 'dark';
   const initialAccent = CardStorage.getAccent(savedTheme);
   if (initialAccent) Settings.applyAccent(savedTheme, initialAccent);
-  else Settings.applyAccent(savedTheme, savedTheme === 'light' ? '#64748b' : '#64748b');
   if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); }
   if (themeToggle) {
     themeToggle.innerHTML = savedTheme === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';

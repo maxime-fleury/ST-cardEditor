@@ -92,9 +92,6 @@ const CardStorage = {
     promptAssistant: 'promptAssistant',
     promptFullCard: 'promptFullCard',
     promptWizard: 'promptWizard',
-    promptAssistant: 'promptAssistant',
-    promptFullCard: 'promptFullCard',
-    promptWizard: 'promptWizard',
   },
 
   // ─── Theme accents ─────────────────────────────────────
@@ -109,10 +106,6 @@ const CardStorage = {
     if (color) localStorage.setItem(this.PREFIX + key, color);
     else localStorage.removeItem(this.PREFIX + key);
   },
-
-  getPrompt(name) { return localStorage.getItem(this.PREFIX + this._keys['prompt' + name[0].toUpperCase() + name.slice(1)]) || ''; },
-
-  setPrompt(name, value) { localStorage.setItem(this.PREFIX + this._keys['prompt' + name[0].toUpperCase() + name.slice(1)], value || ''); },
 
   getPrompt(name) {
     const key = this._keys['prompt' + name[0].toUpperCase() + name.slice(1)];

@@ -666,8 +666,8 @@
               <label class="form-label fw-semibold" data-i18n="settings.wizardPrompt">Wizard generation instructions</label>
               <textarea class="form-control" id="promptWizardInput" rows="5" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
             </div>
-            <button type="button" class="btn btn-outline-secondary btn-sm" id="btnResetPrompts" data-i18n="settings.resetPrompts">Reset prompts</button>
-            <small class="form-text text-muted d-block mt-2" data-i18n="settings.promptHint">Custom text replaces the reusable instruction section; dynamic card details are still added automatically.</small>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="btnResetPrompts" data-i18n="settings.restoreDefaultPrompts">Restore default prompts</button>
+            <small class="form-text text-muted d-block mt-2" data-i18n="settings.promptHint">These fields show the current prompts. If a field is empty, the built-in default prompt is used. Restore defaults to view or restore the original prompts.</small>
           </div>
           </div>
 
@@ -679,25 +679,6 @@
           
           <!-- OpenRouter-specific sections -->
           <div id="openrouterExtras">
-            <!-- Model Selection -->
-            <div class="mb-4">
-              <label class="form-label fw-semibold">
-                <i class="bi bi-cpu-fill me-2 text-accent"></i><span data-i18n="settings.defaultModel">Default Model</span>
-              </label>
-              <div class="row g-2">
-                <div class="col-md-8">
-                  <select class="form-select" id="defaultModelSelect">
-                    <option value="" data-i18n="settings.browseModels">Browse models below...</option>
-                  </select>
-                </div>
-                <div class="col-md-4">
-                  <button class="btn btn-outline-accent w-100" id="btnRefreshModels">
-                    <i class="bi bi-arrow-clockwise me-1"></i> <span data-i18n="settings.refreshModels">Refresh Models</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          
             <!-- Max Tokens -->
             <div class="mb-4">
               <label class="form-label fw-semibold">

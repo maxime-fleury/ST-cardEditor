@@ -746,7 +746,7 @@ const Wizard = {
       mythological: 'Mythological / Folklore', vtuber: 'VTuber / Streamer', other: 'Other'
     };
 
-    let prompt = (CardStorage.getPrompt('wizard') || 'Create a complete SillyTavern character card as valid JSON (chara_card_v2 spec). ') + ' ';
+    let prompt = ((CardStorage.getPrompt('wizard') || 'Create a complete SillyTavern character card as valid JSON (chara_card_v2 spec).').trimEnd()) + ' ';
     prompt += 'Write everything in ' + langText + '. ';
     prompt += 'Return ONLY the JSON code block, no explanation.\n\n';
     prompt += '## Character Details\n\n';

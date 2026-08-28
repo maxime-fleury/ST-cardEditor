@@ -102,7 +102,7 @@
   --text-primary: #1e1b33;
   --text-secondary: #58526e;
   --text-muted: #8a83a0;
-  --text-accent: #7c3aed;
+  --text-accent: #475569;
   --text-placeholder: #7570a0;
   --border-subtle: rgba(0, 0, 0, 0.06);
   --border-default: rgba(0, 0, 0, 0.10);
@@ -117,13 +117,12 @@
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
   --shadow-lg: 0 8px 30px rgba(0,0,0,0.13);
-  --shadow-glow: 0 0 16px rgba(145, 71, 255, 0.15);
-  --neon-glow: 0 0 16px rgba(145, 71, 255, 0.15);
+  --shadow-glow: 0 0 16px rgba(100, 116, 139, 0.15);
+  --neon-glow: 0 0 16px rgba(100, 116, 139, 0.15);
 }
 
 /* Custom accents are applied as concrete variables by Settings.applyAccent(). */
-[data-theme="light"][data-accent-custom="true"],
-[data-theme="dark"][data-accent-custom="true"] {
+[data-accent-custom="true"] {
   --purple-300: var(--accent-300);
   --purple-400: var(--accent-400);
   --purple-500: var(--accent-500);
@@ -144,7 +143,7 @@
   background: #fff; color: var(--text-primary);
 }
 [data-theme="light"] .ai-chat-messages { background: var(--bg-deep); }
-[data-theme="light"] .ai-message.user { background: linear-gradient(135deg, #ede9fe, #ddd6fe); color: var(--text-primary); }
+[data-theme="light"] .ai-message.user { background: linear-gradient(135deg, #e2e8f0, #cbd5e1); color: var(--text-primary); }
 [data-theme="light"] .ai-message.assistant { background: var(--bg-surface); color: var(--text-primary); border-color: var(--border-subtle); }
 [data-theme="light"] .card-list-item:hover { background: var(--bg-surface-hover); }
 [data-theme="light"] .modal-content { background: var(--bg-surface); color: var(--text-primary); }

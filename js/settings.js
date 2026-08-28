@@ -36,9 +36,12 @@ const Settings = {
 
     CardStorage.setMaxTokens(maxTokens);
     CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
-    CardStorage.setPrompt('assistant', $('#promptAssistantInput').value);
-    CardStorage.setPrompt('fullCard', $('#promptFullCardInput').value);
-    CardStorage.setPrompt('wizard', $('#promptWizardInput').value);
+    ['assistant', 'fullCard', 'wizard'].forEach(name => {
+      const input = document.querySelector('#prompt' + name[0].toUpperCase() + name.slice(1) + 'Input');
+      const value = input ? input.value : '';
+      // Store empty when unchanged from the default so future default updates are picked up.
+      CardStorage.setPrompt(name, value === this.getDefaultPrompt(name) ? '' : value);
+    });
     const theme = document.documentElement.getAttribute('data-theme') || 'dark';
     const themeColor = document.querySelector('#themeColorHex').value.trim();
     if (/^#[0-9a-fA-F]{6}$/.test(themeColor)) this.applyAccent(theme, themeColor);
@@ -49,10 +52,8 @@ const Settings = {
 
     modal.hide();
     Ui.showToast(I18n.t('toast.settingsSaved'), 'success');
-    if (apiKey || customApiKey || provider === 'custom') {
-      this.refreshCredits();
-      this.refreshModelsList();
-    }
+    if (provider === 'openrouter' && apiKey) this.refreshCredits();
+    if (apiKey || customApiKey || provider === 'custom') this.refreshModelsList();
   },
 
   toggleApiKeyVisibility() {
@@ -136,7 +137,16 @@ const Settings = {
     };
   },
 
+  getDefaultPrompt(name) {
+    if (name === 'assistant' || name === 'fullCard') {
+      return 'You are an AI assistant helping edit SillyTavern character cards.\nSillyTavern is an AI roleplay frontend. Cards define character personalities.';
+    }
+    return 'Create a complete SillyTavern character card as valid JSON (chara_card_v2 spec).';
+  },
+
   resetPrompts() {
+    // Clear stored overrides so the built-in defaults apply again; the fields
+    // below then display the default prompts for viewing/editing.
     ['assistant', 'fullCard', 'wizard'].forEach(name => CardStorage.setPrompt(name, ''));
     this.openSettings();
   },
@@ -168,9 +178,9 @@ const Settings = {
     $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
     this.toggleProvider();
     this.syncAccentControls();
-    $('#promptAssistantInput').value = CardStorage.getPrompt('assistant');
-    $('#promptFullCardInput').value = CardStorage.getPrompt('fullCard');
-    $('#promptWizardInput').value = CardStorage.getPrompt('wizard');
+    $('#promptAssistantInput').value = CardStorage.getPrompt('assistant') || this.getDefaultPrompt('assistant');
+    $('#promptFullCardInput').value = CardStorage.getPrompt('fullCard') || this.getDefaultPrompt('fullCard');
+    $('#promptWizardInput').value = CardStorage.getPrompt('wizard') || this.getDefaultPrompt('wizard');
   },
 
   async refreshCredits() {
@@ -292,7 +302,7 @@ const Settings = {
     $('#customApiKeyInput').value = '';
     $('#customModelInput').value = '';
     this.toggleProvider();
-    $('#defaultModelSelect').innerHTML = '<option value="">' + (I18n.t ? I18n.t('settings.browseModels') : 'Browse models below...') + '</option>';
+    $('#defaultModelSelect').innerHTML = '<option value="">' + (I18n.t ? I18n.t('settings.modelAuto') : 'Auto') + '</option>';
     $('#aiModelSelect').innerHTML = '<option value="">' + (I18n.t ? I18n.t('nav.selectModel') : 'Select model...') + '</option>';
     Editor.hideEditor();
     CardManager.renderCardList();
