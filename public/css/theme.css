@@ -15,14 +15,14 @@
   --bg-surface-hover: #231f3e;
   --bg-elevated: #2a2550;
 
-  /* Purple spectrum */
-  --purple-300: #c4b5fd;
-  --purple-400: #a78bfa;
-  --purple-500: #9147ff;
-  --purple-600: #772ce8;
-  --purple-700: #5c16c5;
-  --purple-glow: rgba(145, 71, 255, 0.25);
-  --purple-glow-strong: rgba(145, 71, 255, 0.45);
+  /* Neutral slate accent (default) */
+  --purple-300: #cbd5e1;
+  --purple-400: #94a3b8;
+  --purple-500: #64748b;
+  --purple-600: #475569;
+  --purple-700: #334155;
+  --purple-glow: rgba(100, 116, 139, 0.25);
+  --purple-glow-strong: rgba(100, 116, 139, 0.45);
 
   /* Magenta accents */
   --magenta-400: #f472b6;
@@ -33,7 +33,7 @@
   --text-primary: #ece8f5;
   --text-secondary: #a49cc0;
   --text-muted: #6c6585;
-  --text-accent: #bf94ff;
+  --text-accent: #cbd5e1;
   --text-placeholder: #8e88a8;
 
   /* Borders */
@@ -60,7 +60,7 @@
   --glass-blur: blur(12px);
 
   /* Accent gradient */
-  --accent-gradient: linear-gradient(135deg, var(--purple-600), var(--magenta-600));
+  --accent-gradient: linear-gradient(135deg, var(--purple-600), var(--purple-500));
   --neon-glow: 0 0 20px var(--purple-glow);
 
   /* Sizing */
@@ -121,26 +121,17 @@
   --neon-glow: 0 0 16px rgba(145, 71, 255, 0.15);
 }
 
-[data-theme="light"][data-accent-custom="true"] {
-  --purple-300: color-mix(in srgb, var(--accent-color) 42%, white);
-  --purple-400: color-mix(in srgb, var(--accent-color) 72%, white);
-  --purple-500: var(--accent-color);
-  --purple-600: color-mix(in srgb, var(--accent-color) 82%, black);
-  --purple-700: color-mix(in srgb, var(--accent-color) 62%, black);
-  --purple-glow: color-mix(in srgb, var(--accent-color) 25%, transparent);
-  --purple-glow-strong: color-mix(in srgb, var(--accent-color) 45%, transparent);
-  --text-accent: color-mix(in srgb, var(--accent-color) 82%, black);
-}
-
+/* Custom accents are applied as concrete variables by Settings.applyAccent(). */
+[data-theme="light"][data-accent-custom="true"],
 [data-theme="dark"][data-accent-custom="true"] {
-  --purple-300: color-mix(in srgb, var(--accent-color) 42%, white);
-  --purple-400: color-mix(in srgb, var(--accent-color) 72%, white);
-  --purple-500: var(--accent-color);
-  --purple-600: color-mix(in srgb, var(--accent-color) 82%, black);
-  --purple-700: color-mix(in srgb, var(--accent-color) 62%, black);
-  --purple-glow: color-mix(in srgb, var(--accent-color) 25%, transparent);
-  --purple-glow-strong: color-mix(in srgb, var(--accent-color) 45%, transparent);
-  --text-accent: color-mix(in srgb, var(--accent-color) 78%, white);
+  --purple-300: var(--accent-300);
+  --purple-400: var(--accent-400);
+  --purple-500: var(--accent-500);
+  --purple-600: var(--accent-600);
+  --purple-700: var(--accent-700);
+  --purple-glow: var(--accent-glow);
+  --purple-glow-strong: var(--accent-glow-strong);
+  --text-accent: var(--accent-text);
 }
 
 [data-theme="light"] .navbar { background: var(--glass-bg) !important; backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }

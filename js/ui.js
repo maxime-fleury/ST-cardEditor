@@ -587,7 +587,8 @@ function bindEvents(settingsModal) {
   const themeToggle = $('#btnThemeToggle');
   const savedTheme = localStorage.getItem(CardStorage.PREFIX + 'theme') || 'dark';
   const initialAccent = CardStorage.getAccent(savedTheme);
-  if (initialAccent) { document.documentElement.style.setProperty('--accent-color', initialAccent); document.documentElement.setAttribute('data-accent-custom', 'true'); }
+  if (initialAccent) Settings.applyAccent(savedTheme, initialAccent);
+  else Settings.applyAccent(savedTheme, savedTheme === 'light' ? '#64748b' : '#64748b');
   if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); }
   if (themeToggle) {
     themeToggle.innerHTML = savedTheme === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
@@ -596,7 +597,7 @@ function bindEvents(settingsModal) {
       const next = current === 'light' ? 'dark' : 'light';
       document.documentElement.setAttribute('data-theme', next);
       const accent = CardStorage.getAccent(next);
-      if (accent) { document.documentElement.style.setProperty('--accent-color', accent); document.documentElement.setAttribute('data-accent-custom', 'true'); }
+      if (accent) Settings.applyAccent(next, accent);
       else document.documentElement.removeAttribute('data-accent-custom');
       localStorage.setItem(CardStorage.PREFIX + 'theme', next);
       Anims.iconSpin(themeToggle.querySelector('i'));

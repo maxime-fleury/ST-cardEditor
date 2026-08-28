@@ -111,10 +111,29 @@ const Settings = {
   applyAccent(theme, color) {
     const normalized = String(color || '').trim().toLowerCase();
     if (!/^#[0-9a-f]{6}$/.test(normalized)) return false;
+    const shades = this._accentShades(normalized, theme);
     CardStorage.setAccent(theme, normalized);
-    document.documentElement.style.setProperty('--accent-color', normalized);
+    Object.entries(shades).forEach(([name, value]) => document.documentElement.style.setProperty(name, value));
     document.documentElement.setAttribute('data-accent-custom', 'true');
     return true;
+  },
+
+  _accentShades(hex, theme) {
+    const rgb = hex.slice(1).match(/.{2}/g).map(v => parseInt(v, 16));
+    const mix = (target, amount) => rgb.map((v, i) => Math.round(v * amount + target[i] * (1 - amount)));
+    const css = values => '#' + values.map(v => v.toString(16).padStart(2, '0')).join('');
+    const white = [255, 255, 255];
+    const black = [0, 0, 0];
+    return {
+      '--accent-300': css(mix(white, 0.42)),
+      '--accent-400': css(mix(white, 0.72)),
+      '--accent-500': hex,
+      '--accent-600': css(mix(black, 0.82)),
+      '--accent-700': css(mix(black, 0.62)),
+      '--accent-glow': 'rgba(' + rgb.join(', ') + ', 0.25)',
+      '--accent-glow-strong': 'rgba(' + rgb.join(', ') + ', 0.45)',
+      '--accent-text': theme === 'light' ? css(mix(black, 0.82)) : css(mix(white, 0.78)),
+    };
   },
 
   resetPrompts() {
