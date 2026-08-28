@@ -87,6 +87,21 @@ const CardStorage = {
     customApiUrl: 'customApiUrl',
     customApiKey: 'customApiKey',
     customModelId: 'customModelId',
+    darkAccent: 'darkAccent',
+    lightAccent: 'lightAccent',
+  },
+
+  // ─── Theme accents ─────────────────────────────────────
+
+  getAccent(theme) {
+    const key = theme === 'light' ? this._keys.lightAccent : this._keys.darkAccent;
+    return localStorage.getItem(this.PREFIX + key) || '';
+  },
+
+  setAccent(theme, color) {
+    const key = theme === 'light' ? this._keys.lightAccent : this._keys.darkAccent;
+    if (color) localStorage.setItem(this.PREFIX + key, color);
+    else localStorage.removeItem(this.PREFIX + key);
   },
 
   // ─── API Key ────────────────────────────────────────────

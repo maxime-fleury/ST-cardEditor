@@ -521,6 +521,19 @@
             </select>
           </div>
 
+          <!-- Theme accent -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold">
+              <i class="bi bi-palette-fill me-2 text-accent"></i><span data-i18n="settings.themeColor">Theme color</span>
+            </label>
+            <div class="row g-2 align-items-center">
+              <div class="col-auto"><input type="color" class="form-control form-control-color" id="themeColorPicker" value="#9147ff" title="Choose theme color"></div>
+              <div class="col"><input type="text" class="form-control" id="themeColorHex" value="#9147ff" maxlength="7" pattern="^#[0-9a-fA-F]{6}$" data-i18n-placeholder="settings.themeColorPlaceholder" placeholder="#9147FF" spellcheck="false" autocomplete="off"></div>
+              <div class="col-auto"><button type="button" class="btn btn-outline-secondary" id="btnResetThemeColor" data-i18n="settings.resetThemeColor">Reset</button></div>
+            </div>
+            <small class="form-text text-muted" data-i18n="settings.themeColorHint">Choose a separate accent color for each light/dark theme. Changes apply immediately.</small>
+          </div>
+
           <!-- Provider -->
           <div class="mb-4">
             <label class="form-label fw-semibold">

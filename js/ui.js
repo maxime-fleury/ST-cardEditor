@@ -584,6 +584,8 @@ function bindEvents(settingsModal) {
 
   const themeToggle = $('#btnThemeToggle');
   const savedTheme = localStorage.getItem(CardStorage.PREFIX + 'theme') || 'dark';
+  const initialAccent = CardStorage.getAccent(savedTheme);
+  if (initialAccent) { document.documentElement.style.setProperty('--accent-color', initialAccent); document.documentElement.setAttribute('data-accent-custom', 'true'); }
   if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); }
   if (themeToggle) {
     themeToggle.innerHTML = savedTheme === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
@@ -591,6 +593,9 @@ function bindEvents(settingsModal) {
       const current = document.documentElement.getAttribute('data-theme');
       const next = current === 'light' ? 'dark' : 'light';
       document.documentElement.setAttribute('data-theme', next);
+      const accent = CardStorage.getAccent(next);
+      if (accent) { document.documentElement.style.setProperty('--accent-color', accent); document.documentElement.setAttribute('data-accent-custom', 'true'); }
+      else document.documentElement.removeAttribute('data-accent-custom');
       localStorage.setItem(CardStorage.PREFIX + 'theme', next);
       Anims.iconSpin(themeToggle.querySelector('i'));
       themeToggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';

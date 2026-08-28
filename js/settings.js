@@ -36,6 +36,9 @@ const Settings = {
 
     CardStorage.setMaxTokens(maxTokens);
     CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
+    const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+    const themeColor = document.querySelector('#themeColorHex').value.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(themeColor)) this.applyAccent(theme, themeColor);
 
     // Avoid leaving a stale key for the provider we're not using.
     if (provider === 'openrouter') CardStorage.setCustomApiKey('');
@@ -103,6 +106,29 @@ const Settings = {
     }
   },
 
+  applyAccent(theme, color) {
+    const normalized = String(color || '').trim().toLowerCase();
+    if (!/^#[0-9a-f]{6}$/.test(normalized)) return false;
+    CardStorage.setAccent(theme, normalized);
+    document.documentElement.style.setProperty('--accent-color', normalized);
+    document.documentElement.setAttribute('data-accent-custom', 'true');
+    return true;
+  },
+
+  resetAccent(theme) {
+    this.applyAccent(theme, '#9147ff');
+    this.syncAccentControls();
+  },
+
+  syncAccentControls() {
+    const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+    const color = CardStorage.getAccent(theme) || '#9147ff';
+    const picker = document.querySelector('#themeColorPicker');
+    const hex = document.querySelector('#themeColorHex');
+    if (picker) picker.value = color;
+    if (hex) hex.value = color;
+  },
+
   openSettings() {
     const $ = (sel) => document.querySelector(sel);
     const provider = CardStorage.getProvider() || 'openrouter';
@@ -115,6 +141,7 @@ const Settings = {
     $('#maxTokensInput').value = CardStorage.getMaxTokens() || '';
     $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
     this.toggleProvider();
+    this.syncAccentControls();
   },
 
   async refreshCredits() {

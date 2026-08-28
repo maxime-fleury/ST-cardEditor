@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    ST CARD EDITOR â€” Deep Obsidian & Cosmic Purple Theme
    ============================================================ */
 
@@ -119,6 +119,28 @@
   --shadow-lg: 0 8px 30px rgba(0,0,0,0.13);
   --shadow-glow: 0 0 16px rgba(145, 71, 255, 0.15);
   --neon-glow: 0 0 16px rgba(145, 71, 255, 0.15);
+}
+
+[data-theme="light"][data-accent-custom="true"] {
+  --purple-300: color-mix(in srgb, var(--accent-color) 42%, white);
+  --purple-400: color-mix(in srgb, var(--accent-color) 72%, white);
+  --purple-500: var(--accent-color);
+  --purple-600: color-mix(in srgb, var(--accent-color) 82%, black);
+  --purple-700: color-mix(in srgb, var(--accent-color) 62%, black);
+  --purple-glow: color-mix(in srgb, var(--accent-color) 25%, transparent);
+  --purple-glow-strong: color-mix(in srgb, var(--accent-color) 45%, transparent);
+  --text-accent: color-mix(in srgb, var(--accent-color) 82%, black);
+}
+
+[data-theme="dark"][data-accent-custom="true"] {
+  --purple-300: color-mix(in srgb, var(--accent-color) 42%, white);
+  --purple-400: color-mix(in srgb, var(--accent-color) 72%, white);
+  --purple-500: var(--accent-color);
+  --purple-600: color-mix(in srgb, var(--accent-color) 82%, black);
+  --purple-700: color-mix(in srgb, var(--accent-color) 62%, black);
+  --purple-glow: color-mix(in srgb, var(--accent-color) 25%, transparent);
+  --purple-glow-strong: color-mix(in srgb, var(--accent-color) 45%, transparent);
+  --text-accent: color-mix(in srgb, var(--accent-color) 78%, white);
 }
 
 [data-theme="light"] .navbar { background: var(--glass-bg) !important; backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
