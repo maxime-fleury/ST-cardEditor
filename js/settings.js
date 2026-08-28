@@ -3,7 +3,7 @@
    ============================================================ */
 
 const Settings = {
-  saveSettings(modal) {
+  async saveSettings(modal) {
     const $ = (sel) => document.querySelector(sel);
     const provider = $('#providerSelect').value;
     const apiKey = $('#apiKeyInput').value.trim();
@@ -20,7 +20,7 @@ const Settings = {
       // Keep the OpenRouter key independent from custom-provider credentials.
       // Switching providers must not erase it, especially when the field is
       // temporarily empty while the settings modal is being reopened.
-      if (apiKey) CardStorage.setApiKey(apiKey);
+      if (apiKey) await CardStorage.setApiKey(apiKey);
       AIService.setProvider('openrouter', apiKey || CardStorage.getApiKey());
       CardStorage.setDefaultModel(defaultModel);
       $('#aiModelSelect').value = defaultModel;
@@ -28,7 +28,7 @@ const Settings = {
       const info = AIService.getProviderInfo(provider);
       const url = provider === 'custom' ? customApiUrl : info.baseUrl;
       CardStorage.setCustomApiUrl(url);
-      CardStorage.setCustomApiKey(customApiKey);
+      await CardStorage.setCustomApiKey(customApiKey);
       CardStorage.setCustomModelId(customModelId);
       AIService.setProvider(provider, customApiKey);
       if (customModelId) {
@@ -177,8 +177,9 @@ const Settings = {
     if (hex) hex.value = color;
   },
 
-  openSettings() {
+  async openSettings() {
     const $ = (sel) => document.querySelector(sel);
+    await CardStorage._unlockKeys();
     const provider = CardStorage.getProvider() || 'openrouter';
     $('#providerSelect').value = provider;
     $('#apiKeyInput').value = CardStorage.getApiKey();
@@ -394,7 +395,7 @@ const Settings = {
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         try {
           const settings = JSON.parse(reader.result);
           if (settings.provider) { CardStorage.setProvider(settings.provider); $('#providerSelect').value = settings.provider; this.toggleProvider(); }
@@ -402,7 +403,7 @@ const Settings = {
           if (settings.maxTokens !== undefined) { CardStorage.setMaxTokens(settings.maxTokens); $('#maxTokensInput').value = settings.maxTokens || ''; }
           if (settings.injectCopyright !== undefined) { CardStorage.setInjectCopyright(settings.injectCopyright); $('#injectCopyrightToggle').checked = settings.injectCopyright; }
           if (settings.customApiUrl) { CardStorage.setCustomApiUrl(settings.customApiUrl); $('#customApiUrlInput').value = settings.customApiUrl; }
-          if (settings.customApiKey) { CardStorage.setCustomApiKey(settings.customApiKey); $('#namedApiKeyInput').value = settings.customApiKey; $('#customApiKeyInput').value = settings.customApiKey; }
+          if (settings.customApiKey) { await CardStorage.setCustomApiKey(settings.customApiKey).catch(() => {}); $('#namedApiKeyInput').value = settings.customApiKey; $('#customApiKeyInput').value = settings.customApiKey; }
           if (settings.customModelId) { CardStorage.setCustomModelId(settings.customModelId); $('#customModelInput').value = settings.customModelId; }
           Ui.showToast(I18n.t('toast.settingsImported'), 'success');
         } catch (err) {

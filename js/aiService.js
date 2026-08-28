@@ -72,7 +72,7 @@ const AIService = {
     return model;
   },
 
-  setApiKey(key) { this._apiKey = key; if (this._provider === 'openrouter') { CardStorage.setApiKey(key); } else { CardStorage.setCustomApiKey(key); } },
+  async setApiKey(key) { this._apiKey = key; if (this._provider === 'openrouter') { await CardStorage.setApiKey(key); } else { await CardStorage.setCustomApiKey(key); } },
   getApiKey() { return this._getApiKeyForProvider(); },
 
   hasApiKey() {

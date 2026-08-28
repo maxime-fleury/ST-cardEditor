@@ -129,14 +129,127 @@ const CardStorage = {
     localStorage.setItem(this.PREFIX + key, value || '');
   },
 
-  // ─── API Key ────────────────────────────────────────────
+  // ─── Secrets (API keys) ─────────────────────────
+  //
+  // API keys are encrypted at rest (AES-GCM) so they don't sit in plaintext in
+  // localStorage. A key is deterministic per page origin: derived with PBKDF2
+  // from location.origin, so same-origin reloads decrypt fine, while a dump of
+  // localStorage alone can't be read directly. Because the key is derived from
+  // the origin, moving the server to another port/host makes stored keys
+  // undecryptable; we surface that with a toast and leave the ciphertext intact.
+  // Legacy plaintext keys are auto-migrated to ciphertext on first unlock.
+  _secrets: { apiKey: '', customApiKey: '' },
+  _secretWarn: { apiKey: false, customApiKey: false },
+  _secretUnlocked: false,
 
-  getApiKey() {
-    return localStorage.getItem(this.PREFIX + this._keys.apiKey) || '';
+  _encSecretPrefix: 'encv1:',
+
+  _bufToB64(buf) {
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  },
+  _b64ToBuf(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
   },
 
-  setApiKey(key) {
-    localStorage.setItem(this.PREFIX + this._keys.apiKey, key);
+  async _deriveSecretKey() {
+    const enc = new TextEncoder();
+    const base = (typeof location !== 'undefined' && location.origin) ? location.origin : 'st-card-editor';
+    const importKey = await crypto.subtle.importKey(
+      'raw', enc.encode('st-card-editor-secret:' + base),
+      'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: enc.encode('stce-salt:' + base), iterations: 200000, hash: 'SHA-256' },
+      importKey, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  },
+
+  async _encryptSecret(plain) {
+    const key = await this._deriveSecretKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key, new TextEncoder().encode(plain));
+    return this._encSecretPrefix + JSON.stringify({
+      v: 1,
+      iv: this._bufToB64(iv),
+      ct: this._bufToB64(ct),
+    });
+  },
+
+  async _decryptSecret(stored) {
+    if (typeof stored !== 'string' || !stored.startsWith(this._encSecretPrefix)) {
+      return null; // not in our format
+    }
+    try {
+      const obj = JSON.parse(stored.slice(this._encSecretPrefix.length));
+      const key = await this._deriveSecretKey();
+      const iv = this._b64ToBuf(obj.iv);
+      const ct = this._b64ToBuf(obj.ct);
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+      return new TextDecoder().decode(plain);
+    } catch (err) {
+      // Key changed (different origin/port) or data corrupted — treat as unrecoverable.
+      return null;
+    }
+  },
+
+  // Unlock (and self-migrate) both stored keys. Populates the in-memory cache so
+  // the synchronous getters below can serve plaintext. Legacy plaintext values are
+  // migrated to ciphertext on the fly. Callers may inspect this._secretWarn.* to
+  // notify the user when a stored key could not be decrypted on this address.
+  async _unlockKeys() {
+    if (this._secretUnlocked) return;
+    this._secretUnlocked = true;
+    for (const name of ['apiKey', 'customApiKey']) {
+      const rawKey = this.PREFIX + this._keys[name];
+      const raw = localStorage.getItem(rawKey);
+      this._secretWarn[name] = false;
+      if (!raw) { this._secrets[name] = ''; continue; }
+      if (!raw.startsWith(this._encSecretPrefix)) {
+        // Legacy plaintext — encrypt in place, keep plaintext in memory. If we
+        // can't encrypt here (e.g. running on a non-secure LAN origin where
+        // crypto.subtle is unavailable), leave the stored value untouched and
+        // expose it as-is so the app keeps working.
+        try {
+          const enc = await this._encryptSecret(raw);
+          localStorage.setItem(rawKey, enc);
+          this._secrets[name] = raw;
+        } catch (_) {
+          this._secrets[name] = raw;
+        }
+        continue;
+      }
+      const plain = await this._decryptSecret(raw);
+      if (plain !== null) {
+        this._secrets[name] = plain;
+      } else {
+        // Decrypt failed (origin/port moved or key changed). Surface a warning,
+        // leave the ciphertext in place, and treat as unset so the user re-enters.
+        this._secrets[name] = '';
+        this._secretWarn[name] = true;
+      }
+    }
+  },
+
+  getApiKey() {
+    return this._secrets.apiKey;
+  },
+
+  async setApiKey(key) {
+    const clean = key || '';
+    this._secrets.apiKey = clean;
+    if (!clean) { localStorage.removeItem(this.PREFIX + this._keys.apiKey); return; }
+    try {
+      localStorage.setItem(this.PREFIX + this._keys.apiKey, await this._encryptSecret(clean));
+    } catch (_) {
+      // Encryption unavailable — fail open to keep the editor working.
+      try { localStorage.setItem(this.PREFIX + this._keys.apiKey, clean); } catch (_) {}
+    }
   },
 
   // ─── Default Model ─────────────────────────────────────
@@ -184,11 +297,18 @@ const CardStorage = {
   },
 
   getCustomApiKey() {
-    return localStorage.getItem(this.PREFIX + this._keys.customApiKey) || '';
+    return this._secrets.customApiKey;
   },
 
-  setCustomApiKey(key) {
-    localStorage.setItem(this.PREFIX + this._keys.customApiKey, key);
+  async setCustomApiKey(key) {
+    const clean = key || '';
+    this._secrets.customApiKey = clean;
+    if (!clean) { localStorage.removeItem(this.PREFIX + this._keys.customApiKey); return; }
+    try {
+      localStorage.setItem(this.PREFIX + this._keys.customApiKey, await this._encryptSecret(clean));
+    } catch (_) {
+      try { localStorage.setItem(this.PREFIX + this._keys.customApiKey, clean); } catch (_) {}
+    }
   },
 
   getCustomModelId() {

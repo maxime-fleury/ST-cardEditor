@@ -296,10 +296,21 @@ async function init() {
   await CardStorage.migrateCardsToIndexedDB();
   await CardManager.migrateImagesToIndexedDB();
 
+  // Decrypt (and auto-migrate) any stored API keys before the UI reads them.
+  await CardStorage._unlockKeys();
+
   window.AppState.cards = CardStorage.getCards();
   window.AppState.chatHistory = [];
   const apiKey = CardStorage.getApiKey();
   const defaultModel = CardStorage.getDefaultModel();
+
+  // If a stored key could not be decrypted (e.g. the server moved to a new
+  // port/host), tell the user we need it re-entered.
+  const unreadableOpenrouter = CardStorage._secretWarn.apiKey;
+  const unreadableCustom = CardStorage._secretWarn.customApiKey;
+  if (unreadableOpenrouter || unreadableCustom) {
+    Ui.showToast(I18n.t ? I18n.t('settings.secretUnreadable') : 'Due to security, a saved API key could not be unlocked on this address — please re-enter it in Settings.', 'warning');
+  }
 
   if (apiKey) {
     $('#apiKeyInput').value = apiKey;

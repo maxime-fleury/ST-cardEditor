@@ -51,7 +51,7 @@ async function serveStatic(filePath, fallbackPath) {
         // Custom provider's whole purpose is reaching OpenAI-compatible servers
         // on local/LAN/WAN addresses (LM Studio, Ollama, vLLM...). https: stays
         // host-allowlisted; CUSTOM_LLM_ORIGINS adds further hosts (e.g. https).
-        "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-eval' cdn.jsdelivr.net cdnjs.cloudflare.com esm.sh; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' cdn.jsdelivr.net fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im" + (EXTRA_CONNECT_SRC ? " " + EXTRA_CONNECT_SRC : "") + ";",
+        "Content-Security-Policy": "default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com esm.sh; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' cdn.jsdelivr.net fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im" + (EXTRA_CONNECT_SRC ? " " + EXTRA_CONNECT_SRC : "") + ";",
       },
     });
   }
@@ -78,6 +78,19 @@ const server = Bun.serve({
 
     // API proxy — forwards requests to OpenRouter to avoid CORS
     if (pathname.startsWith("/api/")) {
+      // The editor itself is a same-origin SPA, so the proxy must not serve as an
+      // open relay for third-party sites. Browsers attach an Origin header to
+      // cross-site requests (and cannot spoof it from page JS); require that any
+      // Origin we do receive is the editor's own, since a foreign site could
+      // otherwise drive the proxy (and relay its own Authorization). Non-browser
+      // CLI clients omit Origin and are treated as trusted local tooling.
+      const requestOrigin = req.headers.get("origin");
+      if (requestOrigin) {
+        const own = url.origin; // e.g. http://localhost:8182
+        if (requestOrigin !== own) {
+          return new Response("Forbidden", { status: 403 });
+        }
+      }
       // Handle CORS preflight before proxying API requests.
       if (req.method === "OPTIONS") {
         return new Response(null, {
@@ -103,11 +116,14 @@ const server = Bun.serve({
       const body = req.method !== "GET" && req.method !== "HEAD" ? await req.arrayBuffer() : undefined;
       let upstream;
       try {
+        // Reject redirects: following a cross-origin Location would let an
+        // upstream response bounce the proxy to internal or metadata services (SSRF).
         upstream = await fetch(targetUrl, {
           method: req.method,
           headers,
           body,
           signal: AbortSignal.timeout(120000),
+          redirect: "error",
         });
       } catch (err) {
         console.error("API proxy request failed:", err?.message || err);
