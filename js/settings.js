@@ -211,13 +211,19 @@ const Settings = {
       Ui.showToast(I18n.t('error.apiKeyNotSet'), 'warning');
       return;
     }
+    // Guard against overlapping refreshes so a stale (earlier) response can't
+    // overwrite the models that a newer request is about to render.
+    const myToken = (this._modelReqToken = (this._modelReqToken || 0) + 1);
     const container = document.querySelector('#modelList');
     if (container) container.innerHTML = '<div class="p-3"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>';
     try {
-      window.AppState.models = await AIService.fetchModels();
+      const models = await AIService.fetchModels();
+      if (myToken !== this._modelReqToken) return; // a newer refresh superseded us
+      window.AppState.models = models;
       this.populateModelSelects();
       this.renderModelList();
     } catch (err) {
+      if (myToken !== this._modelReqToken) return;
       console.error('Failed to fetch models:', err);
       Ui.showToast(I18n.t('toast.modelsFailed', { error: err.message }), 'danger');
     }
@@ -226,7 +232,7 @@ const Settings = {
   populateModelSelects() {
     const $ = (sel) => document.querySelector(sel);
     const d = CardStorage.getDefaultModel();
-    const h = window.AppState.models.map(m => '<option value="' + Ui.escapeHtml(m.id) + '"' + (m.id === d ? ' selected' : '') + '>' + Ui.escapeHtml(m.name) + (m.is_free ? ' [' + I18n.t('gen.free') + ']' : '') + '</option>').join('');
+    const h = window.AppState.models.map(m => '<option value="' + Ui.escapeAttr(m.id) + '"' + (m.id === d ? ' selected' : '') + '>' + Ui.escapeHtml(m.name) + (m.is_free ? ' [' + I18n.t('gen.free') + ']' : '') + '</option>').join('');
     $('#defaultModelSelect').innerHTML = '<option value="">' + (I18n.t ? I18n.t('settings.modelAuto') : 'Auto') + '</option>' + h;
     $('#aiModelSelect').innerHTML = '<option value="">' + (I18n.t ? I18n.t('nav.selectModel') : 'Select model...') + '</option>' + h;
   },
@@ -246,7 +252,7 @@ const Settings = {
     const shown = filtered.slice(0, end);
     const hasMore = end < filtered.length;
     container.innerHTML = shown.map(m =>
-      '<div class="model-item' + (m.id === d ? ' selected' : '') + '" data-model-id="' + Ui.escapeHtml(m.id) + '">'
+      '<div class="model-item' + (m.id === d ? ' selected' : '') + '" data-model-id="' + Ui.escapeAttr(m.id) + '">'
       + '<div class="model-item-info"><div class="model-item-name">' + Ui.escapeHtml(m.name) + '</div>'
       + '<div class="model-item-provider">' + Ui.escapeHtml(m.provider) + ' · ' + (m.context_length ? Math.floor(m.context_length/1000) + 'k ctx' : '?')
       + (m.max_output_tokens ? ' · ' + Math.floor(m.max_output_tokens/1000) + 'k out' : '')
@@ -401,9 +407,17 @@ const Settings = {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
+    const cleanup = () => {
+      input.onchange = null;
+      input.onabort = null;
+      input.oncancel = null;
+      input.remove();
+    };
+    input.onabort = cleanup;
+    input.oncancel = cleanup;
     input.onchange = async (e) => {
       const file = e.target.files[0];
-      if (!file) return;
+      if (!file) { cleanup(); return; }
       try {
         const text = await file.text();
         const workspace = JSON.parse(text);
@@ -437,7 +451,7 @@ const Settings = {
         console.error('Workspace import failed:', err);
         Ui.showToast((I18n.t ? I18n.t('settings.workspaceImportFailed', { error: err.message }) : 'Failed to import workspace: ' + err.message), 'danger');
       }
-      input.remove();
+      cleanup();
     };
     document.body.appendChild(input);
     input.click();

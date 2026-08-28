@@ -92,7 +92,16 @@ window.Ui = {
   },
 
   setDirty(dirty) {
+    const wasDirty = window.AppState._dirty;
     window.AppState._dirty = dirty;
+    // Once the local save completes (dirty cleared), re-load a remote update
+    // that arrived while we were editing, so cross-tab changes aren't lost.
+    if (dirty === false && this._pendingRemoteReload) {
+      this._pendingRemoteReload = false;
+      const cardId = this._pendingRemoteCardId;
+      this._pendingRemoteCardId = null;
+      this._reloadActiveCard(cardId);
+    }
     const btn = document.querySelector('#btnSaveCard');
     if (!btn) return;
     btn.classList.toggle('is-dirty', !!dirty);
@@ -106,9 +115,34 @@ window.Ui = {
     }
   },
 
+  // Reload the currently-active card from IndexedDB (used to surface a card
+  // updated from another tab without clobbering unsaved local edits).
+  async _reloadActiveCard(expectedCardId) {
+    const ac = window.AppState.activeCard;
+    if (!ac) return;
+    if (expectedCardId && ac._id !== expectedCardId) return; // user switched cards
+    try {
+      const updated = await CardStorage.getCard(ac._id);
+      if (updated) {
+        window.AppState.activeCard = updated;
+        try {
+          const b64 = await CardStorage.getImage(updated._id);
+          if (b64) window.AppState.activeCard._imageBase64 = b64;
+        } catch (err) {
+          console.error('Failed to load image from IndexedDB:', err);
+        }
+        Editor.populateEditor(window.AppState.activeCard);
+      }
+    } catch (err) {
+      console.error('Failed to reload active card:', err);
+    }
+  },
+
   // ─── Markdown Renderer (lazy-loads marked + DOMPurify) ───
   _markdownReady: false,
   _markdownLoading: null,
+  _pendingRemoteReload: false,
+  _pendingRemoteCardId: null,
 
   _ensureMarkdownLibs() {
     if (this._markdownReady) return;
@@ -502,7 +536,12 @@ function bindEvents(settingsModal) {
       const field = id.replace('edit', '');
       const camelField = field.charAt(0).toLowerCase() + field.slice(1);
       el.addEventListener('focus', () => Editor._snapshot(camelField));
-      el.addEventListener('input', Ui.debounce(() => { Editor.syncEditorToCard(); Editor.updateCharCounts(); Editor.autoResizeTextareas(); AiChat.updateContextBar(); }, DEBOUNCE_INPUT_MS));
+      el.addEventListener('input', Ui.debounce(() => {
+        Editor.syncEditorToCard().catch(() => {});
+        Editor.updateCharCounts();
+        Editor.autoResizeTextareas();
+        AiChat.updateContextBar();
+      }, DEBOUNCE_INPUT_MS));
     }
   });
 
@@ -617,7 +656,14 @@ function bindEvents(settingsModal) {
       document.documentElement.setAttribute('data-theme', next);
       const accent = CardStorage.getAccent(next);
       if (accent) Settings.applyAccent(next, accent);
-      else document.documentElement.removeAttribute('data-accent-custom');
+      else {
+        // No saved accent for the target theme: clear the inline accent
+        // custom properties (they outrank stylesheet rules) and the flag.
+        ['--accent-300','--accent-400','--accent-500','--accent-600','--accent-700',
+         '--accent-glow','--accent-glow-strong','--accent-text'].forEach(name =>
+          document.documentElement.style.removeProperty(name));
+        document.documentElement.removeAttribute('data-accent-custom');
+      }
       localStorage.setItem(CardStorage.PREFIX + 'theme', next);
       Anims.iconSpin(themeToggle.querySelector('i'));
       themeToggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
@@ -791,23 +837,16 @@ async function handleStorageChange(e) {
   CardManager.renderCardList();
   if (window.AppState.activeCard) {
     const active = document.activeElement;
-    if (window.AppState._dirty) return;
-    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
-    try {
-      const updated = await CardStorage.getCard(window.AppState.activeCard._id);
-      if (updated) {
-        window.AppState.activeCard = updated;
-        try {
-          const b64 = await CardStorage.getImage(updated._id);
-          if (b64) window.AppState.activeCard._imageBase64 = b64;
-        } catch (err) {
-          console.error('Failed to load image from IndexedDB:', err);
-        }
-        Editor.populateEditor(window.AppState.activeCard);
-      }
-    } catch (err) {
-      console.error('Failed to handle storage change:', err);
+    if (window.AppState._dirty) {
+      // We have unsaved local edits; don't clobber them now. Remember the card
+      // so it gets reloaded from the other tab once the local save completes.
+      if (Ui._pendingRemoteReload) return;
+      Ui._pendingRemoteReload = true;
+      Ui._pendingRemoteCardId = window.AppState.activeCard._id;
+      return;
     }
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+    Ui._reloadActiveCard(window.AppState.activeCard._id);
   }
 }
 

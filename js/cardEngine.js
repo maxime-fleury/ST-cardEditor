@@ -48,6 +48,9 @@ const CardEngine = {
     let raw;
     try { raw = JSON.parse(jsonStr); }
     catch (e) { throw new Error((I18n.t ? I18n.t('error.invalidJson', { message: e.message || 'parse error' }) : 'Invalid JSON: ' + (e.message || 'parse error'))); }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error((I18n.t ? I18n.t('error.unknownFormat') : 'Unknown card format — not a SillyTavern character card'));
+    }
     return this.normalize(raw, filename);
   },
 
@@ -132,8 +135,8 @@ const CardEngine = {
       if (typeof DecompressionStream === 'undefined') return null;
       const ds = new DecompressionStream('zlib');
       writer = ds.writable.getWriter();
-      writer.write(bytes);
-      writer.close();
+      await writer.write(bytes);
+      await writer.close();
       const ab = await new Response(ds.readable).arrayBuffer();
       return new Uint8Array(ab);
     } catch (e) {

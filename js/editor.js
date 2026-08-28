@@ -6,6 +6,7 @@ const Editor = {
   _undoStack: [],
   _redoStack: [],
   _maxUndo: 50,
+  _undoCardId: null,
 
   _FIELD_MAP: {
     firstMes: 'first_mes',
@@ -74,6 +75,14 @@ const Editor = {
   populateEditor(card) {
     const $ = (sel) => document.querySelector(sel);
     function safeStyle(id, displayVal) { const el = $(id); if (el) el.style.display = displayVal; }
+
+    // Undo/redo stacks belong to a single card; never let edits to one card
+    // bleed into another via Ctrl+Z/Ctrl+Y after switching cards.
+    if (card._id !== this._undoCardId) {
+      this._undoStack = [];
+      this._redoStack = [];
+      this._undoCardId = card._id;
+    }
 
     $('#editName').value = card.name || '';
     $('#editDescription').value = card.description || '';
@@ -175,6 +184,15 @@ const Editor = {
   async syncEditorToCard() {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
+    // Serialize concurrent writes: if a save is already in flight, chain this
+    // one after it so IndexedDB writes never interleave and reorder.
+    const prev = this._pendingSync || Promise.resolve();
+    const run = prev.then(() => this._doSync(activeCard));
+    this._pendingSync = run.catch(() => {});
+    return run;
+  },
+
+  async _doSync(activeCard) {
     this._captureFields(activeCard);
     // Warn if card has no name (throttled to once until name is filled)
     if (!activeCard.name && !this._nameWarned) {
@@ -270,6 +288,10 @@ const Editor = {
     const count = $('#greetingCount');
     const greetings = card.alternate_greetings || [];
 
+    // Generation token invalidates stale debounced writes after a re-render
+    // (add/delete/move) so writebacks can't clobber a reordered entry.
+    const gen = (this._greetGen = (this._greetGen || 0) + 1);
+
     count.textContent = greetings.length ? '(' + greetings.length + ')' : '';
 
     if (!greetings.length) {
@@ -340,6 +362,14 @@ const Editor = {
 
     container.querySelectorAll('.greeting-textarea').forEach(ta => {
       ta.addEventListener('input', Ui.debounce(async () => {
+        // If a re-render happened since this textarea was created, the DOM
+        // entry (and the array) may have been reordered or replaced; fall back
+        // to reading the current DOM so we never write stale text to a moved slot.
+        if (!ta.isConnected || gen !== self._greetGen) {
+          self.syncGreetings();
+          await self.syncEditorToCard();
+          return;
+        }
         const idx = parseInt(ta.dataset.greetingIdx);
         if (window.AppState.activeCard.alternate_greetings[idx] !== undefined) {
           window.AppState.activeCard.alternate_greetings[idx] = ta.value;

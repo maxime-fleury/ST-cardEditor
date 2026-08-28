@@ -86,11 +86,27 @@ const server = Bun.serve({
         headers.set(key, val);
       }
       const body = req.method !== "GET" && req.method !== "HEAD" ? await req.arrayBuffer() : undefined;
-      const upstream = await fetch(targetUrl, {
-        method: req.method,
-        headers,
-        body,
-      });
+      let upstream;
+      try {
+        upstream = await fetch(targetUrl, {
+          method: req.method,
+          headers,
+          body,
+          signal: AbortSignal.timeout(120000),
+        });
+      } catch (err) {
+        console.error("API proxy request failed:", err?.message || err);
+        return new Response(
+          JSON.stringify({ error: { message: "Upstream request failed: " + (err?.message || "network error"), type: "proxy_error" } }),
+          {
+            status: 502,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*",
+            },
+          }
+        );
+      }
       const respHeaders = new Headers();
       const safeHeaders = ['content-type', 'cache-control', 'x-ratelimit-remaining', 'x-ratelimit-limit'];
       for (const [key, val] of upstream.headers) {
@@ -117,7 +133,12 @@ const server = Bun.serve({
       }
     }
 
-    return serveStatic(filePath, join(PUBLIC_DIR, "index.html"));
+    // SPA fallback: only rewrite request-like extension-less paths (e.g. a
+    // deep link) to index.html. Missing real assets (js/css/png/etc.) must 404
+    // instead of silently returning HTML with a 200.
+    const isAsset = extname(pathname) !== "";
+    const fallback = isAsset ? null : join(PUBLIC_DIR, "index.html");
+    return serveStatic(filePath, fallback);
   },
 });
 

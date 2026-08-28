@@ -54,9 +54,15 @@ const Anims = {
     this._activeTimeline = tl;
     const finish = () => {
       if (token === this._slideToken) this._activeTimeline = null;
+      if (onDone) onDone();
     };
     if (outEl) {
-      tl.add({ targets: outEl, opacity: [1, 0], translateX: [0, xOut], duration: 180, complete: () => { if (token === this._slideToken) outEl.classList.add('d-none'); } });
+      tl.add({ targets: outEl, opacity: [1, 0], translateX: [0, xOut], duration: 180, complete: () => {
+        if (token === this._slideToken) outEl.classList.add('d-none');
+        // If there is no incoming element, this animation is the last step and
+        // must finalize bookkeeping and notify the caller.
+        if (!inEl) { finish(); }
+      } });
     }
     if (inEl) {
       inEl.classList.remove('d-none');
@@ -64,8 +70,11 @@ const Anims = {
       tl.add({ targets: inEl, opacity: [0, 1], translateX: [xIn, 0], duration: 220, complete: () => {
         if (inEl) inEl.style.opacity = '';
         finish();
-        if (onDone) onDone();
       } }, outEl ? '-=60' : 0);
+    } else if (!outEl) {
+      // Nothing to animate; finalize immediately so callers and bookkeeping
+      // complete even when both elements are missing.
+      finish();
     }
   },
 
