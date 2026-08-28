@@ -7,6 +7,12 @@ const PORT = parseInt(process.env.PORT || '8182');
 const PUBLIC_DIR = resolve(join(import.meta.dir, "public"));
 const JS_DIR = resolve(join(import.meta.dir, "js"));
 
+// Extra origins allowed in CSP connect-src, e.g. a LAN-hosted LLM server
+// (LM Studio, Ollama, vLLM) reachable at something other than localhost/
+// 127.0.0.1. Space-separated list, e.g.
+// "http://192.168.1.189:1234 http://192.168.1.189:11434".
+const EXTRA_CONNECT_SRC = (process.env.CUSTOM_LLM_ORIGINS || '').trim();
+
 // MIME types map
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -41,7 +47,7 @@ async function serveStatic(filePath, fallbackPath) {
         // (LM Studio, Ollama, etc.) used by the Custom provider.
         // script-src intentionally omits 'unsafe-inline' (all app/CDN scripts are
         // loaded via external src) to block inline-script injection via XSS.
-        "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-eval' cdn.jsdelivr.net cdnjs.cloudflare.com esm.sh; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' cdn.jsdelivr.net fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im;",
+        "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-eval' cdn.jsdelivr.net cdnjs.cloudflare.com esm.sh; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' cdn.jsdelivr.net fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im" + (EXTRA_CONNECT_SRC ? " " + EXTRA_CONNECT_SRC : "") + ";",
       },
     });
   }

@@ -485,6 +485,53 @@ function bindEvents(settingsModal) {
     I18n.translateDOM();
     Ui.showToast(I18n.t('settings.languageChanged'), 'success');
   });
+
+  // Theme accent — apply in realtime and keep picker/hex in sync. The picker
+  // never fired anything before, so picking a color had no effect even on save
+  // (saveSettings only reads the hex field).
+  const themeColorPicker = $('#themeColorPicker');
+  const themeColorHex = $('#themeColorHex');
+  const applyAccentFromControls = () => {
+    const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+    const hex = themeColorHex ? themeColorHex.value.trim() : '';
+    if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+      Settings.applyAccent(theme, hex);
+      if (themeColorPicker) themeColorPicker.value = hex;
+    }
+  };
+  if (themeColorPicker) {
+    themeColorPicker.addEventListener('input', () => {
+      const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+      const color = themeColorPicker.value;
+      Settings.applyAccent(theme, color);
+      if (themeColorHex) themeColorHex.value = color;
+    });
+  }
+  if (themeColorHex) themeColorHex.addEventListener('input', applyAccentFromControls);
+  const btnResetThemeColor = $('#btnResetThemeColor');
+  if (btnResetThemeColor) {
+    btnResetThemeColor.addEventListener('click', () => {
+      const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+      Settings.resetAccent(theme);
+    });
+  }
+  const btnPresetNeutral = $('#btnPresetNeutral');
+  if (btnPresetNeutral) {
+    btnPresetNeutral.addEventListener('click', () => {
+      const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+      Settings.applyAccent(theme, '#64748b');
+      Settings.syncAccentControls();
+    });
+  }
+  const btnPresetPurple = $('#btnPresetPurple');
+  if (btnPresetPurple) {
+    btnPresetPurple.addEventListener('click', () => {
+      const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+      Settings.applyAccent(theme, '#8b5cf6');
+      Settings.syncAccentControls();
+    });
+  }
+
   settingsModal._element.addEventListener('shown.bs.modal', () => Settings.openSettings());
   $('#aiModelSelect').addEventListener('change', () => {
     const val = $('#aiModelSelect').value;

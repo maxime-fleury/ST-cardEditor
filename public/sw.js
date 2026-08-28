@@ -6,7 +6,7 @@
    ============================================================ */
 
 const BASE_PATH = new URL('.', self.location.href).pathname;
-const CACHE_PREFIX = 'stce-v2.3';
+const CACHE_PREFIX = 'stce-v2.4';
 const CACHE_NAME = `${CACHE_PREFIX}:${BASE_PATH}`;
 const DEV_PATH = BASE_PATH.endsWith('/dev/')
   ? BASE_PATH

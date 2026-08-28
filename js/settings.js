@@ -83,12 +83,20 @@ const Settings = {
     const isCustom = provider === 'custom';
     const isNamed = !isOpenRouter && !isCustom;
 
+    // Keep AIService in sync with the dropdown selection so "Refresh Models"
+    // (and its API-key check) target the provider currently shown in settings,
+    // not the previously saved one.
+    AIService.setProvider(provider, isOpenRouter ? CardStorage.getApiKey() : CardStorage.getCustomApiKey());
+
     $('#openrouterSettings').classList.toggle('d-none', !isOpenRouter);
     $('#customSettings').classList.toggle('d-none', !isCustom);
     $('#namedProviderSettings').classList.toggle('d-none', !isNamed);
     $('#modelIdSection').classList.toggle('d-none', isOpenRouter);
-    $('#openrouterExtras').classList.toggle('d-none', !isOpenRouter);
-    document.querySelector('#modelSelectionSection').classList.toggle('d-none', false);
+    // Max Tokens, Copyright toggle and the model browser apply to every
+    // provider (AIService.fetchModels() dispatches per-provider already);
+    // only the OpenRouter credit/usage card is OpenRouter-specific.
+    $('#openrouterExtras').classList.remove('d-none');
+    $('#creditsSection').classList.toggle('d-none', !isOpenRouter);
     $('#securityWarning').classList.toggle('d-none', !isOpenRouter);
 
     if (isNamed) {
@@ -205,9 +213,16 @@ const Settings = {
   },
 
   async refreshModelsList() {
+    const $ = (sel) => document.querySelector(sel);
+    const provider = $('#providerSelect').value;
+    const isCustom = provider === 'custom';
+    // Use the provider and key as currently typed in the form (possibly
+    // unsaved), so first-time setup works: paste key -> Refresh Models.
+    const keyField = provider === 'openrouter' ? $('#apiKeyInput') : (isCustom ? $('#customApiKeyInput') : $('#namedApiKeyInput'));
+    AIService.setProvider(provider, keyField ? keyField.value.trim() : '');
     // Custom/OpenAI-compatible local endpoints intentionally have no API key.
     // Only keyed providers should be blocked when credentials are missing.
-    if (!AIService.hasApiKey() && CardStorage.getProvider() !== 'custom') {
+    if (!AIService.hasApiKey() && !isCustom) {
       Ui.showToast(I18n.t('error.apiKeyNotSet'), 'warning');
       return;
     }

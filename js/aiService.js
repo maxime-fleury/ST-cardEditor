@@ -48,9 +48,11 @@ const AIService = {
 
   /**
    * Get the API key for the current provider.
-   * OpenRouter uses CardStorage.getApiKey(), others use CardStorage.getCustomApiKey().
+   * The in-memory key (set via setProvider/setApiKey, mirroring the latest
+   * saved or typed credential) takes precedence; fall back to storage.
    */
   _getApiKeyForProvider() {
+    if (this._apiKey) return this._apiKey;
     if (this._provider === 'openrouter') return CardStorage.getApiKey();
     return CardStorage.getCustomApiKey() || '';
   },
