@@ -419,6 +419,8 @@ function bindEvents(settingsModal) {
   $('#btnToggleApiKey').addEventListener('click', () => Settings.toggleApiKeyVisibility());
   $('#btnToggleNamedApiKey').addEventListener('click', () => Settings.toggleNamedApiKeyVisibility());
   $('#btnSaveSettings').addEventListener('click', () => Settings.saveSettings(settingsModal));
+  $('#btnResetPrompts').addEventListener('click', () => Settings.resetPrompts());
+  $('#btnResetPrompts').addEventListener('click', () => Settings.resetPrompts());
   $('#btnRefreshModels').addEventListener('click', () => Settings.refreshModelsList());
   $('#btnClearStorage').addEventListener('click', () => Settings.confirmClearStorage());
   $('#btnExportSettings').addEventListener('click', () => Settings.exportSettings());

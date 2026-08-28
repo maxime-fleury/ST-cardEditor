@@ -527,12 +527,20 @@
               <i class="bi bi-palette-fill me-2 text-accent"></i><span data-i18n="settings.themeColor">Theme color</span>
             </label>
             <div class="row g-2 align-items-center">
-              <div class="col-auto"><input type="color" class="form-control form-control-color" id="themeColorPicker" value="#9147ff" title="Choose theme color"></div>
-              <div class="col"><input type="text" class="form-control" id="themeColorHex" value="#9147ff" maxlength="7" pattern="^#[0-9a-fA-F]{6}$" data-i18n-placeholder="settings.themeColorPlaceholder" placeholder="#9147FF" spellcheck="false" autocomplete="off"></div>
+              <div class="col-auto"><input type="color" class="form-control form-control-color" id="themeColorPicker" value="#64748b" title="Choose accent color"></div>
+              <div class="col"><input type="text" class="form-control" id="themeColorHex" value="#64748b" maxlength="7" pattern="^#[0-9a-fA-F]{6}$" data-i18n-placeholder="settings.themeColorPlaceholder" placeholder="#9147FF" spellcheck="false" autocomplete="off"></div>
               <div class="col-auto"><button type="button" class="btn btn-outline-secondary" id="btnResetThemeColor" data-i18n="settings.resetThemeColor">Reset</button></div>
             </div>
+            <div class="d-flex gap-2 mt-2"><button type="button" class="btn btn-sm btn-outline-secondary" id="btnPresetNeutral">Neutral</button><button type="button" class="btn btn-sm btn-outline-secondary" id="btnPresetPurple">Purple</button></div>
             <small class="form-text text-muted" data-i18n="settings.themeColorHint">Choose a separate accent color for each light/dark theme. Changes apply immediately.</small>
           </div>
+
+          <ul class="nav nav-tabs mb-3" role="tablist">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#settingsGeneralTab" type="button" data-i18n="settings.generalTab">General</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#settingsPromptsTab" type="button" data-i18n="settings.promptsTab">AI Prompts</button></li>
+          </ul>
+          <div class="tab-content">
+          <div class="tab-pane fade show active" id="settingsGeneralTab">
 
           <!-- Provider -->
           <div class="mb-4">
@@ -642,6 +650,25 @@
               <div class="col-md-8"><select class="form-select" id="defaultModelSelect"><option value="" data-i18n="settings.modelAuto">Auto</option></select></div>
               <div class="col-md-4"><button class="btn btn-outline-accent w-100" id="btnRefreshModels"><i class="bi bi-arrow-clockwise me-1"></i><span data-i18n="settings.refreshModels">Refresh Models</span></button></div>
             </div>
+          </div>
+
+          </div><!-- end settingsGeneralTab -->
+          <div class="tab-pane fade" id="settingsPromptsTab">
+            <div class="mb-3">
+              <label class="form-label fw-semibold" data-i18n="settings.assistantPrompt">Assistant system prompt</label>
+              <textarea class="form-control" id="promptAssistantInput" rows="5" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" data-i18n="settings.fullCardPrompt">Full-card system prompt</label>
+              <textarea class="form-control" id="promptFullCardInput" rows="5" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" data-i18n="settings.wizardPrompt">Wizard generation instructions</label>
+              <textarea class="form-control" id="promptWizardInput" rows="5" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+            </div>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="btnResetPrompts" data-i18n="settings.resetPrompts">Reset prompts</button>
+            <small class="form-text text-muted d-block mt-2" data-i18n="settings.promptHint">Custom text replaces the reusable instruction section; dynamic card details are still added automatically.</small>
+          </div>
           </div>
 
           <!-- Security warning (OpenRouter only) -->

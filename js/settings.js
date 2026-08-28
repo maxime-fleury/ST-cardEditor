@@ -36,6 +36,9 @@ const Settings = {
 
     CardStorage.setMaxTokens(maxTokens);
     CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
+    CardStorage.setPrompt('assistant', $('#promptAssistantInput').value);
+    CardStorage.setPrompt('fullCard', $('#promptFullCardInput').value);
+    CardStorage.setPrompt('wizard', $('#promptWizardInput').value);
     const theme = document.documentElement.getAttribute('data-theme') || 'dark';
     const themeColor = document.querySelector('#themeColorHex').value.trim();
     if (/^#[0-9a-fA-F]{6}$/.test(themeColor)) this.applyAccent(theme, themeColor);
@@ -114,14 +117,19 @@ const Settings = {
     return true;
   },
 
+  resetPrompts() {
+    ['assistant', 'fullCard', 'wizard'].forEach(name => CardStorage.setPrompt(name, ''));
+    this.openSettings();
+  },
+
   resetAccent(theme) {
-    this.applyAccent(theme, '#9147ff');
+    this.applyAccent(theme, '#64748b');
     this.syncAccentControls();
   },
 
   syncAccentControls() {
     const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-    const color = CardStorage.getAccent(theme) || '#9147ff';
+    const color = CardStorage.getAccent(theme) || '#64748b';
     const picker = document.querySelector('#themeColorPicker');
     const hex = document.querySelector('#themeColorHex');
     if (picker) picker.value = color;
@@ -141,6 +149,9 @@ const Settings = {
     $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
     this.toggleProvider();
     this.syncAccentControls();
+    $('#promptAssistantInput').value = CardStorage.getPrompt('assistant');
+    $('#promptFullCardInput').value = CardStorage.getPrompt('fullCard');
+    $('#promptWizardInput').value = CardStorage.getPrompt('wizard');
   },
 
   async refreshCredits() {

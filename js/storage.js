@@ -89,6 +89,12 @@ const CardStorage = {
     customModelId: 'customModelId',
     darkAccent: 'darkAccent',
     lightAccent: 'lightAccent',
+    promptAssistant: 'promptAssistant',
+    promptFullCard: 'promptFullCard',
+    promptWizard: 'promptWizard',
+    promptAssistant: 'promptAssistant',
+    promptFullCard: 'promptFullCard',
+    promptWizard: 'promptWizard',
   },
 
   // ─── Theme accents ─────────────────────────────────────
@@ -102,6 +108,20 @@ const CardStorage = {
     const key = theme === 'light' ? this._keys.lightAccent : this._keys.darkAccent;
     if (color) localStorage.setItem(this.PREFIX + key, color);
     else localStorage.removeItem(this.PREFIX + key);
+  },
+
+  getPrompt(name) { return localStorage.getItem(this.PREFIX + this._keys['prompt' + name[0].toUpperCase() + name.slice(1)]) || ''; },
+
+  setPrompt(name, value) { localStorage.setItem(this.PREFIX + this._keys['prompt' + name[0].toUpperCase() + name.slice(1)], value || ''); },
+
+  getPrompt(name) {
+    const key = this._keys['prompt' + name[0].toUpperCase() + name.slice(1)];
+    return localStorage.getItem(this.PREFIX + key) || '';
+  },
+
+  setPrompt(name, value) {
+    const key = this._keys['prompt' + name[0].toUpperCase() + name.slice(1)];
+    localStorage.setItem(this.PREFIX + key, value || '');
   },
 
   // ─── API Key ────────────────────────────────────────────

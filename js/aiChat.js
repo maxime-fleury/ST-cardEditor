@@ -233,8 +233,7 @@ const AiChat = {
     delete cardForPrompt._createdAt; delete cardForPrompt._fileSize;
 
     const parts = [
-      'You are an AI assistant helping edit SillyTavern character cards.',
-      'SillyTavern is an AI roleplay frontend. Cards define character personalities.',
+      CardStorage.getPrompt('assistant') || 'You are an AI assistant helping edit SillyTavern character cards.\nSillyTavern is an AI roleplay frontend. Cards define character personalities.',
       '',
       'Here is the FULL character card for context:',
       '```json',
@@ -471,8 +470,7 @@ const AiChat = {
 
     const cardJson = activeCard ? CardEngine.toJSON(activeCard) : '';
     const systemPrompt = [
-      'You are an AI assistant helping edit SillyTavern character cards.',
-      'SillyTavern is an AI roleplay frontend. Cards define character personalities.',
+      CardStorage.getPrompt('fullCard') || 'You are an AI assistant helping edit SillyTavern character cards.\nSillyTavern is an AI roleplay frontend. Cards define character personalities.',
       '',
       'Here is the FULL character card for context:',
       '```json',
@@ -1103,8 +1101,7 @@ const AiChat = {
     const ctx = AIService.getContextLength(modelId);
     const cardJson = activeCard ? CardEngine.toJSON(activeCard) : '';
     const systemPromptBase = [
-      'You are an AI assistant helping edit SillyTavern character cards.',
-      'SillyTavern is an AI roleplay frontend. Cards define character personalities.',
+      CardStorage.getPrompt('fullCard') || 'You are an AI assistant helping edit SillyTavern character cards.\nSillyTavern is an AI roleplay frontend. Cards define character personalities.',
     ].join('\n');
     const inputText = systemPromptBase + '\n\n' + cardJson;
 
