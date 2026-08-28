@@ -17,8 +17,11 @@ const Settings = {
     CardStorage.setProvider(provider);
 
     if (provider === 'openrouter') {
-      CardStorage.setApiKey(apiKey);
-      AIService.setProvider('openrouter');
+      // Keep the OpenRouter key independent from custom-provider credentials.
+      // Switching providers must not erase it, especially when the field is
+      // temporarily empty while the settings modal is being reopened.
+      if (apiKey) CardStorage.setApiKey(apiKey);
+      AIService.setProvider('openrouter', apiKey || CardStorage.getApiKey());
       CardStorage.setDefaultModel(defaultModel);
       $('#aiModelSelect').value = defaultModel;
     } else {
@@ -47,9 +50,9 @@ const Settings = {
     const themeColor = themeColorInput ? themeColorInput.value.trim() : '';
     if (/^#[0-9a-fA-F]{6}$/.test(themeColor)) this.applyAccent(theme, themeColor);
 
-    // Avoid leaving a stale key for the provider we're not using.
-    if (provider === 'openrouter') CardStorage.setCustomApiKey('');
-    else CardStorage.setApiKey('');
+    // Keep provider credentials separate. Do not clear the inactive provider's
+    // key: users commonly switch between OpenRouter and a local endpoint.
+    // This also allows returning to OpenRouter without re-entering its key.
 
     modal.hide();
     Ui.showToast(I18n.t('toast.settingsSaved'), 'success');
@@ -204,7 +207,10 @@ const Settings = {
   async refreshModelsList() {
     // Custom/OpenAI-compatible local endpoints intentionally have no API key.
     // Only keyed providers should be blocked when credentials are missing.
-    if (!AIService.hasApiKey()) return;
+    if (!AIService.hasApiKey()) {
+      Ui.showToast(I18n.t('error.apiKeyNotSet'), 'warning');
+      return;
+    }
     const container = document.querySelector('#modelList');
     if (container) container.innerHTML = '<div class="p-3"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>';
     try {

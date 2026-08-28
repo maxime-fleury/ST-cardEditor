@@ -247,7 +247,6 @@ async function init() {
   const defaultModel = CardStorage.getDefaultModel();
 
   if (apiKey) {
-    AIService.setApiKey(apiKey);
     $('#apiKeyInput').value = apiKey;
   }
   if (defaultModel) {
