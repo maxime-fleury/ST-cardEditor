@@ -220,6 +220,12 @@
   padding-top: 1.35rem !important;
   padding-bottom: 0.35rem !important;
 }
+/* When the custom-pronouns input is hidden (gender != Other), its floating
+   label is absolutely positioned and would otherwise paint as a stray,
+   overlapping text node below the select. Hide the label with the input. */
+.wizard-step .floating-label input.d-none + label {
+  display: none;
+}
 .field-hint {
   display: block;
   font-size: 0.68rem;

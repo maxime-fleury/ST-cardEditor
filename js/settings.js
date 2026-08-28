@@ -240,6 +240,9 @@ const Settings = {
     } catch (err) {
       if (myToken !== this._modelReqToken) return;
       console.error('Failed to fetch models:', err);
+      // Keep the selects usable: surface the saved default model even when
+      // the fetch failed.
+      this.populateModelSelects();
       Ui.showToast(I18n.t('toast.modelsFailed', { error: err.message }), 'danger');
     }
   },
@@ -247,7 +250,12 @@ const Settings = {
   populateModelSelects() {
     const $ = (sel) => document.querySelector(sel);
     const d = CardStorage.getDefaultModel();
-    const h = window.AppState.models.map(m => '<option value="' + Ui.escapeAttr(m.id) + '"' + (m.id === d ? ' selected' : '') + '>' + Ui.escapeHtml(m.name) + (m.is_free ? ' [' + I18n.t('gen.free') + ']' : '') + '</option>').join('');
+    let h = window.AppState.models.map(m => '<option value="' + Ui.escapeAttr(m.id) + '"' + (m.id === d ? ' selected' : '') + '>' + Ui.escapeHtml(m.name) + (m.is_free ? ' [' + I18n.t('gen.free') + ']' : '') + '</option>').join('');
+    // Always surface the saved default model, even when the fetch failed or
+    // the list hasn't loaded yet, so the navbar dropdown stays usable.
+    if (d && !window.AppState.models.some(m => m.id === d)) {
+      h += '<option value="' + Ui.escapeAttr(d) + '" selected>' + Ui.escapeHtml(d) + '</option>';
+    }
     $('#defaultModelSelect').innerHTML = '<option value="">' + (I18n.t ? I18n.t('settings.modelAuto') : 'Auto') + '</option>' + h;
     $('#aiModelSelect').innerHTML = '<option value="">' + (I18n.t ? I18n.t('nav.selectModel') : 'Select model...') + '</option>' + h;
   },

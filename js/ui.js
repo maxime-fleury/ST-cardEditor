@@ -321,6 +321,10 @@ async function init() {
       $('#aiModelSelect').value = customModel;
     }
   }
+  // Populate the model selects with the saved default model (if any) before
+  // any fetch attempt, so the dropdowns are usable even when models can't
+  // be loaded (e.g. no API key yet).
+  Settings.populateModelSelects();
 
   const maxTokens = CardStorage.getMaxTokens();
   if (maxTokens > 0) $('#maxTokensInput').value = maxTokens;

@@ -36,6 +36,12 @@ const CardManager = {
       try {
         const card = await CardEngine.parseFile(file);
         if (card._imageBase64) {
+          // Soft-warn on very large embedded images so users can trim them
+          // before they silently consume the IndexedDB quota.
+          const approxBytes = Math.round(card._imageBase64.length * 3 / 4);
+          if (approxBytes > 5 * 1024 * 1024) {
+            Ui.showToast(I18n.t('toast.largeImage', { name: file.name, size: (approxBytes / (1024 * 1024)).toFixed(1) }), 'warning');
+          }
           await CardStorage.saveImage(card._id, card._imageBase64);
         }
         await CardStorage.upsertCard(card);

@@ -158,13 +158,12 @@ const AIService = {
   async _fetchCustomModels() {
     const baseUrl = this._getBaseUrl();
     if (!baseUrl) throw new Error(I18n.t ? I18n.t('error.customUrlNotSet') : 'Custom API base URL is not set');
-    const apiBaseUrl = baseUrl.endsWith('/v1') ? baseUrl : baseUrl + '/v1';
+    const apiBaseUrl = this._v1BaseUrl(baseUrl);
     const headers = { 'Content-Type': 'application/json' };
     const apiKey = this._getApiKeyForProvider();
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
 
-    const modelUrl = baseUrl.endsWith('/v1') ? baseUrl + '/models' : baseUrl + '/v1/models';
-    let resp = await fetch(modelUrl, {
+    let resp = await fetch(apiBaseUrl + '/models', {
       headers,
       signal: AbortSignal.timeout(15000),
     });
@@ -172,7 +171,7 @@ const AIService = {
     // host root, while others expose /models from an already versioned URL.
     // Try the alternate form once when the first path is not available.
     if (resp.status === 404) {
-      const alternateUrl = baseUrl.endsWith('/v1') ? baseUrl.slice(0, -3) + '/models' : baseUrl + '/models';
+      const alternateUrl = apiBaseUrl.slice(0, -3) + '/models';
       resp = await fetch(alternateUrl, {
         headers,
         signal: AbortSignal.timeout(15000),

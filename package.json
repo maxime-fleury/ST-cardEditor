@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "bun run server.js",
-    "dev": "bun --watch run server.js"
+    "dev": "bun --watch run server.js",
+    "i18n:check": "bun scripts/check-i18n.mjs"
   },
   "dependencies": {},
   "devDependencies": {}
