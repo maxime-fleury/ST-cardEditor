@@ -43,7 +43,8 @@ const Settings = {
       CardStorage.setPrompt(name, value === this.getDefaultPrompt(name) ? '' : value);
     });
     const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-    const themeColor = document.querySelector('#themeColorHex').value.trim();
+    const themeColorInput = document.querySelector('#themeColorHex');
+    const themeColor = themeColorInput ? themeColorInput.value.trim() : '';
     if (/^#[0-9a-fA-F]{6}$/.test(themeColor)) this.applyAccent(theme, themeColor);
 
     // Avoid leaving a stale key for the provider we're not using.
@@ -53,7 +54,7 @@ const Settings = {
     modal.hide();
     Ui.showToast(I18n.t('toast.settingsSaved'), 'success');
     if (provider === 'openrouter' && apiKey) this.refreshCredits();
-    if (apiKey || customApiKey || provider === 'custom') this.refreshModelsList();
+    if (provider === 'custom' || apiKey || customApiKey) this.refreshModelsList();
   },
 
   toggleApiKeyVisibility() {
@@ -201,6 +202,8 @@ const Settings = {
   },
 
   async refreshModelsList() {
+    // Custom/OpenAI-compatible local endpoints intentionally have no API key.
+    // Only keyed providers should be blocked when credentials are missing.
     if (!AIService.hasApiKey()) return;
     const container = document.querySelector('#modelList');
     if (container) container.innerHTML = '<div class="p-3"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>';

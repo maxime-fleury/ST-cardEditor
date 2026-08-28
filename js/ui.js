@@ -255,18 +255,16 @@ async function init() {
     $('#defaultModelSelect').value = defaultModel;
   }
 
-  // Restore provider
+  // Restore provider before any model requests. Custom providers do not need
+  // an API key, so model discovery must be based on the saved endpoint.
   const provider = CardStorage.getProvider();
-  if (provider && provider !== 'openrouter') {
-    const customUrl = CardStorage.getCustomApiUrl();
-    const customKey = CardStorage.getCustomApiKey();
-    AIService.setProvider(provider, customKey);
-    if (provider === 'custom') {
-      const customModel = CardStorage.getCustomModelId();
-      if (customModel) {
-        CardStorage.setDefaultModel(customModel);
-        $('#aiModelSelect').value = customModel;
-      }
+  const customKey = CardStorage.getCustomApiKey();
+  AIService.setProvider(provider, provider === 'openrouter' ? apiKey : customKey);
+  if (provider === 'custom') {
+    const customModel = CardStorage.getCustomModelId();
+    if (customModel) {
+      CardStorage.setDefaultModel(customModel);
+      $('#aiModelSelect').value = customModel;
     }
   }
 
@@ -291,8 +289,9 @@ async function init() {
     if (card) await CardManager.selectCard(card);
   }
 
-  if (apiKey) Settings.refreshCredits();
-  if (apiKey) Settings.refreshModelsList();
+  if (provider === 'openrouter' && apiKey) Settings.refreshCredits();
+  // Custom endpoints have no API key, but should still be refreshed on reload.
+  if (provider === 'custom' || apiKey) Settings.refreshModelsList();
   Ui.updateUIState();
   bindEvents(settingsModal);
   AiChat.updateContextBar();
@@ -585,9 +584,11 @@ function bindEvents(settingsModal) {
 
   const themeToggle = $('#btnThemeToggle');
   const savedTheme = localStorage.getItem(CardStorage.PREFIX + 'theme') || 'dark';
+  // Set the theme before applying its accent so the cascade resolves the
+  // custom variables against the correct light/dark token set.
+  if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); }
   const initialAccent = CardStorage.getAccent(savedTheme);
   if (initialAccent) Settings.applyAccent(savedTheme, initialAccent);
-  if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); }
   if (themeToggle) {
     themeToggle.innerHTML = savedTheme === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
     themeToggle.addEventListener('click', () => {

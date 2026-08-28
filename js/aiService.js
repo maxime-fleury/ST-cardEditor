@@ -155,14 +155,27 @@ const AIService = {
    */
   async _fetchCustomModels() {
     const baseUrl = this._getBaseUrl();
+    if (!baseUrl) throw new Error(I18n.t ? I18n.t('error.customUrlNotSet') : 'Custom API base URL is not set');
+    const apiBaseUrl = baseUrl.endsWith('/v1') ? baseUrl : baseUrl + '/v1';
     const headers = { 'Content-Type': 'application/json' };
     const apiKey = this._getApiKeyForProvider();
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
 
-    const resp = await fetch(baseUrl + '/models', {
+    const modelUrl = baseUrl.endsWith('/v1') ? baseUrl + '/models' : baseUrl + '/v1/models';
+    let resp = await fetch(modelUrl, {
       headers,
       signal: AbortSignal.timeout(15000),
     });
+    // A few local servers expose /v1/models only when the user entered the
+    // host root, while others expose /models from an already versioned URL.
+    // Try the alternate form once when the first path is not available.
+    if (resp.status === 404) {
+      const alternateUrl = baseUrl.endsWith('/v1') ? baseUrl.slice(0, -3) + '/models' : baseUrl + '/models';
+      resp = await fetch(alternateUrl, {
+        headers,
+        signal: AbortSignal.timeout(15000),
+      });
+    }
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       throw new Error(err.error?.message || (I18n.t ? I18n.t('error.fetchModelsFailed', { status: resp.status }) : 'Failed to fetch models (HTTP ' + resp.status + ')'));
@@ -170,10 +183,13 @@ const AIService = {
 
     const data = await resp.json();
     const customModelId = CardStorage.getCustomModelId();
+    const returnedModels = Array.isArray(data.data) ? data.data : [];
 
-    // If the provider returns a model list, use it
-    if (data.data && data.data.length) {
-      return data.data.map(m => ({
+    // If the provider returns a model list, use it. Some compatible servers
+    // return an empty/omitted data array; in that case retain the configured
+    // model as a usable fallback.
+    if (returnedModels.length) {
+      return returnedModels.map(m => ({
         id: m.id,
         name: m.name || m.id,
         description: m.description || '',
@@ -285,6 +301,8 @@ const AIService = {
     if (!useModel) throw new Error(I18n.t('error.noModel'));
 
     const baseUrl = this._getBaseUrl();
+    if (!baseUrl) throw new Error(I18n.t ? I18n.t('error.customUrlNotSet') : 'Custom API base URL is not set');
+    const apiBaseUrl = baseUrl.endsWith('/v1') ? baseUrl : baseUrl + '/v1';
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
     if (this._provider === 'openrouter') {
@@ -293,7 +311,7 @@ const AIService = {
     }
 
     const fetchChat = async (useJsonMode) => {
-      const resp = await fetch(`${baseUrl}/chat/completions`, {
+      const resp = await fetch(`${apiBaseUrl}/chat/completions`, {
         method: 'POST',
         headers,
         body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: false })),
@@ -352,6 +370,8 @@ const AIService = {
     if (!useModel) throw new Error(I18n.t('error.noModelSimple'));
 
     const baseUrl = this._getBaseUrl();
+    if (!baseUrl) throw new Error(I18n.t ? I18n.t('error.customUrlNotSet') : 'Custom API base URL is not set');
+    const apiBaseUrl = baseUrl.endsWith('/v1') ? baseUrl : baseUrl + '/v1';
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
     if (this._provider === 'openrouter') {
@@ -360,7 +380,7 @@ const AIService = {
     }
 
     const doStream = async (useJsonMode) => {
-      const resp = await fetch(`${baseUrl}/chat/completions`, {
+      const resp = await fetch(`${apiBaseUrl}/chat/completions`, {
         method: 'POST',
         headers,
         body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: true })),
