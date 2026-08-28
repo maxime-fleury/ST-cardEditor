@@ -35,6 +35,25 @@ const CardManager = {
       if (!validExts.includes(ext)) { errors++; continue; }
       try {
         const card = await CardEngine.parseFile(file);
+        // Auto-rename exact duplicates (same name + same content) so
+        // re-importing a card never silently creates two identical entries.
+        const trimmedName = (card.name || '').trim();
+        if (trimmedName) {
+          const existing = CardStorage.getCards().find(c => (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase());
+          if (existing) {
+            let existingFull = null;
+            try { existingFull = await CardStorage.getCard(existing._id); } catch (_) {}
+            if (existingFull && this._cardSignature(card) === this._cardSignature(existingFull)) {
+              const base = trimmedName;
+              let n = 2;
+              const used = new Set(CardStorage.getCards().map(c => (c.name || '').toLowerCase()));
+              let candidate = base + ' (' + n + ')';
+              while (used.has(candidate.toLowerCase())) { n++; candidate = base + ' (' + n + ')'; }
+              card.name = candidate;
+              Ui.showToast(I18n.t('toast.importDupe', { name: candidate }), 'info');
+            }
+          }
+        }
         if (card._imageBase64) {
           // Soft-warn on very large embedded images so users can trim them
           // before they silently consume the IndexedDB quota.
@@ -68,6 +87,27 @@ const CardManager = {
   },
 
   _cardListBound: false,
+
+  /**
+   * Compact content signature used to detect exact duplicate imports
+   * (image bytes excluded — same text with different art is legitimate).
+   */
+  _cardSignature(card) {
+    return JSON.stringify([
+      card.spec_version || '',
+      (card.description || '').trim(),
+      (card.first_mes || '').trim(),
+      (card.personality || '').trim(),
+      (card.scenario || '').trim(),
+      (card.mes_example || '').trim(),
+      (card.creator_notes || '').trim(),
+      (card.system_prompt || '').trim(),
+      (card.post_history_instructions || '').trim(),
+      (card.character_version || '').trim(),
+      (card.tags || []).join('|').toLowerCase(),
+    ]);
+  },
+
   _searchQuery: '',
   _selectedIds: new Set(),
   _sortMode: 'name-asc',

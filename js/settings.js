@@ -268,7 +268,11 @@ const Settings = {
   populateModelSelects() {
     const $ = (sel) => document.querySelector(sel);
     const d = CardStorage.getDefaultModel();
-    let h = window.AppState.models.map(m => '<option value="' + Ui.escapeAttr(m.id) + '"' + (m.id === d ? ' selected' : '') + '>' + Ui.escapeHtml(m.name) + (m.is_free ? ' [' + I18n.t('gen.free') + ']' : '') + '</option>').join('');
+    // Alphabetical for the plain <select>s (the settings browser keeps its
+    // own price/context ordering); hundreds of OpenRouter models are much
+    // easier to scan sorted by name.
+    const sorted = [...window.AppState.models].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: 'base' }));
+    let h = sorted.map(m => '<option value="' + Ui.escapeAttr(m.id) + '"' + (m.id === d ? ' selected' : '') + '>' + Ui.escapeHtml(m.name) + (m.is_free ? ' [' + I18n.t('gen.free') + ']' : '') + '</option>').join('');
     // Always surface the saved default model, even when the fetch failed or
     // the list hasn't loaded yet, so the navbar dropdown stays usable.
     if (d && !window.AppState.models.some(m => m.id === d)) {

@@ -54,7 +54,9 @@ const CardStorage = {
       return new Promise((resolve, reject) => {
         const req = db.transaction(store, 'readwrite').objectStore(store).put(data, id);
         req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
+        req.onerror = () => reject(req.error && req.error.name === 'QuotaExceededError'
+          ? new Error((I18n.t ? I18n.t('error.storageFull') : 'Storage full! Try removing some cards or exporting them.'))
+          : req.error);
       });
     },
     async delete(store, id) {
@@ -333,7 +335,14 @@ const CardStorage = {
     } else {
       index.unshift(meta);
     }
-    localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
+    try {
+      localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
+    } catch (e) {
+      if (e.name === 'QuotaExceededError') {
+        throw new Error((I18n.t ? I18n.t('error.storageFull') : 'Storage full! Try removing some cards or exporting them.'));
+      }
+      throw e;
+    }
   },
 
   /**

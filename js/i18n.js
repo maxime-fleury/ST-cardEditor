@@ -11,6 +11,7 @@
 
   const translations = {};
 translations.en = {
+  'app.title': 'ST Card Editor — SillyTavern Character Card Studio',
   'nav.selectModel': 'Select model...',
   'nav.wizard': 'Create with AI wizard',
   'nav.newCard': 'New blank card',
@@ -350,6 +351,7 @@ translations.en = {
   'shortcuts.newLine': 'New line in AI',
   'toast.loadFailed': 'Failed: {{name}}',
   'toast.loaded': 'Loaded {{count}} card(s)',
+  'toast.importDupe': 'Same content as an existing card — imported as {{name}}',
   'toast.largeImage': 'Large image embedded in {{name}} ({{size}} MB) - consider removing it to save storage.',
   'toast.noValid': 'No valid cards found. Drop PNG or JSON files.',
   'toast.noSelected': 'No cards selected',
@@ -531,6 +533,7 @@ translations.en = {
   'wizard.language.fa': 'Persian'
 };
 translations.fr = {
+  'app.title': 'ST Card Editor — Studio de cartes de personnages SillyTavern',
   'nav.selectModel': 'S\u00e9lectionner le mod\u00e8le...',
   'nav.wizard': 'Cr\u00e9er avec l\'assistant IA',
   'nav.newCard': 'Nouvelle carte vierge',
@@ -843,6 +846,7 @@ translations.fr = {
   'shortcuts.newLine': 'Nouvelle ligne dans l\'IA',
   'toast.loadFailed': '\u00c9chec : {{name}}',
   'toast.loaded': '{{count}} carte(s) charg\u00e9e(s)',
+  'toast.importDupe': 'Contenu identique à une carte existante — importé sous le nom « {{name}} »',
   'toast.largeImage': 'Grande image intégrée dans {{name}} ({{size}} Mo) - pensez à la retirer pour économiser de l\'espace.',
   'toast.noValid': 'Aucune carte valide trouv\u00e9e. D\u00e9posez des fichiers PNG ou JSON.',
   'toast.noSelected': 'Aucune carte s\u00e9lectionn\u00e9e',
@@ -1049,6 +1053,7 @@ translations.fr = {
   'wizard.language.fa': 'Persian'
 };
 translations.es = {
+  'app.title': 'ST Card Editor — Estudio de tarjetas de personajes SillyTavern',
   'nav.selectModel': 'Seleccionar modelo...',
   'nav.wizard': 'Crear con asistente de IA',
   'nav.newCard': 'Nueva tarjeta en blanco',
@@ -1361,6 +1366,7 @@ translations.es = {
   'shortcuts.newLine': 'Nueva l\u00ednea en IA',
   'toast.loadFailed': 'Error: {{name}}',
   'toast.loaded': '{{count}} tarjeta(s) cargada(s)',
+  'toast.importDupe': 'Mismo contenido que una tarjeta existente — importada como {{name}}',
   'toast.largeImage': 'Imagen grande incrustada en {{name}} ({{size}} MB) - considera eliminarla para ahorrar espacio.',
   'toast.noValid': 'No se encontraron tarjetas v\u00e1lidas. Suelta archivos PNG o JSON.',
   'toast.noSelected': 'No hay tarjetas seleccionadas',
@@ -1567,6 +1573,7 @@ translations.es = {
   'wizard.language.fa': 'Persian'
 };
 translations.de = {
+  'app.title': 'ST Card Editor — SillyTavern Charakterkarten-Studio',
   'nav.selectModel': 'Modell ausw\u00e4hlen...',
   'nav.wizard': 'Mit KI-Assistenten erstellen',
   'nav.newCard': 'Neue leere Karte',
@@ -1879,6 +1886,7 @@ translations.de = {
   'shortcuts.newLine': 'Neue Zeile in KI',
   'toast.loadFailed': 'Fehlgeschlagen: {{name}}',
   'toast.loaded': '{{count}} Karte(n) geladen',
+  'toast.importDupe': 'Identischer Inhalt wie eine vorhandene Karte — importiert als {{name}}',
   'toast.largeImage': 'Großes Bild in {{name}} eingebettet ({{size}} MB) - erwägen Sie, es zu entfernen, um Speicherplatz zu sparen.',
   'toast.noValid': 'Keine g\u00fcltigen Karten gefunden. PNG- oder JSON-Dateien ablegen.',
   'toast.noSelected': 'Keine Karten ausgew\u00e4hlt',
@@ -2085,6 +2093,7 @@ translations.de = {
   'wizard.language.fa': 'Persian'
 };
 translations.pt = {
+  'app.title': 'ST Card Editor — Estúdio de cartas de personagens SillyTavern',
   'nav.selectModel': 'Selecionar modelo...',
   'nav.wizard': 'Criar com assistente de IA',
   'nav.newCard': 'Nova carta em branco',
@@ -2397,6 +2406,7 @@ translations.pt = {
   'shortcuts.newLine': 'Nova linha na IA',
   'toast.loadFailed': 'Falha: {{name}}',
   'toast.loaded': '{{count}} carta(s) carregada(s)',
+  'toast.importDupe': 'Mesmo conteúdo de uma carta existente — importada como {{name}}',
   'toast.largeImage': 'Imagem grande incorporada em {{name}} ({{size}} MB) - considere removê-la para economizar espaço.',
   'toast.noValid': 'Nenhuma v\u00e1lida encontrada. Solte arquivos PNG ou JSON.',
   'toast.noSelected': 'Nenhuma carta selecionada',
@@ -2603,6 +2613,7 @@ translations.pt = {
   'wizard.language.fa': 'Persian'
 };
 translations.ja = {
+  'app.title': 'ST Card Editor — SillyTavern キャラクターカードスタジオ',
   'nav.selectModel': 'モデルを選択...',
   'nav.wizard': 'AIウィザードで作成',
   'nav.newCard': '新しい空白カード',
@@ -2915,6 +2926,7 @@ translations.ja = {
   'shortcuts.newLine': 'AIで改行',
   'toast.loadFailed': '失敗: {{name}}',
   'toast.loaded': '{{count}}枚のカードを読み込みました',
+  'toast.importDupe': '既存のカードと同じ内容 — {{name}} としてインポートしました',
   'toast.largeImage': '{{name}} に大きな画像が埋め込まれています（{{size}} MB）- 容量を節約するため削除をご検討ください。',
   'toast.noValid': '有効なカードが見つかりません。PNGまたはJSONファイルをドロップしてください。',
   'toast.noSelected': 'カードが選択されていません',
@@ -3121,6 +3133,7 @@ translations.ja = {
   'wizard.language.fa': 'Persian'
 };
 translations.zh = {
+  'app.title': 'ST Card Editor — SillyTavern 角色卡工作室',
   'nav.selectModel': '选择模型...',
   'nav.wizard': '使用AI向导创建',
   'nav.newCard': '新建空白卡片',
@@ -3433,6 +3446,7 @@ translations.zh = {
   'shortcuts.newLine': 'AI中换行',
   'toast.loadFailed': '失败: {{name}}',
   'toast.loaded': '已加载 {{count}} 张卡片',
+  'toast.importDupe': '与现有卡片内容相同 — 已作为 {{name}} 导入',
   'toast.largeImage': '{{name}} 中嵌入了大图（{{size}} MB）- 建议移除以节省存储空间。',
   'toast.noValid': '未找到有效卡片。请拖放PNG或JSON文件。',
   'toast.noSelected': '未选择卡片',
@@ -3639,6 +3653,7 @@ translations.zh = {
   'wizard.language.fa': 'Persian'
 };
 translations.ko = {
+  'app.title': 'ST Card Editor — SillyTavern 캐릭터 카드 스튜디오',
   'nav.selectModel': '모델 선택...',
   'nav.wizard': 'AI 마법사로 만들기',
   'nav.newCard': '새 빈 카드',
@@ -3951,6 +3966,7 @@ translations.ko = {
   'shortcuts.newLine': 'AI에서 새 줄',
   'toast.loadFailed': '실패: {{name}}',
   'toast.loaded': '{{count}}장의 카드 로드됨',
+  'toast.importDupe': '기존 카드와 동일한 내용 — {{name}}(으)로 가져옴',
   'toast.largeImage': '{{name}}에 큰 이미지가 포함되어 있습니다 ({{size}} MB) - 저장 공간을 절약하려면 제거를 고려하세요.',
   'toast.noValid': '유효한 카드를 찾을 수 없습니다. PNG 또는 JSON 파일을 드롭하세요.',
   'toast.noSelected': '카드가 선택되지 않음',
@@ -4157,6 +4173,7 @@ translations.ko = {
   'wizard.language.fa': 'Persian'
 };
 translations.el = {
+  'app.title': 'ST Card Editor — Στούντιο καρτών χαρακτήρων SillyTavern',
   'nav.selectModel': 'Επιλογή μοντέλου...',
   'nav.wizard': 'Δημιουργία με AI βοηθό',
   'nav.newCard': 'Νέα κενή κάρτα',
@@ -4469,6 +4486,7 @@ translations.el = {
   'shortcuts.newLine': 'Νέα γραμμή στο AI',
   'toast.loadFailed': 'Αποτυχία: {{name}}',
   'toast.loaded': 'Φορτώθηκαν {{count}} κάρτες',
+  'toast.importDupe': 'Ίδιο περιεχόμενο με υπάρχουσα κάρτα — εισήχθη ως {{name}}',
   'toast.largeImage': 'Μεγάλη εικόνα ενσωματωμένη στο {{name}} ({{size}} MB) - σκεφτείτε να την αφαιρέσετε για εξοικονόμηση χώρου.',
   'toast.noValid': 'Δεν βρέθηκαν έγκυρες κάρτες. Αφήστε αρχεία PNG ή JSON.',
   'toast.noSelected': 'Δεν επιλέχθηκαν κάρτες',
@@ -4675,6 +4693,7 @@ translations.el = {
   'wizard.language.fa': 'Persian'
 };
 translations.ru = {
+  'app.title': 'ST Card Editor — Студия карт персонажей SillyTavern',
   'nav.selectModel': 'Выбрать модель...',
   'nav.wizard': 'Создать с помощью ИИ-помощника',
   'nav.newCard': 'Новая пустая карточка',
@@ -4987,6 +5006,7 @@ translations.ru = {
   'shortcuts.newLine': 'Новая строка в ИИ',
   'toast.loadFailed': 'Ошибка: {{name}}',
   'toast.loaded': 'Загружено {{count}} карточек',
+  'toast.importDupe': 'Содержимое совпадает с существующей картой — импортировано как {{name}}',
   'toast.largeImage': 'В {{name}} встроено большое изображение ({{size}} МБ) - удалите его, чтобы сэкономить место.',
   'toast.noValid': 'Не найдено подходящих карточек. Перетащите PNG или JSON файлы.',
   'toast.noSelected': 'Карточки не выбраны',
@@ -5193,6 +5213,7 @@ translations.ru = {
   'wizard.language.fa': 'Persian'
 };
 translations.it = {
+  'app.title': 'ST Card Editor — Studio di carte personaggio SillyTavern',
   'nav.selectModel': 'Seleziona modello...',
   'nav.wizard': 'Crea con la procedura guidata AI',
   'nav.newCard': 'Nuova scheda vuota',
@@ -5530,6 +5551,7 @@ translations.it = {
   'shortcuts.newLine': 'Nuova riga nella chat AI',
   'toast.loadFailed': 'Non riuscito: {{name}}',
   'toast.loaded': 'Caricate {{count}} scheda/e',
+  'toast.importDupe': 'Stesso contenuto di una carta esistente — importata come {{name}}',
   'toast.largeImage': 'Immagine di grandi dimensioni incorporata in {{name}} ({{size}} MB) - valuta di rimuoverla per risparmiare spazio.',
   'toast.noValid': 'Nessuna scheda valida trovata. Rilascia file PNG o JSON.',
   'toast.noSelected': 'Nessuna scheda selezionata',
@@ -5711,6 +5733,7 @@ translations.it = {
   'wizard.language.fa': 'Persian'
 };
 translations.pl = {
+  'app.title': 'ST Card Editor — Studio kart postaci SillyTavern',
   'nav.selectModel': 'Wybierz model...',
   'nav.wizard': 'Utwórz za pomocą kreatora AI',
   'nav.newCard': 'Nowa pusta karta',
@@ -6048,6 +6071,7 @@ translations.pl = {
   'shortcuts.newLine': 'Nowa linia w czacie AI',
   'toast.loadFailed': 'Niepowodzenie: {{name}}',
   'toast.loaded': 'Załadowano {{count}} kart',
+  'toast.importDupe': 'Ta sama treść co istniejąca karta — zaimportowano jako {{name}}',
   'toast.largeImage': 'Duży obraz osadzony w {{name}} ({{size}} MB) - rozważ jego usunięcie, aby zaoszczędzić miejsce.',
   'toast.noValid': 'Nie znaleziono prawidłowych kart. Upuść pliki PNG lub JSON.',
   'toast.noSelected': 'Nie zaznaczono kart',
@@ -6229,6 +6253,7 @@ translations.pl = {
   'wizard.language.fa': 'Persian'
 };
 translations.tr = {
+  'app.title': 'ST Card Editor — SillyTavern karakter kartı stüdyosu',
   'nav.selectModel': 'Model seçin...',
   'nav.wizard': 'AI sihirbazıyla oluştur',
   'nav.newCard': 'Yeni boş kart',
@@ -6566,6 +6591,7 @@ translations.tr = {
   'shortcuts.newLine': 'AI sohbetinde yeni satır',
   'toast.loadFailed': 'Başarısız: {{name}}',
   'toast.loaded': '{{count}} kart yüklendi',
+  'toast.importDupe': 'Mevcut bir kartla aynı içerik — {{name}} olarak içe aktarıldı',
   'toast.largeImage': '{{name}} içine gömülü büyük resim ({{size}} MB) - yerden tasarruf etmek için kaldırmayı düşünün.',
   'toast.noValid': 'Geçerli kart bulunamadı. PNG veya JSON dosyaları bırakın.',
   'toast.noSelected': 'Kart seçilmedi',
@@ -6747,6 +6773,7 @@ translations.tr = {
   'wizard.language.fa': 'Persian'
 };
 translations.nl = {
+  'app.title': 'ST Card Editor — SillyTavern personagekaartenstudio',
   'nav.selectModel': 'Selecteer model...',
   'nav.wizard': 'Maak met AI-wizard',
   'nav.newCard': 'Nieuwe blanco kaart',
@@ -7084,6 +7111,7 @@ translations.nl = {
   'shortcuts.newLine': 'Nieuwe regel in AI-chat',
   'toast.loadFailed': 'Mislukt: {{name}}',
   'toast.loaded': '{{count}} kaarten geladen',
+  'toast.importDupe': 'Zelfde inhoud als een bestaande kaart — geïmporteerd als {{name}}',
   'toast.largeImage': 'Grote afbeelding ingesloten in {{name}} ({{size}} MB) - overweeg deze te verwijderen om opslagruimte te besparen.',
   'toast.noValid': 'Geen geldige kaarten gevonden. Zet PNG- of JSON-bestanden neer.',
   'toast.noSelected': 'Geen kaarten geselecteerd',
@@ -7265,6 +7293,7 @@ translations.nl = {
   'wizard.language.fa': 'Persian'
 };
 translations.uk = {
+  'app.title': 'ST Card Editor — Студія карток персонажів SillyTavern',
   'nav.selectModel': 'Виберіть модель...',
   'nav.wizard': 'Створити за допомогою AI-майстра',
   'nav.newCard': 'Нова порожня картка',
@@ -7602,6 +7631,7 @@ translations.uk = {
   'shortcuts.newLine': 'Новий рядок у чаті AI',
   'toast.loadFailed': 'Помилка: {{name}}',
   'toast.loaded': 'Завантажено {{count}} карток',
+  'toast.importDupe': 'Вміст збігається з наявною карткою — імпортовано як {{name}}',
   'toast.largeImage': 'У {{name}} вбудовано велике зображення ({{size}} МБ) - видаліть його, щоб заощадити місце.',
   'toast.noValid': 'Валідних карток не знайдено. Перетягніть файли PNG або JSON.',
   'toast.noSelected': 'Картки не вибрано',
@@ -7783,6 +7813,7 @@ translations.uk = {
   'wizard.language.fa': 'Persian'
 };
 translations.vi = {
+  'app.title': 'ST Card Editor — Xưởng thẻ nhân vật SillyTavern',
   'nav.selectModel': 'Chọn mô hình...',
   'nav.wizard': 'Tạo bằng trình hướng dẫn AI',
   'nav.newCard': 'Thẻ trống mới',
@@ -8120,6 +8151,7 @@ translations.vi = {
   'shortcuts.newLine': 'Dòng mới trong AI',
   'toast.loadFailed': 'Thất bại: {{name}}',
   'toast.loaded': 'Đã tải {{count}} thẻ',
+  'toast.importDupe': 'Nội dung giống một thẻ hiện có — đã nhập dưới tên {{name}}',
   'toast.largeImage': 'Hình ảnh lớn được nhúng trong {{name}} ({{size}} MB) - hãy cân nhắc xóa nó để tiết kiệm dung lượng.',
   'toast.noValid': 'Không tìm thấy thẻ hợp lệ. Thả tệp PNG hoặc JSON.',
   'toast.noSelected': 'Chưa chọn thẻ nào',
@@ -8301,6 +8333,7 @@ translations.vi = {
   'wizard.language.fa': 'Persian'
 };
 translations.id = {
+  'app.title': 'ST Card Editor — Studio kartu karakter SillyTavern',
   'nav.selectModel': 'Pilih model...',
   'nav.wizard': 'Buat dengan wizard AI',
   'nav.newCard': 'Kartu kosong baru',
@@ -8638,6 +8671,7 @@ translations.id = {
   'shortcuts.newLine': 'Baris baru di AI',
   'toast.loadFailed': 'Gagal: {{name}}',
   'toast.loaded': 'Memuat {{count}} kartu',
+  'toast.importDupe': 'Konten sama dengan kartu yang ada — diimpor sebagai {{name}}',
   'toast.largeImage': 'Gambar besar tertanam di {{name}} ({{size}} MB) - pertimbangkan untuk menghapusnya agar hemat penyimpanan.',
   'toast.noValid': 'Tidak ada kartu valid. Letakkan file PNG atau JSON.',
   'toast.noSelected': 'Belum ada kartu dipilih',
@@ -8819,6 +8853,7 @@ translations.id = {
   'wizard.language.fa': 'Persian'
 };
 translations.hi = {
+  'app.title': 'ST Card Editor — SillyTavern कैरेक्टर कार्ड स्टूडियो',
   'nav.selectModel': 'मॉडल चुनें...',
   'nav.wizard': 'AI विज़ार्ड से बनाएं',
   'nav.newCard': 'नया खाली कार्ड',
@@ -9156,6 +9191,7 @@ translations.hi = {
   'shortcuts.newLine': 'AI में नई पंक्ति',
   'toast.loadFailed': 'विफल: {{name}}',
   'toast.loaded': '{{count}} कार्ड लोड हुए',
+  'toast.importDupe': 'मौजूदा कार्ड जैसी ही सामग्री — {{name}} के रूप में आयात किया गया',
   'toast.largeImage': '{{name}} में बड़ी छवि एम्बेड की गई है ({{size}} MB) - स्थान बचाने के लिए इसे हटाने पर विचार करें।',
   'toast.noValid': 'कोई मान्य कार्ड नहीं मिला। PNG या JSON फ़ाइलें छोड़ें।',
   'toast.noSelected': 'कोई कार्ड चयनित नहीं',
@@ -9337,6 +9373,7 @@ translations.hi = {
   'wizard.language.fa': 'Persian'
 };
 translations.ar = {
+  'app.title': 'ST Card Editor — استوديو بطاقات الشخصيات SillyTavern',
   'nav.selectModel': 'اختر النموذج...',
   'nav.wizard': 'إنشاء باستخدام معالج الذكاء الاصطناعي',
   'nav.newCard': 'بطاقة فارغة جديدة',
@@ -9674,6 +9711,7 @@ translations.ar = {
   'shortcuts.newLine': 'سطر جديد في الذكاء الاصطناعي',
   'toast.loadFailed': 'فشل: {{name}}',
   'toast.loaded': 'تم تحميل {{count}} بطاقة',
+  'toast.importDupe': 'نفس محتوى بطاقة موجودة — تم الاستيراد باسم {{name}}',
   'toast.largeImage': 'صورة كبيرة مضمنة في {{name}} ({{size}} م.ب) - فكّر في إزالتها لتوفير المساحة.',
   'toast.noValid': 'لم يتم العثور على بطاقات صالحة. أفلت ملفات PNG أو JSON.',
   'toast.noSelected': 'لم يتم تحديد بطاقات',
@@ -9855,6 +9893,7 @@ translations.ar = {
   'wizard.language.fa': 'Persian'
 };
 translations.he = {
+  'app.title': 'ST Card Editor — סטודיו לכרטיסי דמויות SillyTavern',
   'nav.selectModel': 'בחרו מודל...',
   'nav.wizard': 'יצירה עם אשף ה-AI',
   'nav.newCard': 'כרטיס ריק חדש',
@@ -10192,6 +10231,7 @@ translations.he = {
   'shortcuts.newLine': 'שורה חדשה ב-AI',
   'toast.loadFailed': 'נכשל: {{name}}',
   'toast.loaded': 'נטענו {{count}} כרטיסים',
+  'toast.importDupe': 'תוכן זהה לכרטיס קיים — יובא כ-{{name}}',
   'toast.largeImage': 'תמונה גדולה מוטבעת ב-{{name}} ({{size}} מ״ב) - שקול להסיר אותה כדי לחסוך מקום.',
   'toast.noValid': 'לא נמצאו כרטיסים תקינים. שחררו קבצי PNG או JSON.',
   'toast.noSelected': 'לא נבחרו כרטיסים',
@@ -10373,6 +10413,7 @@ translations.he = {
   'wizard.language.fa': 'Persian'
 };
 translations.fa = {
+  'app.title': 'ST Card Editor — استودیو کارت شخصیت SillyTavern',
   'nav.selectModel': 'انتخاب مدل...',
   'nav.wizard': 'ساخت با جادوگر هوش مصنوعی',
   'nav.newCard': 'کارت خالی جدید',
@@ -10710,6 +10751,7 @@ translations.fa = {
   'shortcuts.newLine': 'خط جدید در هوش مصنوعی',
   'toast.loadFailed': 'ناموفق: {{name}}',
   'toast.loaded': '{{count}} کارت بارگذاری شد',
+  'toast.importDupe': 'محتوای یکسان با کارت موجود — به‌عنوان {{name}} وارد شد',
   'toast.largeImage': 'تصویر بزرگی در {{name}} جاسازی شده است ({{size}} مگابایت) - برای صرفه‌جویی در فضا حذف آن را در نظر بگیرید.',
   'toast.noValid': 'کارت معتبری یافت نشد. فایل PNG یا JSON را رها کنید.',
   'toast.noSelected': 'کارتی انتخاب نشده',
@@ -10909,6 +10951,7 @@ const I18n = {
     document.documentElement.lang = this._lang;
     document.documentElement.dir = RTL_LANGS.includes(this._lang) ? 'rtl' : 'ltr';
     this._applyBootstrapDir();
+    document.title = this.t('app.title');
     var langSel = document.getElementById('languageSelect');
     if (langSel) langSel.value = this._lang;
     this.translateDOM();
@@ -10938,6 +10981,7 @@ const I18n = {
     document.documentElement.lang = lang;
     document.documentElement.dir = RTL_LANGS.includes(lang) ? 'rtl' : 'ltr';
     this._applyBootstrapDir();
+    document.title = this.t('app.title');
     this.translateDOM();
   },
 
