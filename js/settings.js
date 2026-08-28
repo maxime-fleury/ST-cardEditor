@@ -214,12 +214,30 @@ const Settings = {
 
   async refreshModelsList() {
     const $ = (sel) => document.querySelector(sel);
-    const provider = $('#providerSelect').value;
+    // Prefer the dropdown selection when the settings modal is open (Refresh
+    // Models button); otherwise (page load, workspace import) fall back to the
+    // saved provider so a stale unopened dropdown never hijacks the fetch.
+    const modalEl = $('#settingsModal');
+    const modalOpen = modalEl && modalEl.classList.contains('show');
+    const provider = modalOpen ? $('#providerSelect').value : CardStorage.getProvider();
     const isCustom = provider === 'custom';
-    // Use the provider and key as currently typed in the form (possibly
-    // unsaved), so first-time setup works: paste key -> Refresh Models.
-    const keyField = provider === 'openrouter' ? $('#apiKeyInput') : (isCustom ? $('#customApiKeyInput') : $('#namedApiKeyInput'));
-    AIService.setProvider(provider, keyField ? keyField.value.trim() : '');
+    // When the modal is open, use the provider and key as currently typed in
+    // the form (possibly unsaved), so first-time setup works: paste key ->
+    // Refresh Models. Otherwise pass an empty key so the stored credentials
+    // are used.
+    let formKey = '';
+    if (modalOpen) {
+      const keyField = provider === 'openrouter' ? $('#apiKeyInput') : (isCustom ? $('#customApiKeyInput') : $('#namedApiKeyInput'));
+      formKey = keyField ? keyField.value.trim() : '';
+    }
+    AIService.setProvider(provider, formKey);
+    if (isCustom && modalOpen) {
+      // Mirror the typed base URL into AIService so a first-time setup
+      // (paste URL -> Refresh Models, before saving) resolves the endpoint
+      // instead of failing with "Custom API base URL is not set".
+      const urlInput = $('#customApiUrlInput');
+      AIService._customApiUrl = urlInput ? urlInput.value.trim() : '';
+    }
     // Custom/OpenAI-compatible local endpoints intentionally have no API key.
     // Only keyed providers should be blocked when credentials are missing.
     if (!AIService.hasApiKey() && !isCustom) {

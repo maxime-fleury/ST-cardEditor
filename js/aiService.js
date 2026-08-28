@@ -19,6 +19,7 @@ const AIService = {
   FREE_MODEL_PATTERNS: [ ':free', 'openrouter/free' ],
   _provider: 'openrouter',
   _apiKey: '',
+  _customApiUrl: '',
 
   /**
    * Get the provider registry entry.
@@ -33,6 +34,7 @@ const AIService = {
   setProvider(provider, customKey) {
     this._provider = provider || 'openrouter';
     this._apiKey = customKey || '';
+    this._customApiUrl = '';
   },
 
   /**
@@ -41,7 +43,10 @@ const AIService = {
   _getBaseUrl() {
     const info = this.getProviderInfo(this._provider);
     if (this._provider === 'custom') {
-      return (CardStorage.getCustomApiUrl() || '').replace(/\/+$/, '');
+      // Prefer the in-memory URL (mirrors what is currently typed in the
+      // settings form) so typed-but-unsaved endpoints work on first setup;
+      // fall back to the persisted one.
+      return (this._customApiUrl || CardStorage.getCustomApiUrl() || '').replace(/\/+$/, '');
     }
     return info.baseUrl;
   },
@@ -163,26 +168,49 @@ const AIService = {
     const apiKey = this._getApiKeyForProvider();
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
 
-    let resp = await fetch(apiBaseUrl + '/models', {
-      headers,
-      signal: AbortSignal.timeout(15000),
-    });
+    let resp;
+    try {
+      resp = await fetch(apiBaseUrl + '/models', {
+        headers,
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch (err) {
+      // Network/CSP failure: guide the user instead of a bare "Failed to fetch".
+      throw new Error(I18n.t ? I18n.t('error.customUnreachable', { url: apiBaseUrl }) : 'Cannot reach ' + apiBaseUrl + '. Check the URL and that the server is running.');
+    }
     // A few local servers expose /v1/models only when the user entered the
     // host root, while others expose /models from an already versioned URL.
     // Try the alternate form once when the first path is not available.
     if (resp.status === 404) {
       const alternateUrl = apiBaseUrl.slice(0, -3) + '/models';
-      resp = await fetch(alternateUrl, {
-        headers,
-        signal: AbortSignal.timeout(15000),
-      });
+      try {
+        resp = await fetch(alternateUrl, {
+          headers,
+          signal: AbortSignal.timeout(15000),
+        });
+      } catch (err) {
+        throw new Error(I18n.t ? I18n.t('error.customUnreachable', { url: alternateUrl }) : 'Cannot reach ' + alternateUrl + '.');
+      }
     }
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error?.message || (I18n.t ? I18n.t('error.fetchModelsFailed', { status: resp.status }) : 'Failed to fetch models (HTTP ' + resp.status + ')'));
+      if (err.error?.message) throw new Error(err.error.message);
+      if (resp.status === 401 || resp.status === 403) {
+        throw new Error(I18n.t ? I18n.t('error.customAuthFailed', { status: resp.status }) : 'Authentication failed (HTTP ' + resp.status + '). Check the API key for this endpoint.');
+      }
+      if (resp.status === 404) {
+        throw new Error(I18n.t ? I18n.t('error.customPathNotFound') : 'Endpoint not found (HTTP 404). Check that the API Base URL includes /v1.');
+      }
+      throw new Error(I18n.t ? I18n.t('error.fetchModelsFailed', { status: resp.status }) : 'Failed to fetch models (HTTP ' + resp.status + ')');
     }
 
-    const data = await resp.json();
+    const data = await resp.json().catch(() => ({}));
+    // Some compatible servers answer 200 with an { error } body for unknown
+    // paths (e.g. custom router backends). Surface it instead of a silent empty list.
+    if (data.error) {
+      const msg = (typeof data.error === 'string' ? data.error : data.error.message) || '';
+      throw new Error(I18n.t ? I18n.t('error.customServerError', { detail: msg }) : 'The server returned an error: ' + msg);
+    }
     const customModelId = CardStorage.getCustomModelId();
     const returnedModels = Array.isArray(data.data) ? data.data : [];
 
