@@ -179,9 +179,10 @@ const AiChat = {
         history
       )
         .then(result => {
+          this._releaseController(controller);
           try {
             this._finalizeFieldSection(section, field, result.content);
-          } catch (_) {}
+          } catch (e) { console.error('aiChat: failed to finalize field section:', e); }
           completedCount++;
           combinedContent += '\n\n[' + field + ']\n' + result.content;
 
@@ -196,6 +197,7 @@ const AiChat = {
           }
         })
         .catch(err => {
+          this._releaseController(controller);
           try {
             section.classList.add('error');
             section.classList.remove('streaming');
@@ -206,7 +208,7 @@ const AiChat = {
 
           completedCount++;
           if (completedCount === selectedFields.length) {
-            try { this._finalizeGroupedCard(groupedCard, selectedFields.length); } catch (_) {}
+            try { this._finalizeGroupedCard(groupedCard, selectedFields.length); } catch (e) { console.error('aiChat: failed to finalize grouped card:', e); }
             if (combinedContent.trim()) {
               window.AppState.chatHistory.push({ role: 'assistant', content: combinedContent.trim() });
               CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
@@ -421,6 +423,11 @@ const AiChat = {
     this._abortControllers = [];
   },
 
+  _releaseController(controller) {
+    const idx = this._abortControllers.indexOf(controller);
+    if (idx >= 0) this._abortControllers.splice(idx, 1);
+  },
+
   /**
    * Get recent chat history for AI context (last N message pairs).
    * Excludes the last entry (the current user message just pushed).
@@ -437,6 +444,8 @@ const AiChat = {
     const $ = (sel) => document.querySelector(sel);
     const { activeCard } = window.AppState;
     if (window.AppState.isAiLoading) return;
+    if (!AIService.hasApiKey()) { Ui.showToast(I18n.t('toast.apiKey'), 'warning'); return; }
+    if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
     const modelSelect = $('#aiModelSelect');
     const input = $('#aiInput');
     if (!modelSelect || !input) { Ui.showToast(I18n.t('toast.selectModel'), 'warning'); return; }
@@ -517,7 +526,7 @@ const AiChat = {
           Ui.showToast(I18n.t('toast.aiError', { error: err.message }), 'danger');
         }
       })
-      .finally(() => { window.AppState.isAiLoading = false; this.updateSendButton(); });
+      .finally(() => { this._releaseController(controller); window.AppState.isAiLoading = false; this.updateSendButton(); });
   },
 
   // ─── SIDE-BY-SIDE DIFF ──────────────────────────────
@@ -585,6 +594,7 @@ const AiChat = {
       const jsonStr = this._extractJSON(content);
       if (jsonStr) {
         try {
+          if (!activeCard) return;
           const parsed = CardEngine.parseJSON(jsonStr, activeCard._filename);
           showPreview(CardEngine.toJSON(activeCard), CardEngine.toJSON(parsed), () => {
             const internal = { _id: activeCard._id, _filename: activeCard._filename, _hasImage: activeCard._hasImage, _imageBase64: activeCard._imageBase64, _thumbnail: activeCard._thumbnail };
@@ -866,6 +876,8 @@ const AiChat = {
     if (lastUserIdx < 0) return;
 
     const lastUserPrompt = chatHistory[lastUserIdx].content;
+    // Abort any in-flight generation so stale callbacks don't mutate the UI
+    this._abortAll();
     // Remove the last user message and everything after it (assistant responses).
     // We save the truncated history so the removed entries are intentionally discarded.
     chatHistory.splice(lastUserIdx);
@@ -1111,7 +1123,17 @@ const AiChat = {
     for (const msg of history) {
       historyText += (msg.content || '') + '\n';
     }
-    const inputTokens = await Tokenizer.count(inputText + '\n' + historyText + '\n' + prompt);
+    let inputTokens = 0;
+    try {
+      if (window.Tokenizer && typeof window.Tokenizer.count === 'function') {
+        inputTokens = await window.Tokenizer.count(inputText + '\n' + historyText + '\n' + prompt);
+      }
+    } catch (_) {
+      inputTokens = 0;
+    }
+    if (!inputTokens) {
+      inputTokens = Math.ceil((inputText + '\n' + historyText + '\n' + prompt).length / 4);
+    }
 
     // Get the model's actual max output limit from the model data
     const modelData = (window.AppState.models || []).find(m => m.id === modelId);

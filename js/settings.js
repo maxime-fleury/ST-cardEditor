@@ -101,7 +101,7 @@ const Settings = {
         chutes: 'https://chutes.ai',
         deepseek: 'https://platform.deepseek.com',
       };
-      $('#namedProviderLink').innerHTML = '<a href="' + (linkMap[provider] || '#') + '" target="_blank" class="text-accent">' + (I18n.t ? I18n.t('settings.getApiKeyFrom') : 'Get API key from ') + info.name + ' <i class="bi bi-box-arrow-up-right ms-1"></i></a>';
+      $('#namedProviderLink').innerHTML = '<a href="' + (linkMap[provider] || '#') + '" target="_blank" class="text-accent">' + (I18n.t ? I18n.t('settings.getApiKeyFrom') : 'Get API key from ') + Ui.escapeHtml(info.name) + ' <i class="bi bi-box-arrow-up-right ms-1"></i></a>';
     }
 
     if (isCustom) {
@@ -207,7 +207,7 @@ const Settings = {
   async refreshModelsList() {
     // Custom/OpenAI-compatible local endpoints intentionally have no API key.
     // Only keyed providers should be blocked when credentials are missing.
-    if (!AIService.hasApiKey()) {
+    if (!AIService.hasApiKey() && CardStorage.getProvider() !== 'custom') {
       Ui.showToast(I18n.t('error.apiKeyNotSet'), 'warning');
       return;
     }
@@ -282,12 +282,12 @@ const Settings = {
 
   async updateStorageUsage() {
     const $ = (sel) => document.querySelector(sel);
-    let bytes = CardStorage.getUsageEstimate();
+    let bytes = await CardStorage.getUsageEstimate();
     if (navigator.storage && navigator.storage.estimate) {
       try {
         const est = await navigator.storage.estimate();
         if (est.usage) bytes = est.usage;
-      } catch (_) { /* keep localStorage sum */ }
+      } catch (_) { /* keep the async sum */ }
     }
     const kb = (bytes / 1024).toFixed(1);
     const mb = (bytes / (1024 * 1024)).toFixed(2);
@@ -295,10 +295,10 @@ const Settings = {
     $('#storageUsage').textContent = parseFloat(gb) >= 1 ? gb + ' GB' : (parseFloat(kb) > 1000 ? mb + ' MB' : kb + ' KB');
   },
 
-  confirmClearStorage() {
+  async confirmClearStorage() {
     const $ = (sel) => document.querySelector(sel);
     if (!confirm(I18n.t('settings.clearConfirm'))) return;
-    CardStorage.clearAll();
+    await CardStorage.clearAll();
     window.AppState.cards = [];
     window.AppState.activeCard = null;
     window.AppState.chatHistory = [];
@@ -328,7 +328,8 @@ const Settings = {
       maxTokens: CardStorage.getMaxTokens(),
       injectCopyright: CardStorage.getInjectCopyright(),
       customApiUrl: CardStorage.getCustomApiUrl(),
-      customApiKey: CardStorage.getCustomApiKey(),
+      // NOTE: customApiKey intentionally NOT exported — it is a credential and
+      // would leak if the settings file is shared.
       customModelId: CardStorage.getCustomModelId(),
     };
     Ui.downloadFile('st-card-editor-settings.json', JSON.stringify(settings, null, 2), 'application/json');
@@ -336,6 +337,7 @@ const Settings = {
   },
 
   importSettings() {
+    const $ = (sel) => document.querySelector(sel);
     const input = document.querySelector('#settingsFileInput');
     input.onchange = (e) => {
       const file = e.target.files[0];

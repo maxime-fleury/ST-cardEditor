@@ -117,24 +117,29 @@ const Wizard = {
 
   _bindEvents() {
     const self = this;
+    // Null-safe binding: no-op if the element isn't present so a missing or
+    // renamed element never throws and kills the rest of the wizard setup.
+    const on = (selector, event, fn) => {
+      const el = document.querySelector(selector);
+      if (el) el.addEventListener(event, fn);
+    };
 
-    document.querySelector('#wizBtnNext').addEventListener('click', () => self._next());
-    document.querySelector('#wizBtnBack').addEventListener('click', () => self._back());
+    on('#wizBtnNext', 'click', () => self._next());
+    on('#wizBtnBack', 'click', () => self._back());
 
-    // Keyboard shortcuts within wizard
-    document.querySelector('#wizardModal').addEventListener('keydown', (e) => {
+    on('#wizardModal', 'keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && self._step === self._totalSteps) {
         e.preventDefault();
         self._generateWithAI();
       }
     });
 
-    document.querySelector('#wizGender').addEventListener('change', (e) => {
-      document.querySelector('#wizGenderCustom').classList.toggle('d-none', e.target.value !== 'other');
+    on('#wizGender', 'change', (e) => {
+      document.querySelector('#wizGenderCustom')?.classList.toggle('d-none', e.target.value !== 'other');
     });
 
-    document.querySelector('#wizLanguage').addEventListener('change', (e) => {
-      document.querySelector('#wizLanguageCustom').classList.toggle('d-none', e.target.value !== 'other');
+    on('#wizLanguage', 'change', (e) => {
+      document.querySelector('#wizLanguageCustom')?.classList.toggle('d-none', e.target.value !== 'other');
     });
 
     document.querySelectorAll('.wizard-chip-group').forEach(group => {
@@ -146,12 +151,12 @@ const Wizard = {
       });
     });
 
-    document.querySelector('#wizBtnAI').addEventListener('click', () => self._generateWithAI());
-    document.querySelector('#wizBtnBlank').addEventListener('click', () => self._generateBlank());
+    on('#wizBtnAI', 'click', () => self._generateWithAI());
+    on('#wizBtnBlank', 'click', () => self._generateBlank());
 
-    document.querySelector('#wizBtnFetchImage').addEventListener('click', () => self._fetchImage());
-    document.querySelector('#wizBtnUseImage').addEventListener('click', () => self._useFetchedImage());
-    document.querySelector('#wizBtnRemoveImage').addEventListener('click', () => self._removeFetchedImage());
+    on('#wizBtnFetchImage', 'click', () => self._fetchImage());
+    on('#wizBtnUseImage', 'click', () => self._useFetchedImage());
+    on('#wizBtnRemoveImage', 'click', () => self._removeFetchedImage());
 
     const searchInput = document.querySelector('#wizImageTagSearch');
     const searchBtn = document.querySelector('#wizBtnSearchImages');
@@ -175,7 +180,7 @@ const Wizard = {
       });
     }
 
-    document.querySelector('#btnWizardNav').addEventListener('click', () => self.show());
+    on('#btnWizardNav', 'click', () => self.show());
     const centerBtn = document.querySelector('#btnWizard');
     if (centerBtn) centerBtn.addEventListener('click', () => self.show());
 
@@ -726,12 +731,17 @@ const Wizard = {
       Ui.showToast(I18n.t('toast.wizardApi'), 'warning');
       return;
     }
-    const modelId = document.querySelector('#aiModelSelect').value;
+    const modelSelect = document.querySelector('#aiModelSelect');
+    if (!modelSelect) {
+      Ui.showToast(I18n.t('toast.wizardModel'), 'warning');
+      return;
+    }
+    const modelId = modelSelect.value;
     if (!modelId) {
       Ui.showToast(I18n.t('toast.wizardModel'), 'warning');
       return;
     }
-    document.querySelector('#aiModelSelect').value = modelId;
+    modelSelect.value = modelId;
 
     this._clearDraft();
     this._modal.hide();

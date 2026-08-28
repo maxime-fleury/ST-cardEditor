@@ -289,8 +289,13 @@ const AIService = {
    * @param {object} opts - { jsonMode, signal, history }
    * @returns {Promise<object>} { content, usage, model }
    */
+  _v1BaseUrl(baseUrl) {
+    return baseUrl.endsWith('/v1') ? baseUrl : baseUrl + '/v1';
+  },
+
   async chat(prompt, systemPrompt = '', model = '', opts = {}) {
-    const { jsonMode = false, signal, history = [] } = typeof opts === 'object' ? opts : { signal: opts };
+    const safeOpts = (typeof opts === 'object' && opts !== null) ? opts : {};
+    const { jsonMode = false, signal, history = [] } = safeOpts;
     const apiKey = this._getApiKeyForProvider();
     const info = this.getProviderInfo(this._provider);
     if (!apiKey && info.requiresKey) throw new Error(I18n.t('error.apiKeyNotSet'));
@@ -302,7 +307,7 @@ const AIService = {
 
     const baseUrl = this._getBaseUrl();
     if (!baseUrl) throw new Error(I18n.t ? I18n.t('error.customUrlNotSet') : 'Custom API base URL is not set');
-    const apiBaseUrl = baseUrl.endsWith('/v1') ? baseUrl : baseUrl + '/v1';
+    const apiBaseUrl = this._v1BaseUrl(baseUrl);
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
     if (this._provider === 'openrouter') {
@@ -355,8 +360,11 @@ const AIService = {
    */
   formatPrice(perMillion) {
     if (perMillion === null || perMillion === undefined) return '—';
-    if (perMillion === 0) return I18n.t ? I18n.t('gen.free') : 'Free';
-    return `$${perMillion.toFixed(3)}/M`;
+    const n = Number(perMillion);
+    if (!isFinite(n)) return '—';
+    if (n === 0) return I18n.t ? I18n.t('gen.free') : 'Free';
+    if (n < 0.001) return `$${n.toFixed(6)}/M`;
+    return `$${n.toFixed(3)}/M`;
   },
 
   async chatStream(prompt, systemPrompt = '', model = '', onChunk, signal, jsonMode = false, history = []) {
@@ -371,7 +379,7 @@ const AIService = {
 
     const baseUrl = this._getBaseUrl();
     if (!baseUrl) throw new Error(I18n.t ? I18n.t('error.customUrlNotSet') : 'Custom API base URL is not set');
-    const apiBaseUrl = baseUrl.endsWith('/v1') ? baseUrl : baseUrl + '/v1';
+    const apiBaseUrl = this._v1BaseUrl(baseUrl);
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
     if (this._provider === 'openrouter') {
@@ -384,7 +392,7 @@ const AIService = {
         method: 'POST',
         headers,
         body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: true })),
-        signal,
+        signal: signal || AbortSignal.timeout(120000),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
@@ -439,8 +447,11 @@ const AIService = {
               throw new Error(msg);
             }
           } catch (e) {
-            if (e instanceof Error) throw e;
-            console.warn('aiService: dropped unparseable SSE chunk:', data);
+            if (e instanceof SyntaxError) {
+              console.warn('aiService: dropped unparseable SSE chunk:', data);
+            } else {
+              throw e;
+            }
           }
         }
       }

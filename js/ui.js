@@ -15,7 +15,14 @@ window.Ui = {
     const icons = { success: 'bi-check-circle-fill text-success', danger: 'bi-exclamation-triangle-fill text-danger', warning: 'bi-exclamation-circle-fill text-warning', info: 'bi-info-circle-fill text-info' };
     const container = document.querySelector('#toastContainer');
     if (!container) return;
-    while (container.children.length >= 3) container.firstChild.remove();
+    while (container.children.length >= 3) {
+      const oldest = container.firstChild;
+      const inst = oldest && window.bootstrap && bootstrap.Toast.getInstance
+        ? bootstrap.Toast.getInstance(oldest)
+        : null;
+      if (inst) inst.dispose();
+      oldest.remove();
+    }
     const el = document.createElement('div');
     el.className = 'toast align-items-center border-0';
     el.setAttribute('role', 'alert');
@@ -108,12 +115,22 @@ window.Ui = {
     if (this._markdownLoading) return;
     this._markdownLoading = true;
     let pending = 2;
-    const checkReady = () => { pending--; if (pending <= 0) { this._markdownReady = true; this._markdownLoading = null; } };
+    let failed = false;
+    const checkReady = () => {
+      pending--;
+      if (pending <= 0) {
+        this._markdownLoading = null;
+        // Only mark ready if nothing failed AND the globals are actually present
+        if (!failed && typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+          this._markdownReady = true;
+        }
+      }
+    };
     if (typeof marked === 'undefined') {
       const s = document.createElement('script');
       s.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
       s.onload = checkReady;
-      s.onerror = checkReady;
+      s.onerror = () => { failed = true; checkReady(); };
       document.head.appendChild(s);
     } else {
       checkReady();
@@ -122,7 +139,7 @@ window.Ui = {
       const s = document.createElement('script');
       s.src = 'https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js';
       s.onload = checkReady;
-      s.onerror = checkReady;
+      s.onerror = () => { failed = true; checkReady(); };
       document.head.appendChild(s);
     } else {
       checkReady();
@@ -166,17 +183,21 @@ window.Ui = {
 
   // ─── Saved Indicator ──────────────────────────────────
   _savedTimer: null,
+  _savedOrigHTML: null,
   flashSaved() {
     const btn = document.querySelector('#btnSaveCard');
     if (!btn) return;
-    const origHTML = btn.innerHTML;
+    // Capture the true original HTML only once so rapid successive calls
+    // never capture the transient "Saved" state as the restore target.
+    if (this._savedOrigHTML === null) this._savedOrigHTML = btn.innerHTML;
     btn.innerHTML = '<i class="bi bi-check2-all me-1"></i>' + (I18n.t ? I18n.t('ui.saved') : ' Saved');
     btn.classList.add('btn-saved-flash');
     if (this._savedTimer) clearTimeout(this._savedTimer);
     this._savedTimer = setTimeout(() => {
-      btn.innerHTML = origHTML;
+      btn.innerHTML = this._savedOrigHTML;
       btn.classList.remove('btn-saved-flash');
       this._savedTimer = null;
+      this._savedOrigHTML = null;
     }, 1500);
   },
 };
@@ -711,11 +732,17 @@ function bindEvents(settingsModal) {
         window.removeEventListener('mouseup', up);
         window.removeEventListener('touchmove', move);
         window.removeEventListener('touchend', up);
+        window.removeEventListener('blur', up);
+        if (safetyTimer) { clearTimeout(safetyTimer); safetyTimer = null; }
       };
+      // Force-release listeners if the drag is interrupted (window loses focus
+      // or the pointer is released outside the page) so they cannot leak.
+      const safetyTimer = setTimeout(up, 5000);
       window.addEventListener('mousemove', move);
       window.addEventListener('mouseup', up);
       window.addEventListener('touchmove', move, { passive: false });
       window.addEventListener('touchend', up);
+      window.addEventListener('blur', up);
     };
     const rl = document.querySelector('#resizerLeft');
     const rr = document.querySelector('#resizerRight');

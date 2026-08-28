@@ -73,6 +73,14 @@ const CardStorage = {
         req.onerror = () => reject(req.error);
       });
     },
+    async getAll(store) {
+      const db = await this.init();
+      return new Promise((resolve, reject) => {
+        const req = db.transaction(store, 'readonly').objectStore(store).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    },
   },
 
   _keys: {
@@ -108,7 +116,9 @@ const CardStorage = {
   },
 
   getPrompt(name) {
+    if (!name || typeof name !== 'string' || !name.length) return '';
     const key = this._keys['prompt' + name[0].toUpperCase() + name.slice(1)];
+    if (!key) return '';
     return localStorage.getItem(this.PREFIX + key) || '';
   },
 
@@ -332,9 +342,11 @@ const CardStorage = {
   async deleteCard(id) {
     const index = this.getCards().filter(c => c._id !== id);
     localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
+    // Propagate IndexedDB failures so the caller can surface them instead of
+    // silently leaving orphaned cards behind while the in-memory index is gone.
     await Promise.all([
-      this.deleteImage(id).catch(() => {}),
-      this.DB.delete(this.DB.stores.cards, id).catch(() => {}),
+      this.deleteImage(id),
+      this.DB.delete(this.DB.stores.cards, id),
     ]);
     if (this.getActiveCardId() === id) {
       this.setActiveCardId(null);
@@ -495,9 +507,9 @@ const CardStorage = {
   deleteImage(id) { return this.DB.delete(this.DB.stores.images, id); },
 
   /**
-   * Get total storage usage estimate.
+   * Estimate total storage usage (localStorage + IndexedDB card/image data).
    */
-  getUsageEstimate() {
+  async getUsageEstimate() {
     let total = 0;
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -506,6 +518,19 @@ const CardStorage = {
         if (val) total += val.length * 2; // rough UTF-16 byte count
       }
     }
+    // IndexedDB holds full card JSON and base64 images, which dominate usage.
+    try {
+      for (const store of Object.values(this.DB.stores)) {
+        const records = await this.DB.getAll(store);
+        for (const rec of records) {
+          if (typeof rec === 'string') {
+            total += rec.length * 2;
+          } else if (rec && typeof rec === 'object') {
+            total += JSON.stringify(rec).length * 2;
+          }
+        }
+      }
+    } catch (_) { /* ignore IDB enumeration errors */ }
     return total;
   },
 };

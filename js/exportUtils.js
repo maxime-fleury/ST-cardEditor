@@ -92,11 +92,18 @@ const ExportUtils = {
 
   _dataUrlToBytes(dataUrl) {
     try {
+      if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/png')) return null;
       const comma = dataUrl.indexOf(',');
       if (comma < 0) return null;
       const bin = atob(dataUrl.slice(comma + 1));
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      // Verify the 8-byte PNG signature; return null for anything else so
+      // callers fall back to a real PNG instead of exporting a mislabeled file.
+      const PNG_SIG = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+      for (let i = 0; i < PNG_SIG.length; i++) {
+        if (bytes[i] !== PNG_SIG[i]) return null;
+      }
       return bytes;
     } catch (e) {
       console.error('Failed to decode data URL:', e);
@@ -114,9 +121,26 @@ const ExportUtils = {
     ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(I18n.t ? I18n.t('export.minimalPngLabel') : 'ST Card', 32, 36);
     return new Promise((resolve) => {
+      // toBlob can return null on some platforms; hard-fail rather than hang.
+      let settled = false;
+      const settle = (bytes) => { if (!settled) { settled = true; resolve(bytes); } };
       canvas.toBlob((blob) => {
+        if (!blob) {
+          // Fallback: render via dataURL
+          try {
+            const dataUrl = canvas.toDataURL('image/png');
+            const bin = atob(dataUrl.split(',')[1]);
+            const out = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+            settle(out);
+          } catch (e) {
+            settle(new Uint8Array(0));
+          }
+          return;
+        }
         const reader = new FileReader();
-        reader.onload = () => resolve(new Uint8Array(reader.result));
+        reader.onload = () => settle(new Uint8Array(reader.result));
+        reader.onerror = () => settle(new Uint8Array(0));
         reader.readAsArrayBuffer(blob);
       }, 'image/png');
     });
@@ -127,6 +151,7 @@ const ExportUtils = {
     let offset = 8, iendPos = -1;
     while (offset + 12 <= bytes.length) {
       const length = CardEngine._readUint32(bytes, offset);
+      if (offset + 12 + length > bytes.length) break;
       const type = String.fromCharCode(bytes[offset+4], bytes[offset+5], bytes[offset+6], bytes[offset+7]);
       if (type === 'IEND') { iendPos = offset; break; }
       offset += 12 + length;
@@ -137,10 +162,14 @@ const ExportUtils = {
     }
 
     const keyword = 'chara';
-    const utf8Bytes = new TextEncoder().encode(jsonStr);
-    let binary = '';
-    for (let i = 0; i < utf8Bytes.length; i++) binary += String.fromCharCode(utf8Bytes[i]);
-    const b64 = btoa(binary);
+    const jsonBytes = new TextEncoder().encode(jsonStr);
+    // Encode JSON bytes to base64 directly, avoiding transient copies.
+    let b64 = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < jsonBytes.length; i += CHUNK) {
+      b64 += String.fromCharCode.apply(null, jsonBytes.subarray(i, i + CHUNK));
+    }
+    b64 = btoa(b64);
     const textData = new TextEncoder().encode(keyword + '\0' + b64);
     const typeBytes = new TextEncoder().encode('tEXt');
     const crcData = new Uint8Array(4 + textData.length);
@@ -152,10 +181,11 @@ const ExportUtils = {
     chunk.set(typeBytes, 4); chunk.set(textData, 8);
     new DataView(chunk.buffer).setUint32(8 + textData.length, crc, false);
 
+    // Reuse the original bytes via views (no extra copies) for the final array.
     const result = new Uint8Array(bytes.length + chunk.length);
-    result.set(bytes.slice(0, iendPos), 0);
+    result.set(bytes.subarray(0, iendPos), 0);
     result.set(chunk, iendPos);
-    result.set(bytes.slice(iendPos), iendPos + chunk.length);
+    result.set(bytes.subarray(iendPos), iendPos + chunk.length);
     return result;
   },
 

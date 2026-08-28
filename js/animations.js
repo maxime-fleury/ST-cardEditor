@@ -3,7 +3,11 @@
    ============================================================ */
 
 const Anims = {
-  _reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  // Read live so a runtime change to the OS reduced-motion preference is
+  // honored without a reload.
+  get _reducedMotion() {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  },
 
   _disabled() { return this._reducedMotion || typeof anime === 'undefined'; },
 
@@ -21,7 +25,22 @@ const Anims = {
     });
   },
 
+  _slideToken: 0,
+  _activeTimeline: null,
+
   slideStep(outEl, inEl, direction, onDone) {
+    // Stop any in-flight transition so rapid calls can't race on the same
+    // elements, leaving them stuck at an intermediate opacity/transform.
+    if (this._activeTimeline) {
+      this._activeTimeline.pause();
+      this._activeTimeline = null;
+    }
+    const token = ++this._slideToken;
+    // Reset lingering inline styles from a previous interrupted run so the new
+    // animation walks from a clean state.
+    if (outEl) { outEl.style.opacity = ''; outEl.style.transform = ''; }
+    if (inEl) { inEl.style.opacity = ''; inEl.style.transform = ''; }
+
     if (this._disabled()) {
       if (outEl) outEl.classList.add('d-none');
       if (inEl) inEl.classList.remove('d-none');
@@ -32,13 +51,21 @@ const Anims = {
     const xIn = direction === 'next' ? 20 : -20;
 
     const tl = anime.timeline({ easing: 'easeOutCubic' });
+    this._activeTimeline = tl;
+    const finish = () => {
+      if (token === this._slideToken) this._activeTimeline = null;
+    };
     if (outEl) {
-      tl.add({ targets: outEl, opacity: [1, 0], translateX: [0, xOut], duration: 180, complete: () => outEl.classList.add('d-none') });
+      tl.add({ targets: outEl, opacity: [1, 0], translateX: [0, xOut], duration: 180, complete: () => { if (token === this._slideToken) outEl.classList.add('d-none'); } });
     }
     if (inEl) {
       inEl.classList.remove('d-none');
       inEl.style.opacity = '0';
-      tl.add({ targets: inEl, opacity: [0, 1], translateX: [xIn, 0], duration: 220, complete: () => { if (inEl) inEl.style.opacity = ''; if (onDone) onDone(); } }, outEl ? '-=60' : 0);
+      tl.add({ targets: inEl, opacity: [0, 1], translateX: [xIn, 0], duration: 220, complete: () => {
+        if (inEl) inEl.style.opacity = '';
+        finish();
+        if (onDone) onDone();
+      } }, outEl ? '-=60' : 0);
     }
   },
 

@@ -127,10 +127,11 @@ const CardEngine = {
   },
 
   async _inflate(bytes) {
+    let writer = null;
     try {
       if (typeof DecompressionStream === 'undefined') return null;
       const ds = new DecompressionStream('zlib');
-      const writer = ds.writable.getWriter();
+      writer = ds.writable.getWriter();
       writer.write(bytes);
       writer.close();
       const ab = await new Response(ds.readable).arrayBuffer();
@@ -138,6 +139,10 @@ const CardEngine = {
     } catch (e) {
       console.error('zlib inflate failed', e);
       return null;
+    } finally {
+      if (writer && typeof writer.releaseLock === 'function') {
+        try { writer.releaseLock(); } catch (_) {}
+      }
     }
   },
 
@@ -180,7 +185,7 @@ const CardEngine = {
   createEmptyCard(name) {
     name = name || (I18n.t ? I18n.t('gen.newCharacter') : 'New Character');
     const card = {
-      _id: 'card_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9),
+      _id: this._uniqueId(),
       _filename: name + '.json', _hasImage: false, _imageBase64: null,
       _createdAt: Date.now(), _fileSize: 0,
       spec: 'chara_card_v2', spec_version: '2.0',
@@ -286,12 +291,14 @@ const CardEngine = {
           }
           canvas.width = w; canvas.height = h;
           ctx.drawImage(img, 0, 0, w, h);
+          img.src = ''; // release the decoded image
           resolve(canvas.toDataURL('image/jpeg', this.THUMBNAIL_JPEG_QUALITY));
         } catch (_) {
+          img.src = '';
           resolve(null);
         }
       };
-      img.onerror = () => resolve(null);
+      img.onerror = () => { img.src = ''; resolve(null); };
       img.src = base64;
     });
   },

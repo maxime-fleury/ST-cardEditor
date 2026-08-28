@@ -148,6 +148,14 @@ const CardManager = {
       const card = await CardStorage.getCard(id);
       if (card) {
         const clone = JSON.parse(JSON.stringify(card));
+        // Strip internal metadata + huge base64 image from the JSON export,
+        // mirroring how single-card toJSON treats internals.
+        delete clone._id;
+        delete clone._filename;
+        delete clone._createdAt;
+        delete clone._fileSize;
+        delete clone._thumbnail;
+        delete clone._imageBase64;
         if (CardStorage.getInjectCopyright()) ExportUtils.injectCopyright(clone);
         cards.push(clone);
       }
@@ -329,7 +337,7 @@ const CardManager = {
       });
     }
 
-    if (!this._cardListBound) {
+    if (!this._cardListBound && container) {
       this._cardListBound = true;
       container.addEventListener('click', (e) => {
         const checkbox = e.target.closest('.card-batch-check');
@@ -496,7 +504,7 @@ const CardManager = {
     if (!activeCard) { Ui.showToast(I18n.t('toast.noCardDup'), 'warning'); return; }
     await Editor.syncEditorToCard();
     const clone = JSON.parse(JSON.stringify(activeCard));
-    clone._id = 'card_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+    clone._id = CardEngine._uniqueId();
     clone.name = (clone.name || (I18n.t ? I18n.t('gen.unnamed') : 'Unnamed')) + (I18n.t ? I18n.t('gen.copySuffix') : ' (Copy)');
     await CardStorage.upsertCard(clone);
     if (clone._imageBase64) await CardStorage.saveImage(clone._id, clone._imageBase64);
@@ -511,9 +519,21 @@ const CardManager = {
     if (!activeCard) return;
     await Editor.syncEditorToCard();
     const snapshot = { ...activeCard };
+    if (!snapshot._imageBase64) {
+      try {
+        const b64 = await CardStorage.getImage(snapshot._id);
+        if (b64) snapshot._imageBase64 = b64;
+      } catch (_) {}
+    }
     const snapshotIndex = cards.findIndex(c => c._id === activeCard._id);
 
-    await CardStorage.deleteCard(activeCard._id);
+    try {
+      await CardStorage.deleteCard(activeCard._id);
+    } catch (e) {
+      console.error('Failed to delete card:', e);
+      Ui.showToast(I18n.t ? (I18n.t('toast.deleteFailed') || 'Failed to delete card') : 'Failed to delete card', 'danger');
+      return;
+    }
     window.AppState.cards = CardStorage.getCards();
     window.AppState.activeCard = null;
     Editor.hideEditor();

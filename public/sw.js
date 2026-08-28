@@ -83,11 +83,13 @@ self.addEventListener('fetch', (event) => {
 
   const isShellFile = shellPaths.has(url.pathname);
   if (isShellFile) {
+    // Strip query strings so cache hits work despite ?v= cache-busters
+    const bareRequest = new Request(url.pathname);
     event.respondWith(
-      caches.match(event.request).then((cached) => {
+      caches.match(bareRequest).then((cached) => {
         const fetchPromise = fetch(event.request).then((response) => {
-          if (response.ok && response.type === 'basic') {
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
+          if (response.ok) {
+            caches.open(CACHE_NAME).then((cache) => cache.put(bareRequest, response.clone()));
           }
           return response;
         }).catch(() => cached);
@@ -97,7 +99,7 @@ self.addEventListener('fetch', (event) => {
   } else {
     event.respondWith(
       fetch(event.request).then((response) => {
-        if (response.ok && response.type === 'basic') {
+        if (response.ok) {
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
         }
         return response;
