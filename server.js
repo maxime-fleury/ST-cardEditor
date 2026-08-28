@@ -89,7 +89,12 @@ const server = Bun.serve({
         });
       }
       const targetPath = pathname.slice(4); // remove /api prefix
-      const targetUrl = `https://openrouter.ai/api${targetPath}${url.search}`;
+      const targetUrl = new URL(`https://openrouter.ai/api${targetPath}${url.search}`);
+      // Ensure path manipulation (e.g. encoded "//host" tricks) can never
+      // redirect the proxy to a different origin than the intended upstream.
+      if (targetUrl.origin !== "https://openrouter.ai") {
+        return new Response("Forbidden", { status: 403 });
+      }
       const headers = new Headers();
       for (const [key, val] of req.headers) {
         if (key.toLowerCase() === "host") continue;
