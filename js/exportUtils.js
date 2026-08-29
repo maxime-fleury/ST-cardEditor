@@ -194,10 +194,14 @@ const ExportUtils = {
     chunk.set(typeBytes, 4); chunk.set(textData, 8);
     new DataView(chunk.buffer).setUint32(8 + textData.length, crc, false);
 
-    // Reassemble: kept chunks + new chara chunk + IEND and everything after it.
+    // Reassemble: PNG signature + kept chunks + new chara chunk + IEND and
+    // everything after it. The chunk walk above starts at offset 8 (after the
+    // signature), so the signature must be re-added explicitly or the exported
+    // file is not a valid PNG (v3 #2).
     const keptSize = kept.reduce((n, c) => n + c.length, 0);
-    const result = new Uint8Array(keptSize + chunk.length + (bytes.length - iendPos));
-    let pos = 0;
+    const result = new Uint8Array(8 + keptSize + chunk.length + (bytes.length - iendPos));
+    result.set(bytes.subarray(0, 8), 0); // PNG signature
+    let pos = 8;
     for (const c of kept) { result.set(c, pos); pos += c.length; }
     result.set(chunk, pos); pos += chunk.length;
     result.set(bytes.subarray(iendPos), pos);

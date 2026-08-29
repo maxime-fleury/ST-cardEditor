@@ -176,6 +176,52 @@ Fixes applied this round (all verified live / compile-clean)
   hash was verified against the resolved file, so the pin cannot drift (v2
   #8).
 
+Sweep 4 — third bug-hunt round (post-2a04bc8)
+=============================================
+
+CRITICAL (found + fixed + verified live)
+----------------------------------------
+12. Every exported PNG is corrupt since the fix commit  [REPRO, FIXED]
+    exportUtils.embedCharaChunk (the #33 chara-dedupe rewrite) reassembles the
+    file from `kept` chunks, which the chunk walk collects starting at offset 8
+    — the 8-byte PNG signature is never included. Result: the exported file
+    starts with the IHDR length field ("0,0,0,13,IHDR..."), so it is not a
+    valid PNG: image viewers and SillyTavern reject it, and the app's own
+    parsePNG throws "Not a valid PNG file" on re-import. Every PNG export since
+    3ae3a51 was silently broken. Fix: prepend bytes.subarray(0, 8) to the
+    reassembled output. Verified live: chunk order IHDR,sRGB,IDAT,tEXt,IEND,
+    single chara chunk, re-export delta 0, full parse round-trip recovers the
+    card data.
+
+MEDIUM (found + fixed + verified live)
+--------------------------------------
+13. Stale chat session forks a duplicate (AiChat._updateSession)  [REPRO, FIXED]
+    When the current session is older than the 30-min SESSION_TIMEOUT, the else
+    branch updated the STALE session's timestamp/history (making it look
+    current again — defeating the timeout) AND created a new session with the
+    identical full history. The history panel showed two identical
+    conversations and storage doubled. Fix: only start the new session; leave
+    the stale one untouched. Verified: stale session keeps its old messageCount,
+    exactly one new session is created, and a fresh (within-timeout) session
+    still updates in place without forking.
+
+Checked and clean this round (live-tested)
+------------------------------------------
+- Session load/restore, _loadSession, per-session message storage
+- Undo/redo for lorebook, greetings, and top-level fields
+- clearChat / retryLastMessage while a generation is in flight (no orphan
+  writes, no stuck loading state)
+- PNG round-trip parse (chara + ccv3), import dedupe (name suffix), avatar
+  set, greetings reorder / set-default / delete with special chars preserved
+- Wizard blank generation (name/tags/creator/avatar), wizard step transitions
+- Model browser render + search filter, result modal + copy, diff preview +
+  apply for fields and greetings
+- i18n placeholder parity across all 21 languages (checked with an
+  escape-aware parser; the earlier apparent mismatches were regex artifacts
+  from \' in values like dell'utente)
+- Server: foreign-Origin proxy request 403, path traversal 404, SPA fallback,
+  asset 404, OPTIONS preflight 200
+
 Checked and clean
 -----------------
 - No new XSS sinks: all innerHTML paths with card/AI/model data still go through

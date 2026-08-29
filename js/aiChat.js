@@ -1024,12 +1024,10 @@ const AiChat = {
       CardStorage.saveChatSession(cardId, currentSession);
       CardStorage.saveSessionMessages(cardId, currentSession.id, chatHistory);
     } else {
-      if (currentSession) {
-        currentSession.lastUpdated = now;
-        currentSession.messageCount = chatHistory.length;
-        CardStorage.saveChatSession(cardId, currentSession);
-        CardStorage.saveSessionMessages(cardId, currentSession.id, chatHistory);
-      }
+      // Stale session: start a new one. Do NOT also refresh the old session's
+      // timestamp/messages here — that would defeat the timeout (the old
+      // session would look current again) and fork two identical conversations
+      // into storage (v3 #1).
       const session = {
         id: 'ses_' + now + '_' + Math.random().toString(36).slice(2, 7),
         created: now,
