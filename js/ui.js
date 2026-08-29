@@ -460,6 +460,7 @@ async function init() {
   bindEvents(settingsModal);
   AiChat.updateContextBar();
 Wizard.init();
+  WaifuTab.init();
     AiChat._renderFieldChips();
     initFloatingLabels();
     // Re-run textarea autosize when switching editor tabs: fields in an

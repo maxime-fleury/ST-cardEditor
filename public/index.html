@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ST Card Editor">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com esm.sh; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' cdn.jsdelivr.net fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com esm.sh; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' cdn.jsdelivr.net fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co;">
   
   <!-- Bootstrap 5.3 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" id="bootstrapLtr">
@@ -234,6 +234,11 @@
               <i class="bi bi-book me-1"></i> <span data-i18n="editor.tab.lorebook">Lorebook</span>
             </button>
           </li>
+          <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabWaifu" type="button">
+              <i class="bi bi-image me-1"></i> <span data-i18n="editor.tab.waifu">Waifu Image</span>
+            </button>
+          </li>
         </ul>
         
         <!-- Tab Content -->
@@ -383,6 +388,64 @@
                   <i class="bi bi-journal-text d-block mb-2" style="font-size: 2.5rem;color:var(--purple-400);"></i>
                   <span data-i18n="editor.lorebookEmpty" style="font-size:0.85rem;">No lorebook entries yet. Add one to get started.</span>
                 </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Waifu Image Tab -->
+          <div class="tab-pane fade" id="tabWaifu">
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label field-label" data-i18n="editor.waifuPreview">Current card image</label>
+                <div class="waifu-preview" id="waifuCurrentPreview">
+                  <img id="waifuCurrentImg" src="" alt="" hidden>
+                  <div class="waifu-no-image" id="waifuNoImage"><i class="bi bi-image"></i><span data-i18n="editor.waifuNoImage">No image set yet</span></div>
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="row g-2">
+                  <div class="col-md-6">
+                    <label class="form-label field-label mb-1 d-block" data-i18n="editor.waifuSource">Image source</label>
+                    <select class="form-select form-select-sm" id="waifuSourceSelect">
+                      <option value="snapshot" data-i18n="editor.waifuSourceSnap">Anime snapshots (waifu.im)</option>
+                      <option value="character" data-i18n="editor.waifuSourceChar">Anime characters (AniList)</option>
+                    </select>
+                  </div>
+                  <div class="col-md-6" id="waifuGenderWrap" style="display:none;">
+                    <label class="form-label field-label mb-1 d-block" data-i18n="editor.waifuGender">Gender</label>
+                    <div class="waifu-chips" id="waifuGenderChips" role="group" aria-label="Gender">
+                      <button type="button" class="waifu-chip active" data-gender="all" data-i18n="editor.waifuGenderAll">Any</button>
+                      <button type="button" class="waifu-chip" data-gender="female" data-i18n="editor.waifuGenderFemaleOnly">Female only</button>
+                      <button type="button" class="waifu-chip" data-gender="male" data-i18n="editor.waifuGenderMaleOnly">Male only</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-12">
+                <label class="form-label field-label d-flex align-items-center gap-2 flex-wrap">
+                  <span id="waifuSearchLabel">Search</span>
+                  <small class="text-secondary" id="waifuSubText">(fetches anime-style images by tag)</small>
+                </label>
+                <div class="input-group">
+                  <input type="text" class="form-control" id="waifuTagSearch" data-i18n-placeholder="editor.waifuSearchPlaceholder" placeholder="e.g. waifu, elf, maid...">
+                  <button class="btn btn-accent" id="waifuBtnFetch"><i class="bi bi-magic me-1"></i><span data-i18n="editor.waifuFetch">Fetch images</span></button>
+                  <button class="btn btn-outline-accent" id="waifuBtnRegenerate" type="button" title="Regenerate results" data-i18n-title="editor.waifuRegenTitle"><i class="bi bi-arrow-repeat"></i></button>
+                </div>
+                <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
+                  <button class="btn btn-outline-accent btn-sm" id="waifuBtnMixed" type="button">
+                    <i class="bi bi-gender-ambiguous me-1"></i><span data-i18n="editor.waifuMixed">Female + Male</span>
+                  </button>
+                  <small class="text-secondary" data-i18n="editor.waifuMixedSub">one-click balanced pack: 3 female + 3 male characters</small>
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="waifu-results" id="waifuResults"></div>
+              </div>
+              <div class="col-12 d-flex flex-wrap gap-2">
+                <button class="btn btn-outline-accent btn-sm" id="waifuBtnUse" hidden><i class="bi bi-check-lg me-1"></i><span data-i18n="editor.waifuUse">Use as card image</span></button>
+                <button class="btn btn-outline-secondary btn-sm" id="waifuBtnUpload" type="button"><i class="bi bi-upload me-1"></i><span data-i18n="editor.waifuUpload">Upload from device</span></button>
+                <button class="btn btn-outline-danger btn-sm" id="waifuBtnRemove" type="button"><i class="bi bi-trash me-1"></i><span data-i18n="editor.waifuRemove">Remove image</span></button>
+                <input type="file" id="waifuUploadInput" accept="image/*" hidden>
               </div>
             </div>
           </div>
@@ -1291,6 +1354,7 @@
   <script src="js/cardManager.js?v=22"></script>
   <script src="js/aiChat.js?v=22"></script>
   <script src="js/wizard.js?v=22"></script>
+  <script src="js/waifuTab.js?v=30"></script>
   <script src="js/settings.js?v=22"></script>
   <script src="js/i18n.js?v=23"></script>
   <script src="js/ui.js?v=23"></script>
