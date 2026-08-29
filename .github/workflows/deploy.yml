@@ -15,6 +15,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The deploy job force-pushes the built site to the gh-pages branch, so the
+# default GITHUB_TOKEN needs contents:write. The `check` job keeps its own
+# narrower read-only override below.
+permissions:
+  contents: write
+
 concurrency:
   group: "pages"
   cancel-in-progress: true
