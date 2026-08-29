@@ -69,7 +69,15 @@ const AIService = {
     return model || CardStorage.getCustomModelId() || '';
   },
 
-  async setApiKey(key) { this._apiKey = key; if (this._provider === 'openrouter') { await CardStorage.setApiKey(key); } else { await CardStorage.setCustomApiKey(key); } },
+  async setApiKey(key) {
+    this._apiKey = key;
+    // Persist to the slot that actually belongs to the active provider:
+    // named providers each have their own slot, so writing them into the
+    // custom slot would cross-send credentials later (v2 #7).
+    if (this._provider === 'openrouter') await CardStorage.setApiKey(key);
+    else if (this._provider === 'custom') await CardStorage.setCustomApiKey(key);
+    else await CardStorage.setProviderKey(this._provider, key);
+  },
   getApiKey() { return this._getApiKeyForProvider(); },
 
   hasApiKey() {

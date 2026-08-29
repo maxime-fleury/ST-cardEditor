@@ -240,12 +240,10 @@ const CardManager = {
         sorted.sort((a, b) => (a._fileSize || 0) - (b._fileSize || 0));
         break;
       case 'manual':
-        // Keep the current index order (including drag-reorders) as-is, and
-        // append any cards not present in the saved index.
-        const savedIds = new Set(window.AppState.cards.map(c => c._id));
-        sorted = sorted.filter(c => savedIds.has(c._id));
-        const extras = [...window.AppState.cards].filter(c => !sorted.some(s => s._id === c._id));
-        sorted.push(...extras);
+        // Keep the current index order (including drag-reorders) as-is. The
+        // input is already search/tag-filtered by the caller, so no sorting or
+        // extra-append logic belongs here — appending would re-add cards that
+        // the active filter excluded.
         break;
     }
     return sorted;
@@ -485,6 +483,7 @@ const CardManager = {
     // Abort any ongoing AI generation when switching cards
     if (isAiLoading) {
       AiChat._abortAll();
+      AiChat._gen++; // invalidate the aborted run's callbacks (mirror retry/clear)
       window.AppState.isAiLoading = false;
       AiChat.updateSendButton();
     }

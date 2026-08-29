@@ -939,16 +939,23 @@ const AiChat = {
       CardStorage.saveSessionMessages(cardId, this._currentSessionId, chatHistory);
     }
 
-    // Clean up DOM: remove the retried user bubble and everything after it.
+    // Clean up DOM: remove the retried user bubble and EVERYTHING after it.
+    // DOM order mirrors history order, and multi-field grouped cards carry no
+    // historyIndex, so removing by index alone would orphan them — remove from
+    // the target user bubble's DOM position onward instead (v2 fix).
     const $ = (sel) => document.querySelector(sel);
     const container = $('#aiChatMessages');
     const allMsgs = container.querySelectorAll('.ai-message');
     let removedDom = 0;
-    if (typeof historyIndex === 'number') {
-      allMsgs.forEach(el => {
-        const idx = parseInt(el.dataset.historyIndex, 10);
-        if (!Number.isNaN(idx) && idx >= targetUserIdx) { el.remove(); removedDom++; }
-      });
+    const targetEl = [...allMsgs].find(el => parseInt(el.dataset.historyIndex, 10) === targetUserIdx);
+    if (targetEl) {
+      let el = targetEl;
+      while (el) {
+        const next = el.nextElementSibling;
+        el.remove();
+        removedDom++;
+        el = next;
+      }
     }
     if (removedDom === 0) {
       // Fallback: remove the last user + assistant pair from the DOM.

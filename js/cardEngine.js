@@ -190,8 +190,28 @@ const CardEngine = {
     card.character_book = source.character_book ? JSON.parse(JSON.stringify(source.character_book)) : { entries: [] };
     card.extensions = source.extensions ? JSON.parse(JSON.stringify(source.extensions)) : {};
 
-    if (!card.character_book || !card.character_book.entries) {
+    // Validate character_book so a malformed card can never break the lorebook
+    // renderer (which runs during card selection). keysecondary must be an
+    // array per the V2 spec (legacy cards may store a comma-joined string);
+    // keys must be strings or arrays of strings; non-object entries are
+    // dropped and replaced with an empty entry.
+    if (!card.character_book || !Array.isArray(card.character_book.entries)) {
       card.character_book = { entries: [] };
+    } else {
+      card.character_book.entries = card.character_book.entries.map(e => {
+        if (!e || typeof e !== 'object') {
+          return { key: '', keysecondary: [], content: '', order: 100, constant: false, selective: false, position: 'after_char', comment: '' };
+        }
+        if (!Array.isArray(e.keysecondary)) {
+          e.keysecondary = e.keysecondary == null
+            ? []
+            : String(e.keysecondary).split(',').map(s => s.trim()).filter(Boolean);
+        }
+        if (e.key != null && !Array.isArray(e.key) && typeof e.key !== 'string') {
+          e.key = String(e.key);
+        }
+        return e;
+      });
     }
     card._id = this._uniqueId();
     card._createdAt = Date.now();

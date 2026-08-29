@@ -1,0 +1,195 @@
+Bug hunt — sweep 2 (post-fix of agent_bug_hunt_report.txt #1–#104)
+===================================================================
+Date: 2026-08-29 · Branch: master (3ae3a51 "fix: resolve agent-bug-hunt findings … v2.3.0")
+Method: full read of all modules, compiler syntax sweep (`bun build` per file),
+        live reproduction in a running instance of the app (server.js, port 8199).
+
+Everything in agent_bug_hunt_report.txt was verified as fixed (Z.AI endpoint,
+per-provider keys, retry/_gen guards, review-apply fence handling, token
+estimators /3 everywhere, PNG chara dedupe, i18n checker now quote-aware — all
+21 languages × 522 keys pass, CSP meta tag added, SW per-file precache +
+network-first, wizard image capture before modal close, panel-resize let/safety
+timer, lorebook order escaping, etc.).
+
+The findings below are NEW bugs found in the current tree, most of them
+regressions introduced by the same fix commit (3ae3a51). All marked [REPRO] were
+reproduced live in the running app; the others are verified by code reading.
+
+HIGH
+----
+1. Selecting the "Manual" sort mode crashes the card list — const reassignment  [REPRO]
+   cardManager.js:222 vs :246
+   `_sortCards` declares `const sorted = [...cards]`, and the `case 'manual':`
+   branch (added by the fix commit) executes `sorted = sorted.filter(...)`.
+   Assignment to a const throws TypeError. 'manual' IS a real option in
+   #cardSortSelect (index.html:113, also added by the fix), so the branch is
+   reachable.
+   Repro: load ≥4 cards → set sort to Manual → renderCardList throws
+   "TypeError: Assignment to constant variable." at cardManager.js:246, the
+   global error boundary shows a red error toast, and the list never renders.
+   Worse, the mode stays 'manual', so EVERY subsequent renderCardList — card
+   selection, creation (createNewCard throws mid-way: card is inserted into
+   storage but never selected), drag-reorder, batch ops, cross-tab updates —
+   fails until the user switches the sort back. `bun build` refuses to compile
+   the file for the same reason.
+   Fix: `let sorted` (or build a second array). One-word fix; blocks the Manual
+   feature and drag-reorder (whose saved order is only honored in Manual mode).
+
+2. Every evicted toast crashes Bootstrap ~5–300 ms later — error-toast cascade  [REPRO]
+   ui.js:74-81 (showToast eviction), Bootstrap 5.3.3
+   The eviction loop calls `inst.dispose()` on a toast whose `show()` transition
+   callback is still pending. Bootstrap's BaseComponent.dispose() does
+   `for (const t of Object.getOwnPropertyNames(this)) this[t] = null`, nulling
+   `_element`. The deferred callback from show() (`executeAfterTransition`
+   fallback timer, 5 ms for transitionless elements) then runs
+   `this._element.classList.remove(...)` → "Cannot read properties of null
+   (reading 'classList')" inside bootstrap.bundle.min.js.
+   Repro: show 6 toasts in a burst (e.g. batch delete, rapid save toasts, AI
+   errors); each of the 3 evicted toasts throws ~300 ms later (verified
+   deterministically — 3 errors per 3 evictions). The global error boundary
+   (setupErrorBoundary) converts each into another red "Unexpected error" toast,
+   which can evict further toasts and re-trigger. The #77 fix added the explicit
+   `hidden.bs.toast` dispatch and dispose call — dispose on a *shown* toast is
+   the culprit; the countdown timer it tried to fix could be cleared by simply
+   removing the element (the app's own hidden listener already clears it).
+   Fix: don't dispose; just remove the element (the app listener on
+   hidden.bs.toast clears the interval and removes it), or dispose after the
+   show transition completes.
+
+MEDIUM
+------
+3. On load, named providers inherit the *Custom* provider's API key  [code-verified]
+   ui.js:410-412 (init)
+   `AIService.setProvider(provider, provider === 'openrouter' ? apiKey : customKey)`
+   — for xai/deepseek/zai/chutes/nanogpt the in-memory `_apiKey` is seeded with
+   CardStorage.getCustomApiKey(). _getApiKeyForProvider() (aiService.js:59-63)
+   prefers `this._apiKey`, so every request to e.g. api.x.ai carries the LM
+   Studio/Ollama key (and the correct per-provider key is ignored) until the
+   settings modal is opened/closed or refreshModelsList runs with an empty key —
+   which only happens at init when an OpenRouter key or custom provider is set.
+   Symptom: with provider = xAI + a custom key configured, all xAI calls fail
+   auth with the wrong credential. The per-provider key refactor (fix for #29)
+   missed this init path; the hidden.bs.modal handler at ui.js:658-662 and
+   Settings.toggleProvider do it correctly.
+   Fix: seed with `provider === 'openrouter' ? apiKey : (provider === 'custom'
+   ? customKey : CardStorage.getProviderKey(provider))`.
+
+4. Switching cards mid-generation lets the aborted run pollute the NEW card's chat  [code-verified]
+   cardManager.js:472-478 (_doSelect) vs aiChat.js:186-221
+   _doSelect calls AiChat._abortAll() on card switch but does NOT bump
+   AiChat._gen (only send/retry/clear do — aiChat.js:154, :931, :1147). The
+   aborted requests' `.then`/`.catch` check `gen !== this._gen` to bail, which
+   passes because _gen is unchanged. In the multi-field path, if any field had
+   completed before the switch, the stale `.catch` (aiChat.js:205-221) pushes
+   `combinedContent` into window.AppState.chatHistory — now the NEW card's
+   freshly-loaded history — and persists it via saveChatHistory (also calling
+   _updateSession against the new card). The single-request path (_sendFullCard,
+   aiChat.js:537) instead injects a spurious "Generation stopped." system bubble
+   into the new card's view.
+   Fix: `AiChat._gen++` (or call a shared AiChat.cancelRun()) alongside
+   _abortAll() in _doSelect, same as clearChat/retryLastMessage.
+
+5. A malformed-but-plausible lorebook entry breaks card selection entirely  [REPRO]
+   editor.js:549-558 (renderLorebook), cardEngine.js:189 normalize()
+   `const secondary = (entry.keysecondary || []); … secondary.slice(0, 2).map(…)`
+   — if keysecondary is a string (legacy/odd cards; key already gets string-array
+   normalization at :530-531, keysecondary does not), `.map` is not a function
+   and renderLorebook throws. Because populateEditor → renderLorebook runs inside
+   _doSelect (cardManager.js:523), the exception rejects selectCard: the card is
+   set as active but the editor never populates, the list never highlights, and
+   no toast explains why. The same throw breaks AiChat.tryApplyAIResponse →
+   populateEditor and any editor refresh. `(entry.keysecondary || []).join(', ')`
+   at editor.js:562 has the identical failure mode.
+   Fix: normalize `entry.keysecondary` to an array in CardEngine.normalize (like
+   alternate_greetings), or guard with Array.isArray at render time.
+
+LOW
+---
+6. Server ignores the PORT default when the env var is set to empty/"0"  [REPRO]
+   server.js:9 — `parseInt(process.env.PORT || '8182')`. If PORT is exported as
+   "0" (as in this environment), Bun listens on a random port and the README's
+   "http://localhost:8182" link lies. Not a real product bug (env was
+   deliberately 0 here), noted for completeness — the console log line also
+   can't print the actual bound port.
+
+7. aiService.setApiKey() writes named-provider keys into the custom slot  [code-verified]
+   aiService.js:72 — dead code today (no caller), but if ever invoked with
+   provider=xai it would persist to CardStorage.setCustomApiKey instead of
+   setProviderKey, resurrecting bug #29. Worth fixing while touching storage.
+
+8. Diff CDN script has no version pin → SRI mismatch on republish  [code-verified]
+   public/index.html:1177 — `https://cdn.jsdelivr.net/npm/diff/dist/diff.min.js`
+   (no version) with a pinned integrity hash. jsDelivr "latest" rolls forward, so
+   a republish breaks the SRI and the script is blocked (Diff undefined → diff
+   view silently degrades to plain text via _renderDiff's guard). Pin the version
+   (e.g. diff@5.2.1) or drop the integrity for this one script.
+
+Sweep 3 — deeper pass on the fix commit's diff (post-fix verification)
+=====================================================================
+New findings from a line-by-line review of 3ae3a51's changes + live tests:
+
+CRITICAL (found sweep 3, now fixed)
+-----------------------------------
+9. escapeAttr crashes on the numeric lorebook `order` — lorebook broken for
+   EVERY card with entries  [REPRO, FIXED]
+   ui.js:escapeAttr does `str.replace(...)`; the #55 XSS fix wrapped
+   `entry.order ?? 100` in escapeAttr, and per the V2 spec `order` is a
+   NUMBER → `(100).replace` → "TypeError: str.replace is not a function".
+   renderLorebook → populateEditor → _doSelect all throw, so selecting ANY
+   card with a character_book entry fails silently (no editor, no highlight,
+   no toast). A numeric `key` (number 7) crashed the same way. Missed in
+   sweep 1 because the first test card crashed earlier on keysecondary.
+   Fix applied: escapeAttr coerces String(str) (keeping 0); editor.js +
+   cardEngine.normalize() now normalize keysecondary to an array and coerce
+   non-string keys; non-object entries become empty placeholders so indices
+   stay aligned. Verified live: normal card (order:100) and malformed card
+   (key:7, keysecondary:'a, b') both render.
+
+10. Retrying an old message orphans newer grouped multi-field cards  [FIXED]
+    aiChat.retryLastMessage removed DOM bubbles by historyIndex >= target,
+    but multi-field grouped cards carry NO historyIndex, so they survived the
+    retry and stayed on screen under the re-added prompt (history had been
+    spliced). Fix: remove from the target user bubble's DOM position onward
+    (DOM order == history order). Verified live with a fabricated transcript.
+
+11. "Manual" sort re-added search/tag-filtered-out cards  [FIXED]
+    cardManager._sortCards manual branch appended `extras` from the FULL
+    index, undoing any active search/tag filter. Manual mode now just keeps
+    index order (the caller has already filtered).
+
+Fixes applied this round (all verified live / compile-clean)
+------------------------------------------------------------
+- cardManager.js: _sortCards 'manual' keeps order only (v2 #1); _doSelect
+  bumps AiChat._gen alongside _abortAll (v2 #4).
+- ui.js: toast eviction no longer calls bootstrap dispose() — dispatches
+  hidden and removes (v2 #2); init() seeds the per-provider key, never the
+  custom key, for named providers (v2 #3); escapeAttr coerces to String (v2
+  #9).
+- editor.js + cardEngine.js: lorebook entries normalized at render and at
+  import (keysecondary array, key coercion, placeholder for non-objects)
+  (v2 #5).
+- aiService.js: setApiKey() writes per-provider slots instead of the custom
+  slot (v2 #7).
+- aiChat.js: retryLastMessage removes DOM from the target bubble onward (v2
+  #10).
+- public/index.html: diff pinned to diff@9.0.0 with the same SRI hash — the
+  hash was verified against the resolved file, so the pin cannot drift (v2
+  #8).
+
+Checked and clean
+-----------------
+- No new XSS sinks: all innerHTML paths with card/AI/model data still go through
+  Ui.escapeHtml/escapeAttr or textContent; renderMarkdown sanitizes with
+  DOMPurify; the lorebook order field is escaped (fix #55 verified live).
+- i18n checker passes all 21 languages × 522 keys (fix #56 verified — it now
+  tracks both quote styles, so the French "l'interface" string no longer
+  swallows 9 dictionaries).
+- Z.AI endpoint, _withTimeout (AbortSignal.any), _isUnsupportedFormatError
+  narrowing, per-provider key slots, review-apply fence unwrap, _extractJSONArray
+  restart logic, wizard image capture-before-close, panel-resizer `let` +
+  safety-timer, beforeunload no-prompt, clearChat/retry _gen bumps, PNG chara
+  chunk dedupe, storage-full chat warnings, deleteCard IDB-first + chat cleanup,
+  clearAll secret wipe, SW per-file precache/network-first/offline shell, meta
+  CSP — all verified present and correct.
+- js/cardManager.js is the ONLY file the compiler rejects (`bun build`), and its
+  single error is finding #1 above.

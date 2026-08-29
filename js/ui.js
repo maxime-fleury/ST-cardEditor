@@ -17,12 +17,13 @@ window.Ui = {
     if (!container) return;
     while (container.children.length >= 3) {
       const oldest = container.firstChild;
-      const inst = oldest && window.bootstrap && bootstrap.Toast.getInstance
-        ? bootstrap.Toast.getInstance(oldest)
-        : null;
-      if (inst) inst.dispose();
-      // Bootstrap's dispose() does not emit hidden.bs.toast, so our countdown
-      // clearInterval never ran on evicted toasts — stop it explicitly (#77).
+      if (!oldest) break;
+      // Fire hidden so the app's countdown cleanup listener runs (clears the
+      // interval and removes the element), then drop the node. Do NOT call
+      // inst.dispose() here: Bootstrap's dispose() nulls the instance's
+      // `_element` while its deferred show-transition callback is still
+      // pending, so the fallback timer later throws "Cannot read properties
+      // of null (reading 'classList')" — one spurious error per eviction (v2 #2).
       oldest.dispatchEvent(new Event('hidden.bs.toast'));
       oldest.remove();
     }
@@ -76,7 +77,11 @@ window.Ui = {
   },
 
   escapeAttr(str) {
-    if (!str) return '';
+    // Coerce to string first: callers pass raw card data (e.g. a numeric
+    // lorebook `order`), and .replace() on a number throws. String() keeps
+    // falsy-but-valid values like 0 intact instead of dropping them.
+    if (str === null || str === undefined) return '';
+    str = String(str);
     return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   },
 
@@ -409,7 +414,12 @@ async function init() {
   // an API key, so model discovery must be based on the saved endpoint.
   const provider = CardStorage.getProvider();
   const customKey = CardStorage.getCustomApiKey();
-  AIService.setProvider(provider, provider === 'openrouter' ? apiKey : customKey);
+  // Seed the in-memory key per provider: named providers own a per-provider
+  // key slot, so handing them the Custom provider's key would send the wrong
+  // credential on every request (v2 #3).
+  AIService.setProvider(provider, provider === 'openrouter'
+    ? apiKey
+    : (provider === 'custom' ? customKey : CardStorage.getProviderKey(provider)));
   if (provider === 'custom') {
     const customModel = CardStorage.getCustomModelId();
     if (customModel) {

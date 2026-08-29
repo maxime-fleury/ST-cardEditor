@@ -512,7 +512,27 @@ const Editor = {
   renderLorebook(card) {
     const $ = (sel) => document.querySelector(sel);
     const container = $('#lorebookEntries');
-    const entries = card.character_book?.entries || [];
+    // Normalize malformed entries in place (self-healing: the fixed shape is
+    // persisted on the next sync). keysecondary is an array per the V2 spec,
+    // but legacy/foreign cards may store a comma-joined string — and a string
+    // here crashed the whole render (`.slice().map` on a string) (v2 #5).
+    // Non-object entries become safe placeholders (NOT dropped) so the index
+    // numbers rendered into data-lore-* attributes stay aligned with the card's
+    // entries array.
+    const entries = (card.character_book?.entries || []).map(e => {
+      if (!e || typeof e !== 'object') {
+        return { key: '', keysecondary: [], content: '', order: 100, constant: false, selective: false, position: 'after_char', comment: '' };
+      }
+      if (!Array.isArray(e.keysecondary)) {
+        e.keysecondary = e.keysecondary == null
+          ? []
+          : String(e.keysecondary).split(',').map(s => s.trim()).filter(Boolean);
+      }
+      if (e.key != null && !Array.isArray(e.key) && typeof e.key !== 'string') {
+        e.key = String(e.key);
+      }
+      return e;
+    });
 
     // Generation token invalidates stale debounced writes after a re-render
     // (delete/reorder), so writebacks can't clobber a shifted entry (#97).
