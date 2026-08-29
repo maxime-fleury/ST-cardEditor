@@ -8,6 +8,9 @@ const AiChat = {
   _selectedFields: new Set(), // fields selected for editing
   _greetingCount: 3,
   _applyStore: new Map(),     // msgId → { content, field } for re-apply
+  _applyQueue: [],            // every pending apply-able response { el, field, content, applied }
+  _applyElMap: new WeakMap(), // element → apply item (dup-free registration)
+  _applyIndex: 0,             // active item index in _applyQueue
   _currentSessionId: null,    // active session ID for per-session storage
   _gen: 0,                    // generation token: bumped on every send/clear so
                               // stale aborted callbacks bail out instead of
@@ -252,19 +255,16 @@ const AiChat = {
 
     if (targetField === 'alternate_greetings') {
       const existing = (activeCard && activeCard.alternate_greetings) || [];
-      parts.push('The user wants you to generate ALTERNATE GREETINGS for this character.');
-      parts.push('Current greetings: ' + (existing.length ? JSON.stringify(existing) : '(none)'));
-      parts.push('Generate exactly ' + greetingCount + ' new greeting' + (greetingCount > 1 ? 's' : '') + '.');
-      parts.push('Respond with ONLY a valid JSON array of greeting strings. No explanations, no markdown.');
-      parts.push('Example response format: ["Greeting one...", "Greeting two...", "Greeting three..."]');
-      parts.push('Each greeting should be an in-character opening message that could start a conversation with {{user}}.');
+      const greetInstr = (CardStorage.getPrompt('greetingsSystem') || Settings.getDefaultPrompt('greetingsSystem'))
+        .split('{count}').join(String(greetingCount))
+        .split('{current}').join(existing.length ? JSON.stringify(existing) : '(none)');
+      parts.push(greetInstr);
     } else {
-      parts.push('The user wants you to edit the "' + fieldLabel + '" field of this card.');
-      parts.push('Below is the current content of that field:');
-      parts.push('[' + fieldLabel + ']');
-      parts.push(activeCard && activeCard[targetField] !== undefined ? (activeCard[targetField] || '(empty)') : '(empty)');
-      parts.push('');
-      parts.push('Respond with ONLY the new content for this field. Do not include explanations, JSON wrapping, or markdown fences unless the original content uses them.');
+      const current = activeCard && activeCard[targetField] !== undefined ? (activeCard[targetField] || '(empty)') : '(empty)';
+      const fieldInstr = (CardStorage.getPrompt('fieldsEdit') || Settings.getDefaultPrompt('fieldsEdit'))
+        .split('{field}').join(fieldLabel)
+        .split('{current}').join(current);
+      parts.push(fieldInstr);
     }
     return parts.join('\n');
   },
@@ -350,12 +350,13 @@ const AiChat = {
       }
 
       // "Review & Apply" button — opens diff modal
+      this._registerApply(section, field, content);
       const btn = document.createElement('button');
       btn.className = 'btn btn-outline-accent btn-sm';
       btn.innerHTML = '<i class="bi bi-eye me-1"></i> ' + (I18n.t ? I18n.t('ai.reviewApply') : 'Review & Apply');
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        self.tryApplyAIResponse(content, field);
+        self.tryApplyAIResponse(content, field, section);
       });
       actions.appendChild(btn);
     }
@@ -452,7 +453,8 @@ const AiChat = {
 
   // ─── SINGLE FULL-CARD REQUEST (translate, wizard) ────
 
-  _sendFullCard(prompt) {
+  _sendFullCard(prompt, opts) {
+    opts = opts || {};
     const $ = (sel) => document.querySelector(sel);
     const { activeCard } = window.AppState;
     if (window.AppState.isAiLoading) return;
@@ -500,8 +502,7 @@ const AiChat = {
       cardJson,
       '```',
       '',
-      'The user wants you to edit or generate the FULL card as JSON.',
-      'Respond with ONLY the updated JSON card. Keep the exact JSON structure.',
+      opts.systemPromptInstruction || (CardStorage.getPrompt('fullCardInstr') || Settings.getDefaultPrompt('fullCardInstr')),
     ].join('\n');
 
     const controller = new AbortController();
@@ -526,11 +527,12 @@ const AiChat = {
         if (gen !== this._gen) { streamingEl.remove(); return; }
         streamingEl.remove();
         const asstIdx = window.AppState.chatHistory.length;
-        this.addChatMessage('assistant', result.content, result.usage, { content: result.content, field: 'full' }, asstIdx);
+        const applyTarget = opts.applyTarget || 'full';
+        this.addChatMessage('assistant', result.content, result.usage, { content: result.content, field: applyTarget }, asstIdx);
         window.AppState.chatHistory.push({ role: 'assistant', content: result.content });
         CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
         this._updateSession();
-        this.tryApplyAIResponse(result.content, 'full');
+        this.tryApplyAIResponse(result.content, applyTarget);
         Settings.refreshCredits();
       })
       .catch(err => {
@@ -584,75 +586,100 @@ const AiChat = {
     newEl.innerHTML = newHtml || '<span class="diff-empty">' + (I18n.t ? I18n.t('gen.empty') : '(empty)') + '</span>';
   },
 
-  tryApplyAIResponse(content, targetField) {
+  // Register an apply-able response so Prev/Next can move between every
+  // pending change in the transcript. Duplicate registration for the same DOM
+  // element just updates content/field (retries regenerate the response).
+  _registerApply(el, field, content) {
+    if (!el) return null;
+    let item = this._applyElMap.get(el);
+    if (item) { item.field = field; item.content = content; return item; }
+    item = { el, field, content, applied: false };
+    this._applyElMap.set(el, item);
+    this._applyQueue.push(item);
+    return item;
+  },
+
+  // Build { oldVal, newVal, applyFn } for a pending apply from the CURRENT
+  // card state. Recomputes on every modal open so navigating back later picks
+  // up whatever has already been applied to the card.
+  _prepareApply(field, content) {
     const { activeCard } = window.AppState;
-    if (!activeCard || !content) return;
+    if (!activeCard || !content) return null;
 
-    const showPreview = (oldVal, newVal, applyFn) => {
-      const modalEl = document.querySelector('#aiPreviewModal');
-      if (!modalEl) return;
-      // Reuse a single Modal instance to avoid stacking listeners (#32/#104).
-      this._previewModal = this._previewModal || new bootstrap.Modal(modalEl);
-      const modal = this._previewModal;
-
-      this._renderDiff(oldVal || '', newVal);
-
-      const acceptBtn = document.querySelector('#btnAcceptAI');
-      let applied = false;
-
-      if (this._previewCleanup) this._previewCleanup();
-
-      const handler = () => { applied = true; applyFn(); modal.hide(); };
-      const cleanup = () => {
-        acceptBtn.removeEventListener('click', handler);
-        modalEl.removeEventListener('hidden.bs.modal', cleanup);
-        if (this._previewCleanup === cleanup) this._previewCleanup = null;
-      };
-      this._previewCleanup = cleanup;
-      acceptBtn.addEventListener('click', handler);
-      modalEl.addEventListener('hidden.bs.modal', cleanup);
-      modal.show();
-    };
-
-    if (targetField === 'full') {
+    if (field === 'full') {
       const jsonStr = this._extractJSON(content);
-      if (jsonStr) {
-        try {
-          if (!activeCard) return;
-          const parsed = CardEngine.parseJSON(jsonStr, activeCard._filename);
-          showPreview(CardEngine.toJSON(activeCard), CardEngine.toJSON(parsed), () => {
+      if (!jsonStr) return null;
+      try {
+        const parsed = CardEngine.parseJSON(jsonStr, activeCard._filename);
+        return {
+          oldVal: CardEngine.toJSON(activeCard),
+          newVal: CardEngine.toJSON(parsed),
+          applyFn: () => {
             const internal = { _id: activeCard._id, _filename: activeCard._filename, _hasImage: activeCard._hasImage, _imageBase64: activeCard._imageBase64, _thumbnail: activeCard._thumbnail };
             Object.assign(activeCard, parsed);
             Object.assign(activeCard, internal);
             Editor.populateEditor(activeCard);
             Editor.syncEditorToCard();
             Ui.showToast(I18n.t('toast.cardUpdatedAI'), 'success');
-          });
-        } catch (e) {
-          console.error('Failed to parse AI JSON response', e);
-          Ui.showToast(I18n.t('toast.jsonParseFailed'), 'warning');
-        }
-      } else {
-        Ui.showToast(I18n.t('toast.jsonInvalid'), 'info');
+          },
+        };
+      } catch (e) {
+        console.error('Failed to parse AI JSON response', e);
+        Ui.showToast(I18n.t('toast.jsonParseFailed'), 'warning');
+        return null;
       }
-    } else if (targetField === 'alternate_greetings') {
+    }
+
+    if (field === 'tags') {
+      // Parse a JSON array of tag strings and MERGE into the existing tags
+      // (dedupe, case-insensitive) — never replace what the user curated.
+      const tags = this._extractJSONArray(content);
+      if (!tags || tags.length === 0) {
+        Ui.showToast(I18n.t ? I18n.t('toast.jsonInvalid') : 'Could not parse tags from the response.', 'warning');
+        return null;
+      }
+      const existing = (activeCard.tags || []).map(t => String(t).trim()).filter(Boolean);
+      const merged = [...existing];
+      let added = 0;
+      tags.forEach(t => {
+        const s = String(t).trim();
+        if (s && !merged.some(m => m.toLowerCase() === s.toLowerCase())) { merged.push(s); added++; }
+      });
+      return {
+        oldVal: JSON.stringify(existing, null, 2),
+        newVal: JSON.stringify(merged, null, 2),
+        applyFn: () => {
+          activeCard.tags = merged;
+          Editor.populateEditor(activeCard);
+          Editor.syncEditorToCard();
+          CardManager.renderCardList();
+          Ui.showToast(I18n.t('toast.tagsUpdated', { count: added }), 'success');
+        },
+      };
+    }
+
+    if (field === 'alternate_greetings') {
       // Parse JSON array of greetings
       const greetings = this._extractJSONArray(content);
-      if (greetings && greetings.length > 0) {
-        const oldVal = JSON.stringify((activeCard.alternate_greetings || []), null, 2);
-        const newVal = JSON.stringify(greetings, null, 2);
-        showPreview(oldVal, newVal, () => {
+      if (!greetings || greetings.length === 0) {
+        Ui.showToast(I18n.t('toast.greetingsParseFailed'), 'warning');
+        return null;
+      }
+      return {
+        oldVal: JSON.stringify((activeCard.alternate_greetings || []), null, 2),
+        newVal: JSON.stringify(greetings, null, 2),
+        applyFn: () => {
           // Replace greetings (not append)
           activeCard.alternate_greetings = greetings;
           Editor.renderGreetings(activeCard);
           Editor.syncEditorToCard();
           Ui.showToast(I18n.t('toast.greetingsUpdated', { count: greetings.length }), 'success');
-        });
-      } else {
-        Ui.showToast(I18n.t('toast.greetingsParseFailed'), 'warning');
-      }
-    } else if (activeCard[targetField] !== undefined
-      || ['description', 'personality', 'first_mes', 'scenario', 'mes_example', 'system_prompt', 'post_history_instructions', 'creator_notes'].includes(targetField)) {
+        },
+      };
+    }
+
+    if (activeCard[field] !== undefined
+      || ['description', 'personality', 'first_mes', 'scenario', 'mes_example', 'system_prompt', 'post_history_instructions', 'creator_notes'].includes(field)) {
       // Unwrap markdown fences instead of deleting them: models commonly wrap
       // the whole field in ``` which would otherwise make clean === '' and
       // silently abort the apply (no modal, no toast).
@@ -662,22 +689,137 @@ const AiChat = {
       // Strip only a lone "[Field Label]" echo header the prompt asks for.
       // Do NOT strip every bracket-prefixed line — that mangles W++ content
       // like "[Name: Yeon-ju] likes cats".
-      const fieldLabel = I18n.t ? I18n.t(this.FIELD_DEFS.find(d => d.id === targetField)?.labelKey || targetField) : targetField;
+      const fieldLabel = this._applyFieldLabel(field);
       const headerRe = new RegExp('^\\[' + fieldLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\]\\s*\\n?');
       clean = clean.replace(headerRe, '').trim();
-      if (clean) {
-        showPreview(activeCard[targetField] || '', clean, () => {
-          activeCard[targetField] = clean;
+      if (!clean) {
+        Ui.showToast(I18n.t ? I18n.t('toast.emptyResponse') : 'AI returned empty content — nothing to apply.', 'warning');
+        return null;
+      }
+      return {
+        oldVal: activeCard[field] || '',
+        newVal: clean,
+        applyFn: () => {
+          activeCard[field] = clean;
           Editor.populateEditor(activeCard);
           Editor.syncEditorToCard();
           CardManager.renderCardList();
-          Ui.showToast(I18n.t('toast.fieldUpdated', { field: targetField }), 'success');
-        });
-      } else {
-        Ui.showToast(I18n.t ? I18n.t('toast.emptyResponse') : 'AI returned empty content — nothing to apply.', 'warning');
-      }
+          Ui.showToast(I18n.t('toast.fieldUpdated', { field }), 'success');
+        },
+      };
     }
+    return null;
   },
+
+  _applyFieldLabel(field) {
+    if (field === 'full') return I18n.t ? I18n.t('ai.target.full') : 'Full Card';
+    if (field === 'tags') return I18n.t ? I18n.t('ai.target.tags') : 'Tags';
+    return I18n.t ? I18n.t(this.FIELD_DEFS.find(d => d.id === field)?.labelKey || field) : field;
+  },
+
+  // Decide which item a request corresponds to and show the modal on it.
+  tryApplyAIResponse(content, targetField, sourceEl) {
+    const { activeCard } = window.AppState;
+    if (!activeCard || !content) return;
+    let item = null;
+    if (sourceEl) {
+      item = this._applyElMap.get(sourceEl);
+      if (item) { item.field = targetField; item.content = content; }
+    } else {
+      item = this._applyQueue.find(it => it.content === content && it.field === targetField) || null;
+    }
+    // Fallback: register an item so the response is still navigable.
+    if (!item) { item = this._registerApply(sourceEl || null, targetField, content); }
+    if (!item) return;
+    this._applyIndex = this._applyQueue.indexOf(item);
+    this._openApplyAt(this._applyIndex);
+  },
+
+  // Open the diff modal at a queue index with Prev/Next navigation.
+  _openApplyAt(index) {
+    const queue = this._applyQueue;
+    if (!queue.length) return;
+    const n = queue.length;
+    const i = ((index % n) + n) % n;
+    const item = queue[i];
+    this._applyIndex = i;
+
+    const modalEl = document.querySelector('#aiPreviewModal');
+    if (!modalEl) return;
+    const prep = this._prepareApply(item.field, item.content);
+    if (!prep) return; // parse failure already toasted
+
+    // Reuse a single Modal instance to avoid stacking listeners (#32/#104).
+    this._previewModal = this._previewModal || new bootstrap.Modal(modalEl);
+    const modal = this._previewModal;
+
+    this._renderDiff(prep.oldVal, prep.newVal);
+    const titleEl = modalEl.querySelector('.modal-title');
+    if (titleEl) titleEl.innerHTML = '<i class="bi bi-split-cells me-2 text-accent"></i>' + Ui.escapeHtml(this._applyFieldLabel(item.field));
+
+    // Prev / Next / counter — only meaningful when there is more than one change.
+    const showNav = n > 1;
+    const navGroup = document.querySelector('#applyNavGroup');
+    const counterEl = document.querySelector('#applyNavCounter');
+    const prevBtn = document.querySelector('#btnApplyPrev');
+    const nextBtn = document.querySelector('#btnApplyNext');
+    if (navGroup) navGroup.style.display = showNav ? 'flex' : 'none';
+    if (counterEl) counterEl.textContent = showNav ? (I18n.t ? I18n.t('ai.changesNav', { current: i + 1, total: n }) : ((i + 1) + ' / ' + n)) : '';
+    if (prevBtn) prevBtn.disabled = !showNav;
+    if (nextBtn) nextBtn.disabled = !showNav;
+
+    const acceptBtn = document.querySelector('#btnAcceptAI');
+    if (this._previewCleanup) this._previewCleanup();
+
+    const handler = () => {
+      if (item.applied) { modal.hide(); return; }
+      this._markApplied(item);
+      if (prep.applyFn) prep.applyFn();
+      modal.hide();
+    };
+    const cleanup = () => {
+      acceptBtn.removeEventListener('click', handler);
+      modalEl.removeEventListener('hidden.bs.modal', cleanup);
+      if (this._previewCleanup === cleanup) this._previewCleanup = null;
+    };
+    this._previewCleanup = cleanup;
+    acceptBtn.addEventListener('click', handler);
+    modalEl.addEventListener('hidden.bs.modal', cleanup);
+    modal.show();
+  },
+
+  _applyNav(delta) {
+    const queue = this._applyQueue;
+    if (queue.length < 2) return;
+    this._openApplyAt((this._applyIndex + delta + queue.length) % queue.length);
+  },
+
+  // Drop queue items whose source message left the DOM (chat cleared, or
+  // removed by retry) so the Prev/Next nav never lists stale changes.
+  _pruneApplyQueue() {
+    this._applyQueue = this._applyQueue.filter(it => it.el && it.el.isConnected);
+    if (this._applyIndex >= this._applyQueue.length) this._applyIndex = Math.max(0, this._applyQueue.length - 1);
+  },
+
+  // Mark an item applied: badge on the chat message + disable its apply buttons.
+  _markApplied(item) {
+    item.applied = true;
+    const el = item.el;
+    if (!el) return;
+    el.dataset.applied = '1';
+    const actions = el.matches('.multi-field-section')
+      ? el.querySelector('.multi-field-actions')
+      : (el.querySelector('.ai-message-actions') || el);
+    const badge = document.createElement('span');
+    badge.className = 'ai-applied-badge';
+    badge.innerHTML = '<i class="bi bi-check2-circle"></i> ' + (I18n.t ? I18n.t('ai.applied') : 'Applied');
+    actions.appendChild(badge);
+    // Disable/relabel apply buttons inside the element (Retry stays active).
+    [...el.querySelectorAll('button')].forEach(b => {
+      if (/apply/i.test(b.textContent) || b.classList.contains('ai-message-reapply')) { b.disabled = true; b.classList.add('disabled'); }
+    });
+  },
+
 
   _extractJSONArray(text) {
     if (!text) return null;
@@ -765,32 +907,54 @@ const AiChat = {
     if (!AIService.hasApiKey()) { Ui.showToast(I18n.t('toast.apiKey'), 'warning'); return; }
     if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
 
+    // Prompts come from the Settings registry (stored override || built-in
+    // default), so users can edit every AI prompt under Settings → Prompts tab.
+    const promptFor = (name) => CardStorage.getPrompt(name) || Settings.getDefaultPrompt(name);
+    const currentOf = {
+      shorten: activeCard.description, enhance: activeCard.description,
+      tone: activeCard.description, grammar: activeCard.description,
+      personality: activeCard.personality, firstmes: activeCard.first_mes,
+      scenario: activeCard.scenario, systemprompt: activeCard.system_prompt,
+    };
+    const withCurrent = (name, field) => promptFor(name) + '\n\nCurrent:\n' + (currentOf[field] || '(empty)');
+
     const prompts = {
-      translate: null,
-      enhance: 'Enhance the character description to be more detailed and vivid. Add sensory details and specific traits.\n\nCurrent:\n' + (activeCard.description || '(empty)'),
-      personality: 'Expand the personality to be more nuanced. Add quirks, habits, fears, and motivations.\n\nCurrent:\n' + (activeCard.personality || '(empty)'),
-      firstmes: 'Improve the first message to be more engaging and in-character.\n\nCurrent:\n' + (activeCard.first_mes || '(empty)'),
-      scenario: 'Expand the scenario to be more detailed, immersive, and vivid. Add sensory atmosphere and narrative depth.\n\nCurrent:\n' + (activeCard.scenario || '(empty)'),
       // shorten/tone/grammar all write back to 'description' (fieldMap below),
       // so they must read 'description' — not a fallback chain that would feed
       // personality text in and paste it into the wrong field (#8).
-      shorten: 'Shorten and tighten the following description while preserving the core meaning and character voice. Remove redundancies.\n\nCurrent:\n' + (activeCard.description || '(empty)'),
-      tone: null,
-      grammar: 'Fix all grammar, spelling, and punctuation errors in the following description. Improve clarity without changing the meaning or voice.\n\nCurrent:\n' + (activeCard.description || '(empty)'),
-      greetings: 'Generate alternate greetings for this character.',
-      systemprompt: 'Enhance this system prompt to be more effective and comprehensive. Improve the instructions for the AI roleplay assistant.\n\nCurrent:\n' + (activeCard.system_prompt || '(empty)'),
+      enhance: withCurrent('enhance', 'enhance'),
+      personality: withCurrent('personality', 'personality'),
+      firstmes: withCurrent('firstmes', 'firstmes'),
+      scenario: withCurrent('scenario', 'scenario'),
+      shorten: withCurrent('shorten', 'shorten'),
+      tone: promptFor('tone'),
+      grammar: withCurrent('grammar', 'grammar'),
+      greetings: promptFor('greetings'),
+      systemprompt: withCurrent('systemprompt', 'systemprompt'),
+      translate: promptFor('translate'),
+      tags: promptFor('tags'),
     };
 
     if (action === 'translate') {
       const lang = window.prompt(I18n.t ? I18n.t('ai.translatePrompt') : 'Translate to which language?', I18n.t ? I18n.t('ai.translateDefaultLang') : 'French');
       if (!lang) return;
-      prompts.translate = 'Translate this character card to ' + lang + '. Output the COMPLETE card as valid JSON with all fields translated. Keep the exact same JSON structure. Translate ALL text fields.\n\nHere is the card JSON:\n' + CardEngine.toJSON(activeCard);
+      prompts.translate = prompts.translate.split('{lang}').join(lang).split('{card}').join(CardEngine.toJSON(activeCard));
     }
 
     if (action === 'tone') {
       const tone = window.prompt(I18n.t ? I18n.t('ai.tonePrompt') : 'Which tone? (e.g., formal, casual, dark, humorous, poetic)', I18n.t ? I18n.t('ai.toneDefault') : 'formal');
       if (!tone) return;
-      prompts.tone = 'Rewrite the following description with a "' + tone + '" tone while preserving the character\'s core personality and key information.\n\nCurrent:\n' + (activeCard.description || '(empty)');
+      prompts.tone = prompts.tone.split('{tone}').join(tone) + '\n\nCurrent:\n' + (currentOf.tone || '(empty)');
+    }
+
+    // Suggest tags: dedicated path that asks for a JSON array (like translate),
+    // so it does not pollute the field-chip selector.
+    if (action === 'tags') {
+      this._sendFullCard(prompts.tags, {
+        applyTarget: 'tags',
+        systemPromptInstruction: promptFor('tagsSystem'),
+      });
+      return;
     }
 
     const aiPrompt = action === 'translate' ? prompts.translate : prompts[action];
@@ -873,6 +1037,7 @@ const AiChat = {
           this._applyStore.delete(oldest);
         }
         el.setAttribute('data-apply-id', msgId);
+        this._registerApply(el, applyData.field, applyData.content);
         const reapplyBtn = document.createElement('button');
         reapplyBtn.className = 'ai-message-reapply';
         reapplyBtn.innerHTML = '<i class="bi bi-check2-circle"></i> ' + (I18n.t ? I18n.t('ai.apply') : 'Apply');
@@ -881,7 +1046,7 @@ const AiChat = {
           e.stopPropagation();
           const stored = this._applyStore.get(msgId);
           if (stored) {
-            this.tryApplyAIResponse(stored.content, stored.field);
+            this.tryApplyAIResponse(stored.content, stored.field, el);
           }
         });
         actionsWrap.appendChild(reapplyBtn);
@@ -966,6 +1131,9 @@ const AiChat = {
         removedDom++;
       }
     }
+
+    // Drop apply-queue items for messages that were just removed from the DOM.
+    this._pruneApplyQueue();
 
     // Re-add the user bubble so the retried prompt stays visible (#5).
     this.addChatMessage('user', lastUserPrompt, null, null, targetUserIdx);
@@ -1088,6 +1256,7 @@ const AiChat = {
       + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="scenario"><i class="bi bi-geo-alt me-1"></i> ' + I18n.t('ai.actionScenario') + '</button>'
       + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="greetings"><i class="bi bi-list-ol me-1"></i> ' + I18n.t('ai.actionGreetings') + '</button>'
       + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="systemprompt"><i class="bi bi-terminal me-1"></i> ' + I18n.t('ai.actionSystemprompt') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="tags"><i class="bi bi-tags me-1"></i> ' + I18n.t('ai.actionTags') + '</button>'
       + '</div></div>';
     const self = this;
     container.querySelectorAll('.quick-action').forEach(btn => {
@@ -1155,6 +1324,8 @@ const AiChat = {
     this._historyRendered = false;
     this._selectedFields.clear();
     this._applyStore.clear();
+    this._applyQueue = [];
+    this._applyIndex = 0;
     this._currentSessionId = null;
     this._renderFieldChips();
     window.AppState.chatHistory = [];

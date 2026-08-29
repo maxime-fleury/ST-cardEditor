@@ -602,6 +602,8 @@ function bindEvents(settingsModal) {
   $('#btnToggleNamedApiKey').addEventListener('click', () => Settings.toggleNamedApiKeyVisibility());
   $('#btnSaveSettings').addEventListener('click', () => Settings.saveSettings(settingsModal));
   $('#btnResetPrompts').addEventListener('click', () => Settings.resetPrompts());
+  $('#btnExportPrompts').addEventListener('click', () => Settings.exportPrompts());
+  $('#btnImportPrompts').addEventListener('click', () => Settings.importPrompts());
   $('#btnRefreshModels').addEventListener('click', () => Settings.refreshModelsList());
   $('#btnClearStorage').addEventListener('click', () => Settings.confirmClearStorage());
   $('#btnExportSettings').addEventListener('click', () => Settings.exportSettings());
@@ -770,6 +772,8 @@ function bindEvents(settingsModal) {
 
   // AI chat
   $('#btnAiSend').addEventListener('click', () => AiChat.send());
+  $('#btnApplyPrev').addEventListener('click', () => AiChat._applyNav(-1));
+  $('#btnApplyNext').addEventListener('click', () => AiChat._applyNav(1));
   $('#aiInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); AiChat.send(); }
   });

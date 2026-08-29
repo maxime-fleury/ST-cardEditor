@@ -22,7 +22,12 @@ const CardManager = {
   },
 
   handleFileSelect(e) {
-    if (e.target.files?.length) this.processFiles(e.target.files);
+    if (e.target.files?.length) {
+      // Snapshot the FileList: resetting input.value below empties the live
+      // list, so the async loop would otherwise only ever import the first
+      // file (the multi-file Browse path silently dropped the rest).
+      this.processFiles(Array.from(e.target.files));
+    }
     e.target.value = '';
   },
 
@@ -174,6 +179,9 @@ const CardManager = {
     const discardBtn = document.querySelector('#btnDiscardAI');
     if (acceptBtn) acceptBtn.classList.add('d-none');
     if (discardBtn) discardBtn.classList.add('d-none');
+    // Prev/Next nav belongs to AI apply, not comparison — hide any leftover.
+    const applyNav = document.querySelector('#applyNavGroup');
+    if (applyNav) applyNav.style.display = 'none';
 
     // Reuse a single Modal instance — constructing one per open re-runs
     // _addEventListeners() and stacks backdrop/Escape handlers (#32/#104).

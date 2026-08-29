@@ -86,11 +86,14 @@ Four tabbed panels covering every aspect of the **V2/V3 card spec**:
 - **Streaming responses** with real-time text rendering
 - **Side-by-side diff preview** — review AI changes before applying (uses [jsdiff](https://github.com/kpdecker/jsdiff))
 - **Re-apply button** — re-open the diff modal for any past AI response (no more losing changes when you close the modal)
+- **Apply navigation** — every pending AI change lands in a queue; the diff modal has **Prev / Next + a "Change N of M" counter** so you can step through several approvals without closing and re-clicking
+- **"Applied" indicator** — once you apply a change, the chat message/section gets an **Applied ✓** badge and its apply button disables
 - **Auto-apply** AI responses to targeted card fields
 - **Quick actions** — one-click presets:
-  - New Card (wizard), Translate, Enhance Description, Expand Personality, Improve First Message, Shorten, Adjust Tone, Fix Grammar
+  - New Card (wizard), Translate, Enhance Description, Expand Personality, Improve First Message, Shorten, Adjust Tone, Fix Grammar, **Suggest Tags** (AI suggests and merges tags into the card)
 - **Multi-field parallel editing** — select multiple fields and edit them simultaneously in one AI request
 - **Field chip selector** — visual toggle for targeting specific fields or the full card
+- **Editable AI prompts** — every prompt (assistant, full-card, wizard, all quick actions, tags, greetings and field system-instructions) is viewable/editable under **Settings → AI Prompts**, with a **Restore defaults** button and **Export / Import** so prompt settings can be shared
 - **Context bar** — accurate token usage vs. context window with progress indicator
 - **Chat history** — persisted per card across sessions with session management
 - **Cost display** — shows token usage and estimated cost per message
@@ -131,7 +134,7 @@ Powered by [anime.js](https://animejs.com/) with full `prefers-reduced-motion` s
 
 ### Localization (i18n)
 
-Full interface translation across **21 languages** with 490+ translation keys:
+Full interface translation across **21 languages** with **540+** translation keys:
 
 | Language | Key | Status |
 |----------|-----|--------|
@@ -184,6 +187,8 @@ Full interface translation across **21 languages** with 490+ translation keys:
 - Fully responsive layout (adapts to tablet and mobile)
 - Resizable panels with drag handles
 - **Offline support** via service worker (caches app shell for instant loading)
+- **Installable PWA** — web app manifest + icons, so the editor can be added to the home screen / installed as an app
+- **High-contrast UI** — readable text in both themes, including the AI diff modal navigation
 - Content-Security-Policy headers for production security
 
 ---
@@ -323,8 +328,14 @@ st-card-editor/
 │   └── ui.js               # Main controller: utilities, init, event binding, error boundary
 ├── .github/
 │   ├── screenshots/        # README screenshots
+│   ├── dependabot.yml      # Automated dependency/action updates
 │   └── workflows/
-│       └── deploy.yml      # GitHub Pages CI/CD
+│       └── deploy.yml      # CI check + GitHub Pages CD
+├── tests/
+│   └── smoke.spec.js       # Playwright end-to-end smoke suite
+├── playwright.config.js    # Playwright config (server boot, Chrome channel)
+├── scripts/
+│   └── check-i18n.mjs      # i18n key-parity guard
 ├── server.js               # Bun static file server with OpenRouter API proxy + CSP headers
 ├── package.json            # Project metadata and scripts
 └── README.md               # This file
@@ -411,9 +422,29 @@ Contributions are welcome! Feel free to open issues or submit pull requests for:
 
 ---
 
+## Testing
+
+An end-to-end **Playwright smoke suite** (`tests/`) boots the app and exercises the regression classes found by earlier bug hunts, so they can never silently ship again:
+
+- App boots with zero console errors
+- All 7 sort modes render (guards the Manual-sort crash)
+- Toast bursts don't throw (guards the Bootstrap `dispose()` race)
+- Lorebook renders for numeric `order` + malformed `keysecondary` + spec-named `keys`/`secondary_keys` entries
+- PNG export round-trips through the app's own parser (guards the dropped-signature bug)
+- Wizard blank-card creation
+- AI **Suggest tags** flow end-to-end (stubbed provider) with diff-modal apply
+- Chat history creates exactly one session per message
+- PWA manifest + icons are served
+
+```bash
+bun install
+bun test          # headless, uses installed Chrome locally
+bun run test:headed
+```
+
 ## CI/CD
 
-The [GitHub Actions workflow](.github/workflows/deploy.yml) keeps a stable build and a development build available at the same time:
+The [GitHub Actions workflow](.github/workflows/deploy.yml) runs a `check` job (compile-check all JS, i18n key parity, Playwright smoke suite) on every push and pull request, and keeps a stable build and a development build available at the same time:
 
 - **Stable (default):** [maxime-fleury.github.io/ST-cardEditor/](https://maxime-fleury.github.io/ST-cardEditor/), deployed from `master`
 - **Development:** [maxime-fleury.github.io/ST-cardEditor/dev/](https://maxime-fleury.github.io/ST-cardEditor/dev/), deployed from `dev`

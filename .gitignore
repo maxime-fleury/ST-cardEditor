@@ -7,3 +7,5 @@ Thumbs.db
 nul
 .freebuff/
 tmp/
+test-results/
+playwright-report/

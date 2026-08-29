@@ -202,6 +202,16 @@ const CardEngine = {
         if (!e || typeof e !== 'object') {
           return { key: '', keysecondary: [], content: '', order: 100, constant: false, selective: false, position: 'after_char', comment: '' };
         }
+        // Interop: spec-conformant entries (character-card-spec-v2 and
+        // SillyTavern world-info exports) name these fields keys /
+        // secondary_keys / insertion_order / enabled, while the editor speaks
+        // key / keysecondary / order / disable. Map the spec names in when the
+        // editor's names are absent, so real cards don't silently lose their
+        // keywords (v3 sweep finding).
+        if (e.keys != null && e.key == null) e.key = e.keys;
+        if (e.secondary_keys != null && e.keysecondary == null) e.keysecondary = e.secondary_keys;
+        if (e.insertion_order != null && e.order == null) e.order = e.insertion_order;
+        if (e.enabled != null && e.disable == null) e.disable = !e.enabled;
         if (!Array.isArray(e.keysecondary)) {
           e.keysecondary = e.keysecondary == null
             ? []

@@ -3,6 +3,44 @@
    ============================================================ */
 
 const Settings = {
+  // Canonical order of editable AI prompts. Drives auto-building the Settings
+  // → Prompts tab fields, the save/open loops, and reset. Each maps to storage
+  // key `prompt<Name>` in CardStorage._keys.
+  PROMPTS: [
+    'assistant', 'fullCard', 'wizard',
+    'fullCardInstr', 'fieldsEdit', 'greetingsSystem',
+    'enhance', 'personality', 'firstmes', 'scenario',
+    'shorten', 'tone', 'grammar', 'greetings',
+    'systemprompt', 'translate', 'tags', 'tagsSystem',
+  ],
+
+  // Built-in prompt defaults. `{tone}` / `{lang}` / `{card}` are placeholders
+  // substituted at send time (tone/language are asked at runtime, card JSON is
+  // attached then). Field-editing prompts get the live card field appended as
+  // a "Current:" block by aiChat.handleQuickAction.
+  DEFAULT_PROMPTS: {
+    assistant: 'You are an AI assistant helping edit SillyTavern character cards.\nSillyTavern is an AI roleplay frontend. Cards define character personalities.',
+    fullCard: 'You are an AI assistant helping edit SillyTavern character cards.\nSillyTavern is an AI roleplay frontend. Cards define character personalities.',
+    wizard: 'Create a complete SillyTavern character card as valid JSON (chara_card_v2 spec).',
+    enhance: 'Enhance the character description to be more detailed and vivid. Add sensory details and specific traits.',
+    personality: 'Expand the personality to be more nuanced. Add quirks, habits, fears, and motivations.',
+    firstmes: 'Improve the first message to be more engaging and in-character.',
+    scenario: 'Expand the scenario to be more detailed, immersive, and vivid. Add sensory atmosphere and narrative depth.',
+    shorten: 'Shorten and tighten the description while preserving the core meaning and character voice. Remove redundancies.',
+    tone: 'Rewrite the following description with a "{tone}" tone while preserving the character\'s core personality and key information.',
+    grammar: 'Fix all grammar, spelling, and punctuation errors in the description. Improve clarity without changing the meaning or voice.',
+    greetings: 'Generate alternate greetings for this character.',
+    systemprompt: 'Enhance this system prompt to be more effective and comprehensive. Improve the instructions for the AI roleplay assistant.',
+    translate: 'Translate this character card to {lang}. Output the COMPLETE card as valid JSON with all fields translated. Keep the exact same JSON structure. Translate ALL text fields.\n\nHere is the card JSON:\n{card}',
+    tags: 'Analyze this character card and suggest relevant, short tags for organizing it in a card library. Consider the name, description, personality, scenario, and first message. Respond with ONLY a JSON array of 8-15 short lowercase tag strings, like: ["fantasy", "warrior", "elf"].',
+    tagsSystem: 'Respond with ONLY a JSON array of short tag strings. No explanations, no markdown, no code fences.\nExample: ["fantasy", "warrior", "elf"]',
+    // Non-quick-action chat/system instructions used by buildSystemPrompt and
+    // _sendFullCard. Placeholders are substituted at send time.
+    fullCardInstr: 'The user wants you to edit or generate the FULL card as JSON.\nRespond with ONLY the updated JSON card. Keep the exact JSON structure.',
+    fieldsEdit: 'The user wants you to edit the "{field}" field of this card.\n\nBelow is the current content of that field:\n[{field}]\n{current}\n\nRespond with ONLY the new content for this field. Do not include explanations, JSON wrapping, or markdown fences unless the original content uses them.',
+    greetingsSystem: 'The user wants you to generate ALTERNATE GREETINGS for this character.\nCurrent greetings: {current}\nGenerate exactly {count} new alternate greeting(s).\nRespond with ONLY a valid JSON array of greeting strings. No explanations, no markdown.\nExample response format: ["Greeting one...", "Greeting two...", "Greeting three..."]\nEach greeting should be an in-character opening message that could start a conversation with {{user}}.',
+  },
+
   async saveSettings(modal) {
     const $ = (sel) => document.querySelector(sel);
     const provider = $('#providerSelect').value;
@@ -47,7 +85,7 @@ const Settings = {
 
     CardStorage.setMaxTokens(maxTokens);
     CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
-    ['assistant', 'fullCard', 'wizard'].forEach(name => {
+    this.PROMPTS.forEach(name => {
       const input = document.querySelector('#prompt' + name[0].toUpperCase() + name.slice(1) + 'Input');
       const value = input ? input.value : '';
       // Store empty when unchanged from the default so future default updates are picked up.
@@ -161,16 +199,13 @@ const Settings = {
   },
 
   getDefaultPrompt(name) {
-    if (name === 'assistant' || name === 'fullCard') {
-      return 'You are an AI assistant helping edit SillyTavern character cards.\nSillyTavern is an AI roleplay frontend. Cards define character personalities.';
-    }
-    return 'Create a complete SillyTavern character card as valid JSON (chara_card_v2 spec).';
+    return this.DEFAULT_PROMPTS[name] || '';
   },
 
   resetPrompts() {
     // Clear stored overrides so the built-in defaults apply again; the fields
     // below then display the default prompts for viewing/editing.
-    ['assistant', 'fullCard', 'wizard'].forEach(name => CardStorage.setPrompt(name, ''));
+    this.PROMPTS.forEach(name => CardStorage.setPrompt(name, ''));
     this.openSettings();
   },
 
@@ -202,9 +237,10 @@ const Settings = {
     $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
     this.toggleProvider();
     this.syncAccentControls();
-    $('#promptAssistantInput').value = CardStorage.getPrompt('assistant') || this.getDefaultPrompt('assistant');
-    $('#promptFullCardInput').value = CardStorage.getPrompt('fullCard') || this.getDefaultPrompt('fullCard');
-    $('#promptWizardInput').value = CardStorage.getPrompt('wizard') || this.getDefaultPrompt('wizard');
+    this.PROMPTS.forEach(name => {
+      const input = $('#prompt' + name[0].toUpperCase() + name.slice(1) + 'Input');
+      if (input) input.value = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
+    });
   },
 
   async refreshCredits() {
@@ -420,6 +456,57 @@ const Settings = {
           if (settings.customApiUrl) { CardStorage.setCustomApiUrl(settings.customApiUrl); $('#customApiUrlInput').value = settings.customApiUrl; }
           if (settings.customModelId) { CardStorage.setCustomModelId(settings.customModelId); $('#customModelInput').value = settings.customModelId; }
           Ui.showToast(I18n.t('toast.settingsImported'), 'success');
+        } catch (err) {
+          Ui.showToast(I18n.t('toast.invalidFile'), 'danger');
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    };
+    input.click();
+  },
+
+  exportPrompts() {
+    // Export the EFFECTIVE prompts (stored override || built-in default), so a
+    // shared file is complete and unambiguous. Importing stores each value as
+    // an override only when it differs from the built-in default.
+    const prompts = {};
+    this.PROMPTS.forEach(name => {
+      prompts[name] = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
+    });
+    Ui.downloadFile('st-card-editor-prompts.json', JSON.stringify({ version: 1, prompts }, null, 2), 'application/json');
+    Ui.showToast(I18n.t ? I18n.t('settings.promptsExported') : 'Prompts exported', 'success');
+  },
+
+  importPrompts() {
+    const $ = (sel) => document.querySelector(sel);
+    const input = document.querySelector('#promptFileInput');
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const data = JSON.parse(reader.result);
+          const map = (data && data.prompts) || {};
+          if (typeof map !== 'object' || Array.isArray(map)) throw new Error('bad');
+          let count = 0;
+          this.PROMPTS.forEach(name => {
+            if (!(name in map)) return;
+            const value = typeof map[name] === 'string' ? map[name] : '';
+            // Store '' when it equals the built-in default so the app keeps
+            // using (and tracking) the hidden default, and future default
+            // updates are picked up. Only real customizations become overrides.
+            CardStorage.setPrompt(name, value === this.getDefaultPrompt(name) ? '' : value);
+            count++;
+          });
+          if (!count) throw new Error('none');
+          // Re-populate the visible prompt fields with the imported values.
+          this.PROMPTS.forEach(name => {
+            const field = $('#prompt' + name[0].toUpperCase() + name.slice(1) + 'Input');
+            if (field) field.value = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
+          });
+          Ui.showToast(I18n.t ? I18n.t('settings.promptsImported', { count }) : ('Imported ' + count + ' prompts'), 'success');
         } catch (err) {
           Ui.showToast(I18n.t('toast.invalidFile'), 'danger');
         }

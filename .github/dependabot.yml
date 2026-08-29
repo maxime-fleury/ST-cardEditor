@@ -1,0 +1,20 @@
+# Keep the pinned GitHub Actions and the Bun toolchain fresh. Actions are
+# pinned by commit SHA in the workflow; dependabot updates those pins via PRs.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    versioning-strategy: increase
+    groups:
+      dev-deps:
+        dependency-type: "development"

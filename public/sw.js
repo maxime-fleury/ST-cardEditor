@@ -6,13 +6,16 @@
    ============================================================ */
 
 const BASE_PATH = new URL('.', self.location.href).pathname;
-const CACHE_PREFIX = 'stce-v2.5';
+const CACHE_PREFIX = 'stce-v2.6';
 const CACHE_NAME = `${CACHE_PREFIX}:${BASE_PATH}`;
 const DEV_PATH = BASE_PATH.endsWith('/dev/')
   ? BASE_PATH
   : `${BASE_PATH.replace(/\/$/, '')}/dev/`;
 const SHELL_FILES = [
   'index.html',
+  'manifest.webmanifest',
+  'icons/icon-192.png',
+  'icons/icon-512.png',
   'css/theme.css',
   'css/base.css',
   'css/layout.css',

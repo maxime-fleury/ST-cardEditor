@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ST Card Editor — SillyTavern Character Card Studio</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1e142e">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ST Card Editor">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com esm.sh; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' cdn.jsdelivr.net fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im;">
   
   <!-- Bootstrap 5.3 CSS -->
@@ -37,7 +44,7 @@
           <i class="bi bi-stars"></i>
         </div>
         <span class="brand-text" data-i18n="nav.brand">ST Card Editor</span>
-        <span class="badge bg-purple ms-2">v2.3</span>
+        <span class="badge bg-purple ms-2">v2.4</span>
       </a>
       
       <div class="d-flex align-items-center gap-2">
@@ -440,6 +447,9 @@
             <button class="btn btn-outline-accent btn-sm quick-action" data-action="systemprompt">
               <i class="bi bi-terminal me-1"></i> <span data-i18n="ai.quick.systemprompt">Enhance System Prompt</span>
             </button>
+            <button class="btn btn-outline-accent btn-sm quick-action" data-action="tags">
+              <i class="bi bi-tags me-1"></i> <span data-i18n="ai.quick.tags">Suggest tags</span>
+            </button>
           </div>
         </div>
       </div>
@@ -668,7 +678,94 @@
               <label class="form-label fw-semibold" data-i18n="settings.wizardPrompt">Wizard generation instructions</label>
               <textarea class="form-control" id="promptWizardInput" rows="5" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
             </div>
-            <button type="button" class="btn btn-outline-secondary btn-sm" id="btnResetPrompts" data-i18n="settings.restoreDefaultPrompts">Restore default prompts</button>
+            <div class="d-flex align-items-center mt-3 mb-1">
+              <i class="bi bi-gear me-2 text-accent"></i>
+              <span class="form-label fw-bold text-uppercase small text-muted mb-0" data-i18n="settings.chatSystemPrompts">Chat &amp; system instructions</span>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold" data-i18n="settings.fullCardInstr">Full-card output instructions (system)</label>
+              <textarea class="form-control" id="promptFullCardInstrInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="settings.fieldsEdit">Field editing instructions (system)</label>
+                <textarea class="form-control" id="promptFieldsEditInput" rows="4" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="settings.greetingsSystem">Greetings output instructions (system)</label>
+                <textarea class="form-control" id="promptGreetingsSystemInput" rows="4" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+            </div>
+            <div class="d-flex align-items-center mt-3 mb-1">
+              <i class="bi bi-stars me-2 text-accent"></i>
+              <span class="form-label fw-bold text-uppercase small text-muted mb-0" data-i18n="settings.quickActionPrompts">Quick-action prompts</span>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="ai.actionEnhance">Enhance description</label>
+                <textarea class="form-control" id="promptEnhanceInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="ai.actionPersonality">Expand personality</label>
+                <textarea class="form-control" id="promptPersonalityInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="ai.actionFirstMes">Improve first message</label>
+                <textarea class="form-control" id="promptFirstmesInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="ai.actionScenario">Expand scenario</label>
+                <textarea class="form-control" id="promptScenarioInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="ai.actionShorten">Shorten</label>
+                <textarea class="form-control" id="promptShortenInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="ai.actionGrammar">Fix grammar</label>
+                <textarea class="form-control" id="promptGrammarInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="ai.actionTone">Tone</label>
+                <textarea class="form-control" id="promptToneInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="ai.actionGreetings">Generate greetings</label>
+                <textarea class="form-control" id="promptGreetingsInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="ai.actionSystemprompt">Enhance system prompt</label>
+                <textarea class="form-control" id="promptSystempromptInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="ai.actionTranslate">Translate</label>
+                <textarea class="form-control" id="promptTranslateInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="ai.actionTags">Suggest tags</label>
+                <textarea class="form-control" id="promptTagsInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+              <div class="mb-3 flex-fill">
+                <label class="form-label fw-semibold" data-i18n="settings.tagsSystemPrompt">Tags output instructions (system)</label>
+                <textarea class="form-control" id="promptTagsSystemInput" rows="3" data-i18n-placeholder="settings.promptPlaceholder" placeholder="Leave empty to use the built-in prompt"></textarea>
+              </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mt-3">
+              <button type="button" class="btn btn-outline-accent btn-sm" id="btnExportPrompts" data-i18n="settings.exportPrompts"><i class="bi bi-download me-1"></i>Export prompts</button>
+              <button type="button" class="btn btn-outline-accent btn-sm" id="btnImportPrompts" data-i18n="settings.importPrompts"><i class="bi bi-upload me-1"></i>Import prompts</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="btnResetPrompts" data-i18n="settings.restoreDefaultPrompts">Restore default prompts</button>
+            </div>
+            <input type="file" id="promptFileInput" accept=".json" hidden>
             <small class="form-text text-muted d-block mt-2" data-i18n="settings.promptHint">These fields show the current prompts. If a field is empty, the built-in default prompt is used. Restore defaults to view or restore the original prompts.</small>
           </div>
           </div>
@@ -1115,7 +1212,12 @@
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title"><i class="bi bi-split-cells me-2 text-accent"></i><span data-i18n="diff.title">AI Response Preview</span></h5>
-          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          <div class="apply-nav d-flex align-items-center gap-2" id="applyNavGroup" style="display:none;">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="btnApplyPrev" data-i18n-title="ai.changesPrev" title="Previous change"><i class="bi bi-chevron-left"></i></button>
+            <span class="small text-muted" id="applyNavCounter" style="white-space:nowrap"></span>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="btnApplyNext" data-i18n-title="ai.changesNext" title="Next change"><i class="bi bi-chevron-right"></i></button>
+          </div>
+          <button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
           <div class="diff-legend">

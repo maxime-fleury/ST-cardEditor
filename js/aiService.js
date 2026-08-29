@@ -296,18 +296,38 @@ const AIService = {
   },
 
   /**
+   * Extract the provider's error message from a non-OK response body.
+   * Servers differ: some return `{ error: { message } }`, others (llama.cpp
+   * and friends) return `{ error: "plain string" }`. A bare HTTP status is
+   * the last resort so callers never see an unhelpful "HTTP 400" that hides
+   * the actionable detail (and defeats the jsonMode retry guard).
+   */
+  _extractApiError(err, status) {
+    if (err && typeof err === 'object') {
+      const e = err.error;
+      if (typeof e === 'string') return e;
+      if (e && typeof e === 'object' && e.message) return e.message;
+    }
+    return `HTTP ${status}`;
+  },
+
+  /**
    * Check if an error is caused by unsupported response_format.
    */
   _isUnsupportedFormatError(errMsg) {
     if (!errMsg) return false;
     const lower = errMsg.toLowerCase();
+    if (!lower.includes('response_format')) return false;
     // Only retry without response_format when the error is *specifically*
     // about the jsonMode we sent — not any unrelated "unsupported" wording.
-    return lower.includes('response_format') && (
-      lower.includes('unsupported') || lower.includes('not support') ||
+    // llama.cpp and similar OpenAI-compatible servers only accept
+    // json_schema/text and reject json_object with e.g. "'response_format.type'
+    // must be 'json_schema' or 'text'" — match that wording too (live-model
+    // finding) so the tags/translate flows fall back to plain text.
+    return lower.includes('unsupported') || lower.includes('not support') ||
       lower.includes('invalid') || lower.includes('not allowed') ||
-      lower.includes('does not support')
-    );
+      lower.includes('does not support') || lower.includes('must be') ||
+      lower.includes('only supports');
   },
 
   /**
@@ -390,7 +410,7 @@ const AIService = {
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         if (resp.status === 402) throw new Error(I18n.t('error.insufficientCredits'));
-        throw new Error(err.error?.message || `HTTP ${resp.status}`);
+        throw new Error(this._extractApiError(err, resp.status));
       }
       return resp.json();
     };
@@ -462,7 +482,7 @@ const AIService = {
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         if (resp.status === 402) throw new Error(I18n.t('error.insufficientCredits'));
-        throw new Error(err.error?.message || `HTTP ${resp.status}`);
+        throw new Error(this._extractApiError(err, resp.status));
       }
       return resp;
     };

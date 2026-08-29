@@ -239,3 +239,71 @@ Checked and clean
   CSP — all verified present and correct.
 - js/cardManager.js is the ONLY file the compiler rejects (`bun build`), and its
   single error is finding #1 above.
+
+Sweep 5 — features + workflow review round
+==========================================
+
+NEW BUG (found via the new Playwright suite, fixed + verified)
+--------------------------------------------------------------
+14. Multi-file import via Browse/file-picker silently imports only the first
+    file  [REPRO, FIXED]
+    CardManager.handleFileSelect passed the LIVE FileList to the async
+    processFiles and immediately reset `e.target.value = ''`; resetting the
+    input empties the live FileList, so after the first `await` the for-of
+    loop iterated nothing. Drag & drop was unaffected (dataTransfer.files is
+    stable) — only the Browse path dropped files 2..N. Fix: snapshot
+    Array.from(e.target.files) before resetting. Verified: 4-file picker
+    import now yields 4 cards (this is exactly what the new smoke suite caught).
+
+NEW BUG (found via spec cross-check, fixed + verified)
+------------------------------------------------------
+15. Spec-conformant lorebook entries lose their keywords on import  [REPRO, FIXED]
+    character-card-spec-v2 (and SillyTavern world-info exports) name entry
+    fields `keys` / `secondary_keys` / `insertion_order` / `enabled`, but the
+    editor reads `key` / `keysecondary` / `order` / `disable`. normalize()
+    copied character_book verbatim, so real cards rendered with no primary
+    keywords, no secondary keys, order 100, and edits re-exported empty keys.
+    Fix: normalize() maps the spec names onto the editor's names when the
+    editor's are absent. Verified: a spec-named entry (keys + secondary_keys)
+    now renders both keyword chips.
+
+FEATURES ADDED THIS ROUND (requested)
+--------------------------------------
+A. AI "Suggest tags" quick action (js/aiChat.js, index.html, i18n ×21)
+   New `tags` quick action: sends the full card with a JSON-array response
+   contract, parses the array, shows a diff preview of old vs new tags, and
+   MERGES (dedupe, case-insensitive) on accept — existing curated tags are
+   never replaced. `_sendFullCard` now accepts { applyTarget,
+   systemPromptInstruction }. New i18n keys ai.actionTags / ai.quick.tags /
+   toast.tagsUpdated across all 21 languages (checker: 525 keys ✓).
+
+B. PWA installability (public/manifest.webmanifest, icons/, index.html,
+   sw.js, server.js)
+   Web app manifest (standalone, theme/background #1e142e, any + maskable
+   icons), generated 180/192/512 purple-star PNG icons (pure-JS PNG encoder in
+   tmp/gen-icons.mjs — no deps), apple-touch-icon + theme-color metas, SW
+   precaches manifest + icons, server now serves .webmanifest as
+   application/manifest+json. Installable on desktop + Android/iOS.
+
+C. Playwright smoke suite (tests/smoke.spec.js, playwright.config.js)
+   10 end-to-end tests mapping the historical regression classes so they can
+   never silently ship again: clean boot, all 7 sort modes, toast burst
+   (dispose race), lorebook numeric order + malformed keysecondary + spec-named
+   keys, PNG export round-trip (signature + parsePNG), wizard blank card,
+   AI suggest-tags end-to-end via a stubbed OpenAI-compatible endpoint
+   (page.route on a dead loopback port), single-session-per-message, and PWA
+   manifest/icon serving. Runs headless against installed Chrome locally and
+   bundled Chromium in CI. `bun test` / `bun run test:headed`.
+
+D. CI check job (deploy.yml) + dependabot
+   New `check` job on every push/PR: bun install, compile-check all JS with
+   `bun build`, i18n parity check, Playwright suite (chromium installed with
+   --with-deps). PRs are now validated before anything reaches production —
+   findings #1 and #12 would both have been caught by it. dependabot.yml keeps
+   pinned actions and dev deps fresh.
+
+Also fixed while building the suite:
+- tests must wait for the settings modal's shown.bs.modal repopulation
+  (openSettings runs after an async key unlock and clobbers a selection made
+  during the animation — a real minor UX race for sub-second humans).
+- playwright webServer forces PORT=8182 (the ambient shell exports PORT=0).

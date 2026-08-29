@@ -12,16 +12,48 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [ "master", "dev" ]
+  pull_request:
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 concurrency:
   group: "pages"
   cancel-in-progress: true
 
 jobs:
+  # Gate every push/PR before anything ships: compile all JS, verify i18n
+  # parity, and run the end-to-end smoke suite. Prior bug hunts shipped
+  # app-breaking regressions (a const reassignment bun refuses to compile, a
+  # dropped PNG signature) that a single check job would have caught.
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Compile check (every JS entry must build)
+        run: |
+          set -euo pipefail
+          for f in js/*.js public/sw.js server.js; do
+            bun build --target browser --outfile /dev/null "$f" > /dev/null
+          done
+
+      - name: i18n key parity check
+        run: bun scripts/check-i18n.mjs
+
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: End-to-end smoke tests
+        run: bunx playwright test
+
   deploy:
     runs-on: ubuntu-latest
     steps:
