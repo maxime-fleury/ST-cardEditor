@@ -9,6 +9,9 @@ const AiChat = {
   _greetingCount: 3,
   _applyStore: new Map(),     // msgId → { content, field } for re-apply
   _currentSessionId: null,    // active session ID for per-session storage
+  _gen: 0,                    // generation token: bumped on every send/clear so
+                              // stale aborted callbacks bail out instead of
+                              // clobbering the new run's state
   MAX_PARALLEL_FIELDS: 20,    // cap parallel API requests
 
   FIELD_DEFS: [
@@ -84,9 +87,8 @@ const AiChat = {
   },
 
   getSelectedFields() {
-    if (this._selectedFields.size === 0) {
-      return ['description'];
-    }
+    // Return the empty set as-is: the callers (send) check selectedFields.length
+    // === 0 to warn, so this guard must be reachable.
     return [...this._selectedFields];
   },
 
@@ -123,7 +125,8 @@ const AiChat = {
 
     if (!retryPrompt) {
       input.value = '';
-      this.addChatMessage('user', prompt);
+      const userIdx = window.AppState.chatHistory.length;
+      this.addChatMessage('user', prompt, null, null, userIdx);
     }
     window.AppState.isAiLoading = true;
     this.updateSendButton();
@@ -148,6 +151,7 @@ const AiChat = {
 
     const groupedCard = this._createGroupedCard(selectedFields);
     this._abortAll();
+    const gen = ++this._gen; // generation token — stale callbacks bail below
 
     // Capture greeting count now to prevent TOCTOU
     const capturedGreetingCount = this._greetingCount;
@@ -179,6 +183,7 @@ const AiChat = {
         history
       )
         .then(result => {
+          if (gen !== this._gen) return; // stale run aborted by retry/clear
           this._releaseController(controller);
           try {
             this._finalizeFieldSection(section, field, result.content);
@@ -197,6 +202,7 @@ const AiChat = {
           }
         })
         .catch(err => {
+          if (gen !== this._gen) return; // stale run aborted by retry/clear
           this._releaseController(controller);
           try {
             section.classList.add('error');
@@ -371,7 +377,10 @@ const AiChat = {
     if (titleEl) titleEl.innerHTML = '<i class="bi bi-file-text me-2 text-accent"></i>' + Ui.escapeHtml(fieldLabel);
     if (bodyEl) bodyEl.textContent = content;
 
-    const modal = new bootstrap.Modal(modalEl);
+    // Reuse a single Modal instance: constructing one per open re-runs
+    // _addEventListeners() and leaks backdrop/Escape handlers (#14).
+    this._resultModal = this._resultModal || new bootstrap.Modal(modalEl);
+    const modal = this._resultModal;
 
     // Wire up copy button
     const copyBtn = modalEl.querySelector('#btnCopyResult');
@@ -414,7 +423,7 @@ const AiChat = {
         msg = done + '/' + total + ' field' + (total > 1 ? 's' : '') + ' done';
         if (errs > 0) msg += ' · ' + errs + ' failed';
       }
-      header.textContent = msg;
+      header.innerHTML = '<i class="bi bi-robot"></i> ' + Ui.escapeHtml(msg);
     }
   },
 
@@ -430,12 +439,15 @@ const AiChat = {
 
   /**
    * Get recent chat history for AI context (last N message pairs).
-   * Excludes the last entry (the current user message just pushed).
+   * By default excludes the last entry (the current user message just pushed).
+   * Pass includeLast=true when nothing has been pushed yet (e.g. the context
+   * bar runs before any message is appended, so the last real message must be
+   * kept in the estimate).
    */
-  _getRecentHistory(maxMessages = 10) {
+  _getRecentHistory(maxMessages = 10, includeLast = false) {
     const { chatHistory } = window.AppState;
     if (!chatHistory || chatHistory.length <= 1) return [];
-    return chatHistory.slice(0, -1).slice(-maxMessages);
+    return chatHistory.slice(0, includeLast ? chatHistory.length : -1).slice(-maxMessages);
   },
 
   // ─── SINGLE FULL-CARD REQUEST (translate, wizard) ────
@@ -453,10 +465,12 @@ const AiChat = {
     if (!modelId) { Ui.showToast(I18n.t('toast.selectModel'), 'warning'); return; }
 
     input.value = '';
+    this._abortAll();
+    const gen = ++this._gen; // generation token for stale-callback bailout
     window.AppState.isAiLoading = true;
     this.updateSendButton();
 
-    this.addChatMessage('user', prompt);
+    this.addChatMessage('user', prompt, null, null, window.AppState.chatHistory.length);
     window.AppState.chatHistory.push({ role: 'user', content: prompt });
     CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
     // Create a new session if none exists
@@ -509,8 +523,10 @@ const AiChat = {
       this._getRecentHistory(10)
     )
       .then(result => {
+        if (gen !== this._gen) { streamingEl.remove(); return; }
         streamingEl.remove();
-        this.addChatMessage('assistant', result.content, result.usage, { content: result.content, field: 'full' });
+        const asstIdx = window.AppState.chatHistory.length;
+        this.addChatMessage('assistant', result.content, result.usage, { content: result.content, field: 'full' }, asstIdx);
         window.AppState.chatHistory.push({ role: 'assistant', content: result.content });
         CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
         this._updateSession();
@@ -518,6 +534,7 @@ const AiChat = {
         Settings.refreshCredits();
       })
       .catch(err => {
+        if (gen !== this._gen) { streamingEl.remove(); return; }
         streamingEl.remove();
         if (err && err.name === 'AbortError') {
           this.addChatMessage('system', I18n.t ? I18n.t('toast.genStopped') : 'Generation stopped.');
@@ -526,7 +543,11 @@ const AiChat = {
           Ui.showToast(I18n.t('toast.aiError', { error: err.message }), 'danger');
         }
       })
-      .finally(() => { this._releaseController(controller); window.AppState.isAiLoading = false; this.updateSendButton(); });
+      .finally(() => {
+        this._releaseController(controller);
+        if (gen !== this._gen) return;
+        window.AppState.isAiLoading = false; this.updateSendButton();
+      });
   },
 
   // ─── SIDE-BY-SIDE DIFF ──────────────────────────────
@@ -568,12 +589,15 @@ const AiChat = {
     if (!activeCard || !content) return;
 
     const showPreview = (oldVal, newVal, applyFn) => {
-      const modal = new bootstrap.Modal('#aiPreviewModal');
+      const modalEl = document.querySelector('#aiPreviewModal');
+      if (!modalEl) return;
+      // Reuse a single Modal instance to avoid stacking listeners (#32/#104).
+      this._previewModal = this._previewModal || new bootstrap.Modal(modalEl);
+      const modal = this._previewModal;
 
       this._renderDiff(oldVal || '', newVal);
 
       const acceptBtn = document.querySelector('#btnAcceptAI');
-      const modalEl = document.querySelector('#aiPreviewModal');
       let applied = false;
 
       if (this._previewCleanup) this._previewCleanup();
@@ -629,7 +653,18 @@ const AiChat = {
       }
     } else if (activeCard[targetField] !== undefined
       || ['description', 'personality', 'first_mes', 'scenario', 'mes_example', 'system_prompt', 'post_history_instructions', 'creator_notes'].includes(targetField)) {
-      let clean = content.replace(/```[\s\S]*?```/g, '').replace(/^\[.*?\]\s*/gm, '').trim();
+      // Unwrap markdown fences instead of deleting them: models commonly wrap
+      // the whole field in ``` which would otherwise make clean === '' and
+      // silently abort the apply (no modal, no toast).
+      let clean = content;
+      const fence = clean.match(/```(?:json|text|markdown)?\s*\n?([\s\S]*?)```/);
+      if (fence) clean = fence[1];
+      // Strip only a lone "[Field Label]" echo header the prompt asks for.
+      // Do NOT strip every bracket-prefixed line — that mangles W++ content
+      // like "[Name: Yeon-ju] likes cats".
+      const fieldLabel = I18n.t ? I18n.t(this.FIELD_DEFS.find(d => d.id === targetField)?.labelKey || targetField) : targetField;
+      const headerRe = new RegExp('^\\[' + fieldLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\]\\s*\\n?');
+      clean = clean.replace(headerRe, '').trim();
       if (clean) {
         showPreview(activeCard[targetField] || '', clean, () => {
           activeCard[targetField] = clean;
@@ -638,6 +673,8 @@ const AiChat = {
           CardManager.renderCardList();
           Ui.showToast(I18n.t('toast.fieldUpdated', { field: targetField }), 'success');
         });
+      } else {
+        Ui.showToast(I18n.t ? I18n.t('toast.emptyResponse') : 'AI returned empty content — nothing to apply.', 'warning');
       }
     }
   },
@@ -658,7 +695,10 @@ const AiChat = {
         continue;
       }
       if (c === '"') inStr = true;
-      else if (c === '[') depth++;
+      else if (c === '[') {
+        if (depth === 0) start = i; // each top-level [ starts a candidate
+        depth++;
+      }
       else if (c === ']') {
         depth--;
         if (depth === 0) {
@@ -669,9 +709,6 @@ const AiChat = {
               return parsed;
             }
           } catch (_) { /* keep looking for another array */ }
-          // Continue scanning for another array — adjust start past this bracket pair
-          start = i + 1;
-          depth = 0;
         }
       }
     }
@@ -734,9 +771,12 @@ const AiChat = {
       personality: 'Expand the personality to be more nuanced. Add quirks, habits, fears, and motivations.\n\nCurrent:\n' + (activeCard.personality || '(empty)'),
       firstmes: 'Improve the first message to be more engaging and in-character.\n\nCurrent:\n' + (activeCard.first_mes || '(empty)'),
       scenario: 'Expand the scenario to be more detailed, immersive, and vivid. Add sensory atmosphere and narrative depth.\n\nCurrent:\n' + (activeCard.scenario || '(empty)'),
-      shorten: 'Shorten and tighten the following text while preserving the core meaning and character voice. Remove redundancies.\n\nCurrent:\n' + (activeCard.description || activeCard.personality || activeCard.first_mes || '(empty)'),
+      // shorten/tone/grammar all write back to 'description' (fieldMap below),
+      // so they must read 'description' — not a fallback chain that would feed
+      // personality text in and paste it into the wrong field (#8).
+      shorten: 'Shorten and tighten the following description while preserving the core meaning and character voice. Remove redundancies.\n\nCurrent:\n' + (activeCard.description || '(empty)'),
       tone: null,
-      grammar: 'Fix all grammar, spelling, and punctuation errors in the following text. Improve clarity without changing the meaning or voice.\n\nCurrent:\n' + (activeCard.description || activeCard.personality || activeCard.first_mes || '(empty)'),
+      grammar: 'Fix all grammar, spelling, and punctuation errors in the following description. Improve clarity without changing the meaning or voice.\n\nCurrent:\n' + (activeCard.description || '(empty)'),
       greetings: 'Generate alternate greetings for this character.',
       systemprompt: 'Enhance this system prompt to be more effective and comprehensive. Improve the instructions for the AI roleplay assistant.\n\nCurrent:\n' + (activeCard.system_prompt || '(empty)'),
     };
@@ -750,7 +790,7 @@ const AiChat = {
     if (action === 'tone') {
       const tone = window.prompt(I18n.t ? I18n.t('ai.tonePrompt') : 'Which tone? (e.g., formal, casual, dark, humorous, poetic)', I18n.t ? I18n.t('ai.toneDefault') : 'formal');
       if (!tone) return;
-      prompts.tone = 'Rewrite the following text with a "' + tone + '" tone while preserving the character\'s core personality and key information.\n\nCurrent:\n' + (activeCard.description || activeCard.personality || activeCard.first_mes || '(empty)');
+      prompts.tone = 'Rewrite the following description with a "' + tone + '" tone while preserving the character\'s core personality and key information.\n\nCurrent:\n' + (activeCard.description || '(empty)');
     }
 
     const aiPrompt = action === 'translate' ? prompts.translate : prompts[action];
@@ -788,7 +828,7 @@ const AiChat = {
 
   // ─── CHAT MESSAGES ──────────────────────────────────
 
-  addChatMessage(role, content, usage, applyData) {
+  addChatMessage(role, content, usage, applyData, historyIndex) {
     const $ = (sel) => document.querySelector(sel);
     const container = $('#aiChatMessages');
     const welcome = container.querySelector('.ai-welcome');
@@ -816,6 +856,7 @@ const AiChat = {
 
     const el = document.createElement('div');
     el.className = 'ai-message ' + role;
+    if (typeof historyIndex === 'number') el.dataset.historyIndex = String(historyIndex);
     el.innerHTML = formatted + '<div class="text-muted mt-1" style="font-size:0.6rem;">' + time + '</div>' + usageInfo;
 
     if (role === 'assistant') {
@@ -852,7 +893,8 @@ const AiChat = {
       retryBtn.title = I18n.t ? I18n.t('ai.retryTitle') : 'Regenerate this response';
       retryBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.retryLastMessage();
+        const idx = parseInt(el.dataset.historyIndex, 10);
+        this.retryLastMessage(Number.isNaN(idx) ? undefined : idx);
       });
       actionsWrap.appendChild(retryBtn);
 
@@ -864,43 +906,62 @@ const AiChat = {
     container.scrollTop = container.scrollHeight;
   },
 
-  retryLastMessage() {
+  retryLastMessage(historyIndex) {
     const { chatHistory } = window.AppState;
-    let lastUserIdx = -1;
-    for (let i = chatHistory.length - 1; i >= 0; i--) {
-      if (chatHistory[i].role === 'user') {
-        lastUserIdx = i;
-        break;
+    // Determine the user message that prompted the response being retried.
+    // historyIndex is the chatHistory index of the assistant message the user
+    // clicked "Retry" on; we regenerate its own prompt, not the last one.
+    let targetUserIdx = -1;
+    if (typeof historyIndex === 'number') {
+      for (let i = historyIndex; i >= 0; i--) {
+        if (chatHistory[i] && chatHistory[i].role === 'user') { targetUserIdx = i; break; }
       }
     }
-    if (lastUserIdx < 0) return;
+    if (targetUserIdx < 0) {
+      // Fallback: last user message (legacy behaviour for unannotated nodes).
+      for (let i = chatHistory.length - 1; i >= 0; i--) {
+        if (chatHistory[i].role === 'user') { targetUserIdx = i; break; }
+      }
+    }
+    if (targetUserIdx < 0) return;
 
-    const lastUserPrompt = chatHistory[lastUserIdx].content;
-    // Abort any in-flight generation so stale callbacks don't mutate the UI
+    const lastUserPrompt = chatHistory[targetUserIdx].content;
+    // Abort any in-flight generation so stale callbacks don't mutate the UI.
     this._abortAll();
-    // Remove the last user message and everything after it (assistant responses).
-    // We save the truncated history so the removed entries are intentionally discarded.
-    chatHistory.splice(lastUserIdx);
+    this._gen++; // also invalidate the aborted run's .then/.catch
+    // Remove the user message being retried and everything after it.
+    chatHistory.splice(targetUserIdx);
     window.AppState.isAiLoading = false;
+    this.updateSendButton();
     CardStorage.saveChatHistory(chatHistory, window.AppState.activeCard?._id);
-    // Also save to current session
     if (this._currentSessionId) {
       const cardId = window.AppState.activeCard?._id || 'global';
       CardStorage.saveSessionMessages(cardId, this._currentSessionId, chatHistory);
     }
 
-    // Clean up DOM — remove the last user + assistant message pair
+    // Clean up DOM: remove the retried user bubble and everything after it.
     const $ = (sel) => document.querySelector(sel);
     const container = $('#aiChatMessages');
     const allMsgs = container.querySelectorAll('.ai-message');
-    let removed = 0;
-    for (let i = allMsgs.length - 1; i >= 0 && removed < 2; i--) {
-      const msg = allMsgs[i];
-      if (msg.classList.contains('system')) continue;
-      msg.remove();
-      removed++;
+    let removedDom = 0;
+    if (typeof historyIndex === 'number') {
+      allMsgs.forEach(el => {
+        const idx = parseInt(el.dataset.historyIndex, 10);
+        if (!Number.isNaN(idx) && idx >= targetUserIdx) { el.remove(); removedDom++; }
+      });
+    }
+    if (removedDom === 0) {
+      // Fallback: remove the last user + assistant pair from the DOM.
+      for (let i = allMsgs.length - 1; i >= 0 && removedDom < 2; i--) {
+        const msg = allMsgs[i];
+        if (msg.classList.contains('system')) continue;
+        msg.remove();
+        removedDom++;
+      }
     }
 
+    // Re-add the user bubble so the retried prompt stays visible (#5).
+    this.addChatMessage('user', lastUserPrompt, null, null, targetUserIdx);
     this.send(lastUserPrompt);
   },
 
@@ -926,7 +987,7 @@ const AiChat = {
     if (chatHistory.length === 0) return;
     const welcome = container.querySelector('.ai-welcome');
     if (welcome) welcome.remove();
-    chatHistory.forEach(msg => this.addChatMessage(msg.role, msg.content));
+    chatHistory.forEach((msg, i) => this.addChatMessage(msg.role, msg.content, null, null, i));
     this._historyRendered = true;
   },
 
@@ -1006,6 +1067,30 @@ const AiChat = {
     });
   },
 
+  _showWelcome() {
+    const $ = (sel) => document.querySelector(sel);
+    const container = $('#aiChatMessages');
+    if (!container) return;
+    container.innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>' + I18n.t('ai.welcomeTitle') + '</h6><p>' + I18n.t('ai.welcomeText') + '</p><div class="quick-actions">'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="newcard"><i class="bi bi-magic me-1"></i> ' + I18n.t('ai.actionNewCard') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="translate"><i class="bi bi-translate me-1"></i> ' + I18n.t('ai.actionTranslate') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance"><i class="bi bi-stars me-1"></i> ' + I18n.t('ai.actionEnhance') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="shorten"><i class="bi bi-arrows-angle-contract me-1"></i> ' + I18n.t('ai.actionShorten') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="tone"><i class="bi bi-palette me-1"></i> ' + I18n.t('ai.actionTone') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="grammar"><i class="bi bi-check2-all me-1"></i> ' + I18n.t('ai.actionGrammar') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="personality"><i class="bi bi-emoji-smile me-1"></i> ' + I18n.t('ai.actionPersonality') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="firstmes"><i class="bi bi-chat-dots me-1"></i> ' + I18n.t('ai.actionFirstMes') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="scenario"><i class="bi bi-geo-alt me-1"></i> ' + I18n.t('ai.actionScenario') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="greetings"><i class="bi bi-list-ol me-1"></i> ' + I18n.t('ai.actionGreetings') + '</button>'
+      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="systemprompt"><i class="bi bi-terminal me-1"></i> ' + I18n.t('ai.actionSystemprompt') + '</button>'
+      + '</div></div>';
+    const self = this;
+    container.querySelectorAll('.quick-action').forEach(btn => {
+      btn.addEventListener('click', () => self.handleQuickAction(btn.dataset.action));
+    });
+    Anims.staggerFadeIn(container.querySelectorAll('.quick-action'), { stagger: 40, duration: 180 });
+  },
+
   _loadSession(sessionId) {
     const cardId = window.AppState.activeCard?._id || 'global';
     const sessions = CardStorage.getChatSessions(cardId);
@@ -1025,7 +1110,13 @@ const AiChat = {
     if (container) container.innerHTML = '';
 
     this.toggleHistory(false);
-    this.renderChatHistory();
+    if (!sessionMessages || sessionMessages.length === 0) {
+      // Empty session (e.g. failed persistence): show the welcome panel with
+      // quick actions instead of leaving a completely blank screen (#40).
+      this._showWelcome();
+    } else {
+      this.renderChatHistory();
+    }
 
     this._renderHistoryList();
     const item = $('#aiHistoryList')?.querySelector('[data-session-id="' + sessionId + '"]');
@@ -1050,6 +1141,12 @@ const AiChat = {
   },
 
   clearChat() {
+    // Abort any in-flight generation first so its .then/.catch can't push an
+    // orphan message into the freshly-emptied history (#25).
+    this._abortAll();
+    this._gen++; // invalidate stale run callbacks
+    window.AppState.isAiLoading = false;
+    this.updateSendButton();
     this._historyRendered = false;
     this._selectedFields.clear();
     this._applyStore.clear();
@@ -1057,25 +1154,7 @@ const AiChat = {
     this._renderFieldChips();
     window.AppState.chatHistory = [];
     CardStorage.clearChatHistory(window.AppState.activeCard?._id);
-    const $ = (sel) => document.querySelector(sel);
-    $('#aiChatMessages').innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>' + I18n.t('ai.welcomeTitle') + '</h6><p>' + I18n.t('ai.welcomeText') + '</p><div class="quick-actions">'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="newcard"><i class="bi bi-magic me-1"></i> ' + I18n.t('ai.actionNewCard') + '</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="translate"><i class="bi bi-translate me-1"></i> ' + I18n.t('ai.actionTranslate') + '</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance"><i class="bi bi-stars me-1"></i> ' + I18n.t('ai.actionEnhance') + '</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="shorten"><i class="bi bi-arrows-angle-contract me-1"></i> ' + I18n.t('ai.actionShorten') + '</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="tone"><i class="bi bi-palette me-1"></i> ' + I18n.t('ai.actionTone') + '</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="grammar"><i class="bi bi-check2-all me-1"></i> ' + I18n.t('ai.actionGrammar') + '</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="personality"><i class="bi bi-emoji-smile me-1"></i> ' + I18n.t('ai.actionPersonality') + '</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="firstmes"><i class="bi bi-chat-dots me-1"></i> ' + I18n.t('ai.actionFirstMes') + '</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="scenario"><i class="bi bi-geo-alt me-1"></i> ' + I18n.t('ai.actionScenario') + '</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="greetings"><i class="bi bi-list-ol me-1"></i> ' + I18n.t('ai.actionGreetings') + '</button>'
-      + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="systemprompt"><i class="bi bi-terminal me-1"></i> ' + I18n.t('ai.actionSystemprompt') + '</button>'
-      + '</div></div>';
-    const self = this;
-    $('#aiChatMessages').querySelectorAll('.quick-action').forEach(btn => {
-      btn.addEventListener('click', () => self.handleQuickAction(btn.dataset.action));
-    });
-    Anims.staggerFadeIn($('#aiChatMessages').querySelectorAll('.quick-action'), { stagger: 40, duration: 180 });
+    this._showWelcome();
     Ui.showToast(I18n.t('toast.chatCleared'), 'info');
   },
 
@@ -1112,13 +1191,16 @@ const AiChat = {
 
     const ctx = AIService.getContextLength(modelId);
     const cardJson = activeCard ? CardEngine.toJSON(activeCard) : '';
+    // Mirror the default send path (buildSystemPrompt uses getPrompt('assistant')
+    // plus the full card JSON), not the full-card translate prompt.
     const systemPromptBase = [
-      CardStorage.getPrompt('fullCard') || 'You are an AI assistant helping edit SillyTavern character cards.\nSillyTavern is an AI roleplay frontend. Cards define character personalities.',
+      CardStorage.getPrompt('assistant') || 'You are an AI assistant helping edit SillyTavern character cards.\nSillyTavern is an AI roleplay frontend. Cards define character personalities.',
     ].join('\n');
     const inputText = systemPromptBase + '\n\n' + cardJson;
 
-    // Include chat history tokens for accurate estimate
-    const history = this._getRecentHistory(10);
+    // Include chat history tokens for accurate estimate. Nothing has been
+    // pushed to history yet at context-bar time, so keep the last real message.
+    const history = this._getRecentHistory(10, true);
     let historyText = '';
     for (const msg of history) {
       historyText += (msg.content || '') + '\n';
@@ -1132,7 +1214,9 @@ const AiChat = {
       inputTokens = 0;
     }
     if (!inputTokens) {
-      inputTokens = Math.ceil((inputText + '\n' + historyText + '\n' + prompt).length / 4);
+      inputTokens = window.Tokenizer && typeof window.Tokenizer.quickCount === 'function'
+        ? window.Tokenizer.quickCount(inputText + '\n' + historyText + '\n' + prompt)
+        : Math.ceil((inputText + '\n' + historyText + '\n' + prompt).length / 3);
     }
 
     // Get the model's actual max output limit from the model data
@@ -1141,13 +1225,19 @@ const AiChat = {
       ? modelData.max_output_tokens
       : AIService.DEFAULT_MAX_TOKENS;
 
+    // The effective output cap for THIS request is the user's Max Tokens
+    // setting when set (that's what actually goes on the wire, aiService.js
+    // _buildRequestBody), falling back to the model's limit.
+    const userMaxTokens = CardStorage.getMaxTokens();
+    const outputCap = userMaxTokens > 0 ? Math.min(userMaxTokens, modelMaxOut) : modelMaxOut;
+
     // Get the API-safe max for this request (accounts for context space)
     // Build messages array including history for accurate max token resolution
     const historyMsgs = history.map(m => ({ role: m.role, content: m.content || '' }));
     const allMessages = [{ role: 'system', content: inputText }, ...historyMsgs, { role: 'user', content: prompt }];
     const resolvedMax = await AIService.resolveMaxTokens(modelId, allMessages);
-    // The actual usable output is the smaller of model limit and available context
-    const actualMaxOut = Math.min(modelMaxOut, resolvedMax);
+    // The actual usable output is the smaller of the request cap and available context
+    const actualMaxOut = Math.min(outputCap, resolvedMax);
 
     // Show the meaningful ratio: input + expected output vs context
     const total = inputTokens + actualMaxOut;

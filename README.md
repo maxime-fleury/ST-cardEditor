@@ -7,12 +7,13 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 - **[Stable demo](https://maxime-fleury.github.io/ST-cardEditor/)** — the recommended current version
 - **[Beta demo](https://maxime-fleury.github.io/ST-cardEditor/dev/)** — the latest development build; features may change or break
 
-![Version](https://img.shields.io/badge/version-2.2.0-purple)
+![Version](https://img.shields.io/badge/version-2.3.0-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-000?logo=bun)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![Stable Demo](https://img.shields.io/badge/stable-demo-9147ff?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/)
 [![Beta Demo](https://img.shields.io/badge/beta-demo-f59e0b?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/dev/)
 [![Deploy](https://github.com/maxime-fleury/ST-cardEditor/actions/workflows/deploy.yml/badge.svg)](https://github.com/maxime-fleury/ST-cardEditor/actions/workflows/deploy.yml)
+[![Release Notes / Changelog](https://img.shields.io/badge/changelog-releases-181717?logo=github)](https://github.com/maxime-fleury/ST-cardEditor/releases)
 
 ---
 

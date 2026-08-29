@@ -30,16 +30,16 @@ if (names.length < 10) {
 // block never overshoots into the trailing module code.
 const blocks = {};
 for (const { name, start } of names) {
-  let depth = 1, i = start, inStr = false, esc = false;
+  let depth = 1, i = start, inStr = false, quote = "", esc = false;
   for (; i < src.length; i++) {
     const c = src[i];
     if (inStr) {
       if (esc) esc = false;
       else if (c === "\\") esc = true;
-      else if (c === "'") inStr = false;
+      else if (c === quote) inStr = false;
       continue;
     }
-    if (c === "'") inStr = true;
+    if (c === "'" || c === '"') { inStr = true; quote = c; }
     else if (c === "{") depth++;
     else if (c === "}") { depth--; if (depth === 0) { i++; break; } }
   }
@@ -48,15 +48,25 @@ for (const { name, start } of names) {
 
 const keysOf = (block) => {
   const keys = new Set();
-  for (const km of block.matchAll(/'([^']+)'\s*:/g)) keys.add(km[1]);
-  return keys;
+  const dupes = new Set();
+  for (const km of block.matchAll(/'([^']+)'\s*:/g)) {
+    const k = km[1];
+    if (keys.has(k)) dupes.add(k);
+    keys.add(k);
+  }
+  return { keys, dupes };
 };
 
-const en = keysOf(blocks.en);
+const { keys: en, dupes: enDupes } = keysOf(blocks.en);
 let failures = 0;
 
+if (enDupes.size) {
+  failures++;
+  console.error(`✗ en: duplicate keys: ${[...enDupes].sort().join(", ")}`);
+}
+
 for (const { name } of names) {
-  const keys = keysOf(blocks[name]);
+  const { keys, dupes } = keysOf(blocks[name]);
   const missing = [...en].filter((k) => !keys.has(k)).sort();
   const extra = [...keys].filter((k) => !en.has(k)).sort();
   if (missing.length || extra.length) {
@@ -64,6 +74,9 @@ for (const { name } of names) {
     console.error(`✗ ${name}:`);
     if (missing.length) console.error(`    missing (${missing.length}): ${missing.slice(0, 8).join(", ")}${missing.length > 8 ? "…" : ""}`);
     if (extra.length) console.error(`    extra   (${extra.length}): ${extra.slice(0, 8).join(", ")}${extra.length > 8 ? "…" : ""}`);
+  } else if (dupes.size) {
+    failures++;
+    console.error(`✗ ${name}: duplicate keys: ${[...dupes].sort().join(", ")}`);
   } else {
     console.log(`✓ ${name} (${keys.size} keys)`);
   }

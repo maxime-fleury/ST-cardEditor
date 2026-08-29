@@ -20,6 +20,7 @@ const CardEngine = {
         const blob = new Blob([buffer], { type: 'image/png' });
         card._imageBase64 = await this._blobToBase64(blob);
       }
+      card._hasImage = true; // matches the webp branch; keeps the flag consistent (#44)
       card._thumbnail = await this._createThumbnail(card._imageBase64);
       return card;
     }
@@ -307,14 +308,21 @@ const CardEngine = {
           }
           canvas.width = w; canvas.height = h;
           ctx.drawImage(img, 0, 0, w, h);
-          img.src = ''; // release the decoded image
+          // Release the decoded image WITHOUT nuking the src: assigning ''
+          // makes the browser re-resolve the document URL and fire a spurious
+          // request/onerror (#45).
+          img.removeAttribute('src');
+          img.onload = null;
+          img.onerror = null;
           resolve(canvas.toDataURL('image/jpeg', this.THUMBNAIL_JPEG_QUALITY));
         } catch (_) {
-          img.src = '';
+          img.removeAttribute('src');
+          img.onload = null;
+          img.onerror = null;
           resolve(null);
         }
       };
-      img.onerror = () => { img.src = ''; resolve(null); };
+      img.onerror = () => { img.removeAttribute('src'); img.onload = null; img.onerror = null; resolve(null); };
       img.src = base64;
     });
   },

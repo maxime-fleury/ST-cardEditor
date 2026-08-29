@@ -175,7 +175,9 @@ const CardManager = {
     if (acceptBtn) acceptBtn.classList.add('d-none');
     if (discardBtn) discardBtn.classList.add('d-none');
 
-    const modal = new bootstrap.Modal('#aiPreviewModal');
+    // Reuse a single Modal instance — constructing one per open re-runs
+    // _addEventListeners() and stacks backdrop/Escape handlers (#32/#104).
+    const modal = (this._aiPreviewModal = this._aiPreviewModal || new bootstrap.Modal('#aiPreviewModal'));
     // Restore button visibility on close
     const modalEl = document.querySelector('#aiPreviewModal');
     const restoreButtons = () => {
@@ -236,6 +238,14 @@ const CardManager = {
         break;
       case 'smallest':
         sorted.sort((a, b) => (a._fileSize || 0) - (b._fileSize || 0));
+        break;
+      case 'manual':
+        // Keep the current index order (including drag-reorders) as-is, and
+        // append any cards not present in the saved index.
+        const savedIds = new Set(window.AppState.cards.map(c => c._id));
+        sorted = sorted.filter(c => savedIds.has(c._id));
+        const extras = [...window.AppState.cards].filter(c => !sorted.some(s => s._id === c._id));
+        sorted.push(...extras);
         break;
     }
     return sorted;
@@ -512,7 +522,7 @@ const CardManager = {
     AiChat.renderChatHistory();
     Editor.populateEditor(fullCard);
     this.renderCardList();
-    window.AppState._dirty = false;
+    Ui.setDirty(false);
     Ui.updateUIState();
     AiChat.updateContextBar();
     // Autofocus the AI input for quick editing workflow

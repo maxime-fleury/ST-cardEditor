@@ -13,7 +13,10 @@ const Anims = {
 
   staggerFadeIn(selector, opts) {
     if (this._disabled()) return;
-    const els = typeof selector === 'string' ? document.querySelectorAll(selector) : selector;
+    // Accept a single Element OR a collection — a bare <div> has no .length,
+    // which made the old guard silently pass and drop the whole animation (#62).
+    let els = typeof selector === 'string' ? document.querySelectorAll(selector) : selector;
+    if (els && typeof els.length !== 'number') els = [els];
     if (!els || !els.length) return;
     anime({
       targets: els,
@@ -35,6 +38,15 @@ const Anims = {
       this._activeTimeline.pause();
       this._activeTimeline = null;
     }
+    // A paused timeline never fires its `complete` callbacks, which means the
+    // previous step's outgoing element was never hidden (#70). Do it here so a
+    // rapid Next→Next doesn't leave step 1 and step 3 on screen together.
+    if (this._pendingOutEl && this._pendingOutEl !== inEl && !this._pendingOutEl.classList.contains('d-none')) {
+      this._pendingOutEl.classList.add('d-none');
+      this._pendingOutEl.style.opacity = '';
+      this._pendingOutEl.style.transform = '';
+    }
+    this._pendingOutEl = outEl;
     const token = ++this._slideToken;
     // Reset lingering inline styles from a previous interrupted run so the new
     // animation walks from a clean state.
@@ -44,6 +56,7 @@ const Anims = {
     if (this._disabled()) {
       if (outEl) outEl.classList.add('d-none');
       if (inEl) inEl.classList.remove('d-none');
+      this._pendingOutEl = null;
       if (onDone) onDone();
       return;
     }
@@ -53,7 +66,10 @@ const Anims = {
     const tl = anime.timeline({ easing: 'easeOutCubic' });
     this._activeTimeline = tl;
     const finish = () => {
-      if (token === this._slideToken) this._activeTimeline = null;
+      // A superseded animation must not run the new step's completion logic:
+      // only the owner of the latest token finalizes (#96).
+      if (token !== this._slideToken) return;
+      if (this._activeTimeline === tl) this._activeTimeline = null;
       if (onDone) onDone();
     };
     if (outEl) {
@@ -69,6 +85,7 @@ const Anims = {
       inEl.style.opacity = '0';
       tl.add({ targets: inEl, opacity: [0, 1], translateX: [xIn, 0], duration: 220, complete: () => {
         if (inEl) inEl.style.opacity = '';
+        if (this._pendingOutEl === outEl) this._pendingOutEl = null;
         finish();
       } }, outEl ? '-=60' : 0);
     } else if (!outEl) {
@@ -110,7 +127,8 @@ const Anims = {
 
   skeletonReveal(selector) {
     if (this._disabled()) return;
-    const els = typeof selector === 'string' ? document.querySelectorAll(selector) : selector;
+    let els = typeof selector === 'string' ? document.querySelectorAll(selector) : selector;
+    if (els && typeof els.length !== 'number') els = [els];
     if (!els || !els.length) return;
     anime({
       targets: els,

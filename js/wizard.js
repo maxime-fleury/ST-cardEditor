@@ -46,14 +46,18 @@ const Wizard = {
   },
 
   _onModalClose() {
+    // Save draft unless it was intentionally cleared (e.g. after generation).
+    // Collect the current step's answers first, or close mid-step loses them.
+    if (!this._draftCleared) {
+      try { this._collectStep(this._step); } catch (_) {}
+      this._saveDraft();
+    }
     // Revoke all object URLs to prevent memory leaks
     this._fetchedImages.forEach(img => {
       if (img && img._objUrl) URL.revokeObjectURL(img._objUrl);
     });
     this._fetchedImages = [];
     this._selectedImageIdx = -1;
-    // Save draft unless it was intentionally cleared (e.g. after generation)
-    if (!this._draftCleared) this._saveDraft();
     this._draftCleared = false;
   },
 
@@ -494,6 +498,7 @@ const Wizard = {
           current.push(tag);
         }
         input.value = current.join(', ');
+        this._tagSearch = input.value;
         this._renderQuickTags();
       });
       container.appendChild(chip);
@@ -562,9 +567,12 @@ const Wizard = {
 
   async _fetchImage() {
     if (this._fetching) return; // guard against double clicks
+    const btn = document.querySelector('#wizBtnFetchImage');
+    // Null-safe like the on() helper: a missing button must not throw and kill
+    // the request path (#49).
+    if (!btn) return;
     this._fetching = true;
 
-    const btn = document.querySelector('#wizBtnFetchImage');
     const origHtml = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>' + I18n.t('wizard.fetching');
@@ -577,6 +585,10 @@ const Wizard = {
       .filter(Boolean);
 
     if (!userTags.length) userTags.push('waifu');
+
+    // Track whether a success path already set the post-fetch label, so the
+    // finally block doesn't clobber it back to the pre-fetch text.
+    let labelSet = false;
 
     try {
       const slotsToFetch = [];
@@ -658,10 +670,12 @@ const Wizard = {
         document.querySelector('#wizBtnUseImage').classList.remove('d-none');
         document.querySelector('#wizBtnRemoveImage').classList.remove('d-none');
         document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.refetchOthers');
+        labelSet = true;
       } else {
         document.querySelector('#wizBtnUseImage').classList.add('d-none');
         document.querySelector('#wizBtnRemoveImage').classList.add('d-none');
         document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.fetchImages');
+        labelSet = true;
       }
     } catch (e) {
       console.error('waifu.im fetch failed', e);
@@ -669,7 +683,7 @@ const Wizard = {
     } finally {
       this._fetching = false;
       btn.disabled = false;
-      btn.innerHTML = origHtml;
+      if (!labelSet) btn.innerHTML = origHtml;
     }
   },
 
@@ -684,30 +698,49 @@ const Wizard = {
   },
 
   _removeFetchedImage() {
-    this._fetchedImages.forEach(img => { if (img && img._objUrl) URL.revokeObjectURL(img._objUrl); });
-    this._fetchedImages = [];
+    // Remove only the selected slot — not all three. The "Remove image"
+    // button on a selected thumbnail should leave the other candidates intact.
+    const idx = this._selectedImageIdx;
+    if (idx < 0) return;
+    const prev = this._fetchedImages[idx];
+    if (prev && prev._objUrl) URL.revokeObjectURL(prev._objUrl);
+    this._fetchedImages[idx] = null;
     this._selectedImageIdx = -1;
-    document.querySelectorAll('.wizard-image-card').forEach(c => {
-      c.classList.remove('selected');
-      const thumb = c.querySelector('.wiz-thumb');
+
+    const cards = document.querySelectorAll('.wizard-image-card');
+    const card = cards[idx];
+    if (card) {
+      card.classList.remove('selected');
+      const thumb = card.querySelector('.wiz-thumb');
       if (thumb) { thumb.src = ''; thumb.hidden = true; }
-      const loader = c.querySelector('.wiz-image-loader');
+      const loader = card.querySelector('.wiz-image-loader');
       if (loader) loader.classList.add('d-none');
-      const ph = c.querySelector('.wizard-image-placeholder');
+      const ph = card.querySelector('.wizard-image-placeholder');
       if (ph) {
         ph.classList.remove('d-none');
         ph.innerHTML = '<i class="bi bi-image"></i>';
       }
-    });
+    }
+    // If any other slot still holds an image, offer to re-fetch the rest;
+    // otherwise restore the plain "Fetch images" label.
+    const anyLeft = this._fetchedImages.some(img => !!img);
     document.querySelector('#wizBtnUseImage').classList.add('d-none');
     document.querySelector('#wizBtnRemoveImage').classList.add('d-none');
-    document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.fetchImages');
+    document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>'
+      + (anyLeft ? I18n.t('wizard.refetchOthers') : I18n.t('wizard.fetchImages'));
   },
 
   // ─── GENERATE ───────────────────────────────────────
   async _generateBlank() {
     this._collectStep(this._step);
     this._clearDraft();
+    // Grab the selected blob BEFORE hiding the modal — hidden.bs.modal fires
+    // _onModalClose() after the fade, which revokes the object URLs and wipes
+    // _selectedImageIdx / _fetchedImages. Capturing first makes generation
+    // immune to that race.
+    const chosenImage = (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx])
+      ? this._fetchedImages[this._selectedImageIdx].blob
+      : null;
     this._modal.hide();
 
     const card = CardEngine.createEmptyCard(this._answers.name || 'New Character');
@@ -717,8 +750,8 @@ const Wizard = {
     await CardStorage.upsertCard(card);
     window.AppState.cards = CardStorage.getCards();
     await CardManager.selectCard(card);
-    if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
-      try { await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob); } catch (_) {}
+    if (chosenImage) {
+      try { await Editor.setAvatar(chosenImage); } catch (_) {}
     }
     CardManager.renderCardList();
     document.querySelector('#editName').focus();
@@ -741,14 +774,20 @@ const Wizard = {
       Ui.showToast(I18n.t('toast.wizardModel'), 'warning');
       return;
     }
-    modelSelect.value = modelId;
-
     this._clearDraft();
+    // Capture the chosen blob before hide() (see _generateBlank for why).
+    const chosenImage = (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx])
+      ? this._fetchedImages[this._selectedImageIdx].blob
+      : null;
     this._modal.hide();
     const a = this._answers;
 
     const genderText = a.gender === 'other' ? a.genderCustom : (a.gender || 'unspecified');
-    const langMap = { en: 'English', fr: 'French', de: 'German', ja: 'Japanese' };
+    const langMap = {
+      en: 'English', fr: 'French', de: 'German', ja: 'Japanese', it: 'Italian',
+      pl: 'Polish', tr: 'Turkish', nl: 'Dutch', uk: 'Ukrainian', vi: 'Vietnamese',
+      id: 'Indonesian', hi: 'Hindi', ar: 'Arabic', he: 'Hebrew', fa: 'Persian',
+    };
     const langText = langMap[a.language] || a.languageCustom || 'English';
     const typeLabels = {
       original: 'Original Character', fanfic: 'Fan Fiction', game: 'Game Character',
@@ -793,8 +832,8 @@ const Wizard = {
     await CardStorage.upsertCard(card);
     window.AppState.cards = CardStorage.getCards();
     await CardManager.selectCard(card);
-    if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
-      try { await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob); } catch (_) {}
+    if (chosenImage) {
+      try { await Editor.setAvatar(chosenImage); } catch (_) {}
     }
     CardManager.renderCardList();
 

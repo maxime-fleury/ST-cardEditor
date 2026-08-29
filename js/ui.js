@@ -21,6 +21,9 @@ window.Ui = {
         ? bootstrap.Toast.getInstance(oldest)
         : null;
       if (inst) inst.dispose();
+      // Bootstrap's dispose() does not emit hidden.bs.toast, so our countdown
+      // clearInterval never ran on evicted toasts — stop it explicitly (#77).
+      oldest.dispatchEvent(new Event('hidden.bs.toast'));
       oldest.remove();
     }
     const el = document.createElement('div');
@@ -92,7 +95,6 @@ window.Ui = {
   },
 
   setDirty(dirty) {
-    const wasDirty = window.AppState._dirty;
     window.AppState._dirty = dirty;
     // Once the local save completes (dirty cleared), re-load a remote update
     // that arrived while we were editing, so cross-tab changes aren't lost.
@@ -100,7 +102,7 @@ window.Ui = {
       this._pendingRemoteReload = false;
       const cardId = this._pendingRemoteCardId;
       this._pendingRemoteCardId = null;
-      this._reloadActiveCard(cardId);
+      this._mergePendingRemote(cardId);
     }
     const btn = document.querySelector('#btnSaveCard');
     if (!btn) return;
@@ -138,15 +140,73 @@ window.Ui = {
     }
   },
 
+  // Merge a remote tab's edits into the active card once the local save settles.
+  // Fields the user actually touched locally keep the local value; all other
+  // fields adopt the remote snapshot so cross-tab changes are preserved (#103).
+  async _mergePendingRemote(expectedCardId) {
+    this._pendingRemoteReload = false;
+    this._pendingRemoteCardId = null;
+    const snapshot = this._pendingRemoteSnapshot;
+    const touched = this._pendingRemoteTouched;
+    this._pendingRemoteSnapshot = null;
+    this._pendingRemoteTouched = null;
+    const ac = window.AppState.activeCard;
+    if (!ac) return;
+    if (expectedCardId && ac._id !== expectedCardId) return; // user switched cards
+    if (!snapshot) return; // no remote version captured; nothing to merge
+    const id = ac._id;
+    const localB64 = ac._imageBase64;
+    const merged = JSON.parse(JSON.stringify(ac));
+    let changed = false;
+    for (const key of Object.keys(snapshot)) {
+      if (key.startsWith('_')) continue; // skip metadata, avatar, id, timestamps
+      if (touched && touched.has(key)) continue; // local edits win for this field
+      if (JSON.stringify(snapshot[key]) !== JSON.stringify(ac[key])) {
+        merged[key] = JSON.parse(JSON.stringify(snapshot[key]));
+        changed = true;
+      }
+    }
+    if (!changed) { this._reloadActiveCard(id); return; }
+    window.AppState.activeCard = merged;
+    try {
+      const b64 = await CardStorage.getImage(merged._id);
+      if (b64) window.AppState.activeCard._imageBase64 = b64;
+    } catch (err) {
+      console.error('Failed to load image from IndexedDB:', err);
+    }
+    try {
+      await CardStorage.upsertCard(window.AppState.activeCard);
+      window.AppState.cards = CardStorage.getCards();
+      CardManager.renderCardList();
+    } catch (err) {
+      console.error('Failed to persist merged card:', err);
+    }
+    Editor.populateEditor(window.AppState.activeCard);
+    if (localB64) window.AppState.activeCard._imageBase64 = localB64; // keep local avatar
+  },
+
   // ─── Markdown Renderer (lazy-loads marked + DOMPurify) ───
   _markdownReady: false,
   _markdownLoading: null,
+  _markdownRetryAfter: 0,
+  _markdownPending: [],        // [{target, text}] re-rendered once libs arrive
   _pendingRemoteReload: false,
   _pendingRemoteCardId: null,
+  _pendingRemoteSnapshot: null, // last remote card data (for the cross-tab merge)
+  _pendingRemoteTouched: null,  // field names edited locally since the remote write
+
+  // Record that the user edited `field` on the active card. Used to decide which
+  // fields keep the local value when a cross-tab change is merged in.
+  _markTouchedField(field) {
+    if (this._pendingRemoteTouched) this._pendingRemoteTouched.add(field);
+  },
 
   _ensureMarkdownLibs() {
     if (this._markdownReady) return;
     if (this._markdownLoading) return;
+    // Back-off after a failed CDN load instead of re-injecting <script> tags
+    // on every subsequent render call forever while offline (#31).
+    if (Date.now() < this._markdownRetryAfter) return;
     this._markdownLoading = true;
     let pending = 2;
     let failed = false;
@@ -157,6 +217,20 @@ window.Ui = {
         // Only mark ready if nothing failed AND the globals are actually present
         if (!failed && typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
           this._markdownReady = true;
+          this._markdownRetryAfter = 0;
+          // Re-render any content that fell back to escaped plaintext while
+          // the CDN libs were loading (e.g. a Preview toggle triggered during
+          // a cold load) (#78).
+          const pending = this._markdownPending;
+          this._markdownPending = [];
+          pending.forEach(item => {
+            if (item.target && item.target.isConnected) {
+              item.target.innerHTML = this.renderMarkdown(item.text);
+            }
+          });
+        } else {
+          // Wait 30s before trying the CDN again.
+          this._markdownRetryAfter = Date.now() + 30000;
         }
       }
     };
@@ -180,10 +254,13 @@ window.Ui = {
     }
   },
 
-  renderMarkdown(text) {
+  renderMarkdown(text, target) {
     if (!text) return '';
     if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
       this._ensureMarkdownLibs();
+      // Queue a re-render for the target element once the libs arrive, so a
+      // Preview panel opened during a cold load isn't stuck on escaped text.
+      if (target) this._markdownPending.push({ target, text });
       // Fall back to escaped text while libraries load
       return this.escapeHtml(text).replace(/\n/g, '<br>');
     }
@@ -195,14 +272,18 @@ window.Ui = {
 
     let html = typeof marked.parse === 'function' ? marked.parse(text) : marked(text);
 
-    // Sanitize first, then add our own controlled dialogue highlights.
-    html = DOMPurify.sanitize(html, { ADD_TAGS: ['span', 'strong', 'em'] });
-
-    // Color dialogue lines: {{char}}: and {{user}}:
+    // Color dialogue lines: {{char}}: and {{user}}: — done BEFORE sanitizing
+    // so DOMPurify re-checks the injected <span> markup. Mutating HTML after
+    // sanitization (the old order) is a classic XSS-bypass pattern: the tags
+    // could land inside attribute values that already survived sanitization
+    // (e.g. href="{{char}}:x") where they change parsing (#63).
     html = html.replace(/({{char}})\s*:/g,
       '<span class="dlg-char-name">$1</span><span class="dlg-char">:</span>');
     html = html.replace(/({{user}})\s*:/g,
       '<span class="dlg-user-name">$1</span><span class="dlg-user">:</span>');
+
+    // Sanitize last so the dialogue markup above is validated too.
+    html = DOMPurify.sanitize(html, { ADD_TAGS: ['span', 'strong', 'em'] });
 
     return html;
   },
@@ -232,6 +313,9 @@ window.Ui = {
       btn.classList.remove('btn-saved-flash');
       this._savedTimer = null;
       this._savedOrigHTML = null;
+      // Re-apply the dirty state: if the user typed during the flash, the
+      // innerHTML restore above wiped the .dirty-dot again (#76).
+      if (window.AppState._dirty) this.setDirty(true);
     }, 1500);
   },
 };
@@ -285,6 +369,7 @@ function initFloatingLabels() {
     }
   });
   window.syncFloatingLabels = syncFloatLabels;
+  window.syncFloatLabels = syncFloatLabels; // legacy alias (older callers used the misspelled name)
   syncFloatLabels();
 }
 
@@ -364,16 +449,24 @@ async function init() {
   Ui.updateUIState();
   bindEvents(settingsModal);
   AiChat.updateContextBar();
-  Wizard.init();
-  AiChat._renderFieldChips();
-  initFloatingLabels();
+Wizard.init();
+    AiChat._renderFieldChips();
+    initFloatingLabels();
+    // Re-run textarea autosize when switching editor tabs: fields in an
+    // inactive pane skipped the resizer (they had offsetParent === null),
+    // so they'd stay clamped unless we refresh once their pane is shown (#73).
+    document.querySelectorAll('#editorTabs .nav-link').forEach(trigger => {
+      trigger.addEventListener('shown.bs.tab', () => {
+        Editor.updateCharCounts();
+        Editor.autoResizeTextareas();
+      });
+    });
   window.addEventListener('beforeunload', (e) => {
-    if (window.AppState.activeCard && window.AppState._dirty) {
-      Editor.syncGreetings();
-      Editor.syncEditorToCardSync();
-      e.preventDefault();
-      e.returnValue = '';
-      return e.returnValue;
+    if (window.AppState.activeCard) {
+      // Data is already persisted on every debounced keystroke (_doSync writes
+      // to IndexedDB then sets _dirty), so this is just a best-effort flush.
+      // Prompting here would nag on every close despite the data being safe (#14).
+      try { Editor.syncGreetings(); Editor.syncEditorToCardSync(); } catch (_) {}
     }
   });
   window.addEventListener('storage', handleStorageChange);
@@ -389,15 +482,26 @@ async function init() {
 
 // ─── MODAL FOCUS TRAP ────────────────────────────────
 function setupModalFocusTraps() {
+  // Only elements actually on screen and enabled can take focus. Skipping this
+  // filter makes the trap look at hidden <input type=file> pickers and d-none
+  // provider sections, so Tab would never wrap inside the modal (#71).
+  const focusableSelector = [
+    'button:not([hidden]):not(.d-none):not([disabled])',
+    '[href]:not([hidden]):not(.d-none):not([tabindex="-1"])',
+    'input:not([hidden]):not(.d-none):not([disabled])',
+    'select:not([hidden]):not(.d-none):not([disabled])',
+    'textarea:not([hidden]):not(.d-none):not([disabled])',
+    '[tabindex]:not([tabindex="-1"]):not([hidden]):not(.d-none):not([disabled])',
+  ].join(', ');
   document.querySelectorAll('.modal').forEach(modalEl => {
     modalEl.addEventListener('shown.bs.modal', () => {
-      const firstFocusable = modalEl.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      const firstFocusable = modalEl.querySelector(focusableSelector);
       if (firstFocusable) firstFocusable.focus();
     });
     modalEl.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') return; // let Bootstrap handle Escape
       if (e.key !== 'Tab') return;
-      const focusable = modalEl.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      const focusable = modalEl.querySelectorAll(focusableSelector);
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -483,7 +587,7 @@ function bindEvents(settingsModal) {
   $('#btnNewCardCenter').addEventListener('click', () => CardManager.createNewCard());
   $('#btnSaveCard').addEventListener('click', () => CardManager.saveCurrentCard());
   $('#btnSettings').addEventListener('click', () => settingsModal.show());
-  $('#btnHelp').addEventListener('click', () => { const m = new bootstrap.Modal('#shortcutsModal'); m.show(); });
+  $('#btnHelp').addEventListener('click', () => { Ui._shortcutsModal = Ui._shortcutsModal || new bootstrap.Modal('#shortcutsModal'); Ui._shortcutsModal.show(); });
   $('#btnToggleApiKey').addEventListener('click', () => Settings.toggleApiKeyVisibility());
   $('#btnToggleNamedApiKey').addEventListener('click', () => Settings.toggleNamedApiKeyVisibility());
   $('#btnSaveSettings').addEventListener('click', () => Settings.saveSettings(settingsModal));
@@ -548,6 +652,14 @@ function bindEvents(settingsModal) {
   }
 
   settingsModal._element.addEventListener('shown.bs.modal', () => Settings.openSettings());
+  // Closing settings without saving must not leave AIService pointing at a
+  // provider that was only picked in the (unsaved) dropdown.
+  settingsModal._element.addEventListener('hidden.bs.modal', () => {
+    const savedProvider = CardStorage.getProvider() || 'openrouter';
+    AIService.setProvider(savedProvider, savedProvider === 'openrouter'
+      ? CardStorage.getApiKey() : (savedProvider === 'custom'
+        ? CardStorage.getCustomApiKey() : CardStorage.getProviderKey(savedProvider)));
+  });
   $('#aiModelSelect').addEventListener('change', () => {
     const val = $('#aiModelSelect').value;
     if (val) {
@@ -578,7 +690,7 @@ function bindEvents(settingsModal) {
     avatar.addEventListener('dragover', (e) => { e.preventDefault(); avatar.classList.add('drag-over'); });
     avatar.addEventListener('dragleave', () => avatar.classList.remove('drag-over'));
     avatar.addEventListener('drop', (e) => {
-      e.preventDefault(); avatar.classList.remove('drag-over');
+      e.preventDefault(); e.stopPropagation(); avatar.classList.remove('drag-over');
       const f = e.dataTransfer?.files?.[0];
       if (f && f.type.startsWith('image/')) Editor.setAvatar(f);
     });
@@ -609,6 +721,7 @@ function bindEvents(settingsModal) {
         }
       });
       el.addEventListener('input', Ui.debounce(() => {
+        Ui._markTouchedField(camelField);
         Editor.syncEditorToCard().catch(() => {});
         Editor.updateCharCounts();
         Editor.autoResizeTextareas();
@@ -634,7 +747,7 @@ function bindEvents(settingsModal) {
 
         if (mode === 'preview') {
           textarea.style.display = 'none';
-          preview.innerHTML = Ui.renderMarkdown(textarea.value);
+          preview.innerHTML = Ui.renderMarkdown(textarea.value, preview);
           preview.classList.add('visible');
         } else {
           textarea.style.display = '';
@@ -839,6 +952,7 @@ function bindEvents(settingsModal) {
           root.style.setProperty('--panel-right-width', w + 'px');
         }
       };
+      let safetyTimer = null;
       const up = () => {
         document.body.classList.remove('resizing');
         // Persist bare numbers (never the "300px" CSS string)
@@ -855,7 +969,7 @@ function bindEvents(settingsModal) {
       };
       // Force-release listeners if the drag is interrupted (window loses focus
       // or the pointer is released outside the page) so they cannot leak.
-      const safetyTimer = setTimeout(up, 5000);
+      safetyTimer = setTimeout(up, 5000);
       window.addEventListener('mousemove', move);
       window.addEventListener('mouseup', up);
       window.addEventListener('touchmove', move, { passive: false });
@@ -885,7 +999,7 @@ function handleKeyboardShortcuts(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     e.preventDefault(); Editor.undo(); return;
   }
-  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+  if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
     e.preventDefault(); Editor.redo(); return;
   }
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -898,23 +1012,44 @@ function handleKeyboardShortcuts(e) {
     CardManager.createNewCard();
   }
   if (e.key === '?') {
-    const modal = new bootstrap.Modal('#shortcutsModal');
-    modal.show();
+    Ui._shortcutsModal = Ui._shortcutsModal || new bootstrap.Modal('#shortcutsModal');
+    Ui._shortcutsModal.show();
   }
 }
 
 async function handleStorageChange(e) {
   if (!e.key || !e.key.startsWith(CardStorage.PREFIX)) return;
+  // Only card-data keys need the list/DOM refreshed. UI-only keys such as
+  // stce_theme or stce_panelLeft (written when another tab toggles the theme
+  // or drags a splitter) would otherwise re-render the whole card list and
+  // trigger needless card re-loads on every keystroke-driven save (#48).
+  const rel = e.key.slice(CardStorage.PREFIX.length);
+  const isCardData = rel === CardStorage._keys.cardIndex
+    || rel === CardStorage._keys.activeCardId
+    || rel.startsWith('card_')
+    || rel.startsWith(CardStorage._keys.aiChatHistory + '_')
+    || rel.startsWith('chatSessions_')
+    || rel.startsWith('sessionMsgs_');
+  if (!isCardData) return;
   window.AppState.cards = CardStorage.getCards();
   CardManager.renderCardList();
   if (window.AppState.activeCard) {
     const active = document.activeElement;
     if (window.AppState._dirty) {
       // We have unsaved local edits; don't clobber them now. Remember the card
-      // so it gets reloaded from the other tab once the local save completes.
+      // so it gets merged from the other tab once the local save completes.
       if (Ui._pendingRemoteReload) return;
       Ui._pendingRemoteReload = true;
       Ui._pendingRemoteCardId = window.AppState.activeCard._id;
+      Ui._pendingRemoteTouched = new Set();
+      // Snapshot the other tab's version *now*: by the time the local autosave
+      // completes, IndexedDB holds our copy, not the remote one — so reloading
+      // from IDB at setDirty(false) would silently drop the remote change (#103).
+      CardStorage.getCard(window.AppState.activeCard._id)
+        .then((c) => {
+          if (c && Ui._pendingRemoteCardId === window.AppState.activeCard._id) Ui._pendingRemoteSnapshot = c;
+        })
+        .catch((err) => console.error('Failed to snapshot remote card:', err));
       return;
     }
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;

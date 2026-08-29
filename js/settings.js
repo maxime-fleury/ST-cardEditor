@@ -17,24 +17,32 @@ const Settings = {
     CardStorage.setProvider(provider);
 
     if (provider === 'openrouter') {
-      // Keep the OpenRouter key independent from custom-provider credentials.
-      // Switching providers must not erase it, especially when the field is
-      // temporarily empty while the settings modal is being reopened.
-      if (apiKey) await CardStorage.setApiKey(apiKey);
-      AIService.setProvider('openrouter', apiKey || CardStorage.getApiKey());
+      // Always persist (also when blanked) so the key can be cleared from the UI.
+      await CardStorage.setApiKey(apiKey);
+      AIService.setProvider('openrouter', apiKey);
       CardStorage.setDefaultModel(defaultModel);
       $('#aiModelSelect').value = defaultModel;
     } else {
+      const isCustom = provider === 'custom';
       const info = AIService.getProviderInfo(provider);
-      const url = provider === 'custom' ? customApiUrl : info.baseUrl;
-      CardStorage.setCustomApiUrl(url);
-      await CardStorage.setCustomApiKey(customApiKey);
+      // Only the Custom provider owns the custom base URL + key slot. Named
+      // providers must NOT overwrite them (that would destroy a user-configured
+      // LM Studio/Ollama endpoint just by saving while DeepSeek was selected).
+      if (isCustom) {
+        CardStorage.setCustomApiUrl(customApiUrl);
+        await CardStorage.setCustomApiKey(customApiKey);
+      } else {
+        // Per-provider key slot: each named provider keeps its own key so
+        // switching between them never cross-sends a previous provider's key.
+        await CardStorage.setProviderKey(provider, customApiKey);
+      }
       CardStorage.setCustomModelId(customModelId);
       AIService.setProvider(provider, customApiKey);
-      if (customModelId) {
-        CardStorage.setDefaultModel(customModelId);
-        $('#aiModelSelect').value = customModelId;
-      }
+      // Always persist the model id, even when blank: otherwise a cleared
+      // "Model ID" leaves the previous provider's default in place and the
+      // request goes out with a stale model (#85).
+      CardStorage.setDefaultModel(customModelId);
+      $('#aiModelSelect').value = customModelId;
     }
 
     CardStorage.setMaxTokens(maxTokens);
@@ -86,7 +94,7 @@ const Settings = {
     // Keep AIService in sync with the dropdown selection so "Refresh Models"
     // (and its API-key check) target the provider currently shown in settings,
     // not the previously saved one.
-    AIService.setProvider(provider, isOpenRouter ? CardStorage.getApiKey() : CardStorage.getCustomApiKey());
+    AIService.setProvider(provider, isOpenRouter ? CardStorage.getApiKey() : (isCustom ? CardStorage.getCustomApiKey() : CardStorage.getProviderKey(provider)));
 
     $('#openrouterSettings').classList.toggle('d-none', !isOpenRouter);
     $('#customSettings').classList.toggle('d-none', !isCustom);
@@ -97,11 +105,14 @@ const Settings = {
     // only the OpenRouter credit/usage card is OpenRouter-specific.
     $('#openrouterExtras').classList.remove('d-none');
     $('#creditsSection').classList.toggle('d-none', !isOpenRouter);
-    $('#securityWarning').classList.toggle('d-none', !isOpenRouter);
+    // All providers store keys in localStorage (encrypted), so the storage
+    // warning applies to every keyed provider — not just OpenRouter.
+    $('#securityWarning').classList.remove('d-none');
 
     if (isNamed) {
       const info = AIService.getProviderInfo(provider);
       $('#namedApiUrlInput').value = info.baseUrl;
+      $('#namedApiKeyInput').value = CardStorage.getProviderKey(provider);
       const linkMap = {
         nanogpt: 'https://nano-gpt.com',
         xai: 'https://console.x.ai',
@@ -183,7 +194,7 @@ const Settings = {
     const provider = CardStorage.getProvider() || 'openrouter';
     $('#providerSelect').value = provider;
     $('#apiKeyInput').value = CardStorage.getApiKey();
-    $('#namedApiKeyInput').value = CardStorage.getCustomApiKey();
+    $('#namedApiKeyInput').value = provider === 'custom' ? '' : CardStorage.getProviderKey(provider);
     $('#customApiKeyInput').value = CardStorage.getCustomApiKey();
     $('#customApiUrlInput').value = CardStorage.getCustomApiUrl();
     $('#customModelInput').value = CardStorage.getCustomModelId();
@@ -198,7 +209,9 @@ const Settings = {
 
   async refreshCredits() {
     const $ = (sel) => document.querySelector(sel);
-    if (!AIService.hasApiKey() || CardStorage.getProvider() === 'custom') { this.updateStorageUsage(); return; }
+    // /key is an OpenRouter-only endpoint; named providers 404 on it.
+    if (CardStorage.getProvider() !== 'openrouter') { this.updateStorageUsage(); return; }
+    if (!AIService.hasApiKey()) { this.updateStorageUsage(); return; }
     try {
       const info = await AIService.fetchKeyInfo();
       $('#creditsBadge').classList.remove('d-none');
@@ -291,16 +304,21 @@ const Settings = {
     filter = (filter || '').toLowerCase();
     if (resetPage) this._modelPage = 1;
     const container = $('#modelList');
-    const filtered = window.AppState.models.filter(m => !filter || m.name.toLowerCase().includes(filter) || m.id.toLowerCase().includes(filter) || m.provider.toLowerCase().includes(filter) || (m.description || '').toLowerCase().includes(filter));
+    const filtered = window.AppState.models.filter(m => {
+      // A compatible third-party endpoint may omit name/id/provider; normalize
+      // before .toLowerCase() so one blank field can't blank the whole browser (#86).
+      const name = (m.name || m.id || ''); const id = (m.id || ''); const prov = (m.provider || ''); const desc = (m.description || '');
+      return !filter || name.toLowerCase().includes(filter) || id.toLowerCase().includes(filter) || prov.toLowerCase().includes(filter) || desc.toLowerCase().includes(filter);
+    });
     if (!filtered.length) { container.innerHTML = '<div class="text-center text-muted py-4">' + I18n.t('settings.noModels') + '</div>'; return; }
     const d = CardStorage.getDefaultModel();
     const end = this._modelPage * this._modelPageSize;
     const shown = filtered.slice(0, end);
     const hasMore = end < filtered.length;
     container.innerHTML = shown.map(m =>
-      '<div class="model-item' + (m.id === d ? ' selected' : '') + '" data-model-id="' + Ui.escapeAttr(m.id) + '">'
-      + '<div class="model-item-info"><div class="model-item-name">' + Ui.escapeHtml(m.name) + '</div>'
-      + '<div class="model-item-provider">' + Ui.escapeHtml(m.provider) + ' · ' + (m.context_length ? Math.floor(m.context_length/1000) + 'k ctx' : '?')
+      '<div class="model-item' + (m.id === d ? ' selected' : '') + '" data-model-id="' + Ui.escapeAttr(m.id || '') + '">'
+      + '<div class="model-item-info"><div class="model-item-name">' + Ui.escapeHtml(m.name || m.id || '?') + '</div>'
+      + '<div class="model-item-provider">' + Ui.escapeHtml(m.provider || '') + ' · ' + (m.context_length ? Math.floor(m.context_length/1000) + 'k ctx' : '?')
       + (m.max_output_tokens ? ' · ' + Math.floor(m.max_output_tokens/1000) + 'k out' : '')
       + (m.is_free ? ' · <span class="text-success">' + I18n.t('gen.free') + '</span>' : '') + '</div></div>'
       + '<div class="model-item-pricing">' + (m.is_free ? '<span class="price-highlight">' + I18n.t('gen.free') + '</span>'
@@ -334,13 +352,10 @@ const Settings = {
 
   async updateStorageUsage() {
     const $ = (sel) => document.querySelector(sel);
-    let bytes = await CardStorage.getUsageEstimate();
-    if (navigator.storage && navigator.storage.estimate) {
-      try {
-        const est = await navigator.storage.estimate();
-        if (est.usage) bytes = est.usage;
-      } catch (_) { /* keep the async sum */ }
-    }
+    // Count only this app's own data. navigator.storage.estimate() reports the
+    // ENTIRE origin including SW caches and other apps' storage, which would
+    // mislabel unrelated usage as "card data" (#39).
+    const bytes = await CardStorage.getUsageEstimate();
     const kb = (bytes / 1024).toFixed(1);
     const mb = (bytes / (1024 * 1024)).toFixed(2);
     const gb = (bytes / (1024 * 1024 * 1024)).toFixed(2);
@@ -403,7 +418,6 @@ const Settings = {
           if (settings.maxTokens !== undefined) { CardStorage.setMaxTokens(settings.maxTokens); $('#maxTokensInput').value = settings.maxTokens || ''; }
           if (settings.injectCopyright !== undefined) { CardStorage.setInjectCopyright(settings.injectCopyright); $('#injectCopyrightToggle').checked = settings.injectCopyright; }
           if (settings.customApiUrl) { CardStorage.setCustomApiUrl(settings.customApiUrl); $('#customApiUrlInput').value = settings.customApiUrl; }
-          if (settings.customApiKey) { await CardStorage.setCustomApiKey(settings.customApiKey).catch(() => {}); $('#namedApiKeyInput').value = settings.customApiKey; $('#customApiKeyInput').value = settings.customApiKey; }
           if (settings.customModelId) { CardStorage.setCustomModelId(settings.customModelId); $('#customModelInput').value = settings.customModelId; }
           Ui.showToast(I18n.t('toast.settingsImported'), 'success');
         } catch (err) {
@@ -474,6 +488,24 @@ const Settings = {
         for (const card of workspace.cards) {
           if (!card.name && !card.description) continue;
           const normalized = CardEngine.normalize(card, (card.name || 'character') + '.json');
+          // Dedupe like processFiles: re-importing a workspace mints a fresh _id
+          // for every card, so without this the library silently doubles (#38).
+          const trimmedName = (normalized.name || '').trim();
+          if (trimmedName) {
+            const existing = CardStorage.getCards().find(c => (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase());
+            if (existing) {
+              let existingFull = null;
+              try { existingFull = await CardStorage.getCard(existing._id); } catch (_) {}
+              if (existingFull && CardManager._cardSignature(normalized) === CardManager._cardSignature(existingFull)) {
+                const base = trimmedName;
+                let n = 2;
+                const used = new Set(CardStorage.getCards().map(c => (c.name || '').toLowerCase()));
+                let candidate = base + ' (' + n + ')';
+                while (used.has(candidate.toLowerCase())) { n++; candidate = base + ' (' + n + ')'; }
+                normalized.name = candidate;
+              }
+            }
+          }
           if (card._imageBase64) {
             await CardStorage.saveImage(normalized._id, card._imageBase64);
             normalized._hasImage = true;
@@ -484,14 +516,28 @@ const Settings = {
         }
         // Restore settings if present
         if (workspace.settings) {
-          if (workspace.settings.provider) CardStorage.setProvider(workspace.settings.provider);
-          if (workspace.settings.defaultModel) CardStorage.setDefaultModel(workspace.settings.defaultModel);
+          if (workspace.settings.provider) {
+            CardStorage.setProvider(workspace.settings.provider);
+            // Keep the runtime in sync so the imported provider actually takes
+            // effect instead of waiting for a reload (#80).
+            const isCustom = workspace.settings.provider === 'custom';
+            const isOR = workspace.settings.provider === 'openrouter';
+            const providerKey = isOR ? CardStorage.getApiKey() : (isCustom ? CardStorage.getCustomApiKey() : CardStorage.getProviderKey(workspace.settings.provider));
+            AIService.setProvider(workspace.settings.provider, providerKey);
+            const sel = document.querySelector('#providerSelect');
+            if (sel) sel.value = workspace.settings.provider;
+          }
+          if (workspace.settings.defaultModel) {
+            CardStorage.setDefaultModel(workspace.settings.defaultModel);
+          }
           if (workspace.settings.maxTokens !== undefined) CardStorage.setMaxTokens(workspace.settings.maxTokens);
           if (workspace.settings.injectCopyright !== undefined) CardStorage.setInjectCopyright(workspace.settings.injectCopyright);
         }
         window.AppState.cards = CardStorage.getCards();
         CardManager.renderCardList();
         Settings.refreshModelsList();
+        const modelSel = document.querySelector('#aiModelSelect');
+        if (modelSel) modelSel.value = CardStorage.getDefaultModel() || '';
         Ui.showToast((I18n.t ? I18n.t('settings.workspaceImported', { count: imported }) : 'Workspace imported (' + imported + ' cards)'), 'success');
       } catch (err) {
         console.error('Workspace import failed:', err);

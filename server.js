@@ -35,14 +35,15 @@ function getMimeType(path) {
 
 async function serveStatic(filePath, fallbackPath) {
   const file = Bun.file(filePath);
-  if (file.size > 0) {
+  // Bun.file(filename) has size 0 for a *missing* file, so distinguish a real
+  // zero-byte asset from "not found" via exists() (#46).
+  if (await file.exists()) {
     const content = await file.arrayBuffer();
     const mimeType = getMimeType(filePath);
     return new Response(content, {
       headers: {
         "Content-Type": mimeType,
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Access-Control-Allow-Origin": "*",
         // CSP: dedupe script hosts; connect-src must allow loopback APIs
         // (LM Studio, Ollama, etc.) used by the Custom provider.
         // script-src intentionally omits 'unsafe-inline' (all app/CDN scripts are
@@ -51,12 +52,13 @@ async function serveStatic(filePath, fallbackPath) {
         // Custom provider's whole purpose is reaching OpenAI-compatible servers
         // on local/LAN/WAN addresses (LM Studio, Ollama, vLLM...). https: stays
         // host-allowlisted; CUSTOM_LLM_ORIGINS adds further hosts (e.g. https).
-        "Content-Security-Policy": "default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com esm.sh; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' cdn.jsdelivr.net fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im" + (EXTRA_CONNECT_SRC ? " " + EXTRA_CONNECT_SRC : "") + ";",
+        // cdn.waifu.im is where the wizard blob-fetches image bytes.
+        "Content-Security-Policy": "default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com esm.sh; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' cdn.jsdelivr.net fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im" + (EXTRA_CONNECT_SRC ? " " + EXTRA_CONNECT_SRC : "") + ";",
       },
     });
   }
   const fallbackFile = fallbackPath ? Bun.file(fallbackPath) : null;
-  if (fallbackFile && fallbackFile.size > 0) {
+  if (fallbackFile && (await fallbackFile.exists())) {
     const content = await fallbackFile.arrayBuffer();
     return new Response(content, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -109,10 +111,16 @@ const server = Bun.serve({
         return new Response("Forbidden", { status: 403 });
       }
       const headers = new Headers();
+      // Forward only a safe whitelist upstream — never cookies or caller-supplied
+      // X-Forwarded-* headers (#20). Cloudflare/NGINX rewrite these downstream;
+      // trusting caller values would let the client hoist arbitrary hops.
+      const SAFE_UPLINK_HEADERS = new Set(['content-type', 'accept', 'authorization', 'accept-encoding']);
       for (const [key, val] of req.headers) {
-        if (key.toLowerCase() === "host") continue;
-        headers.set(key, val);
+        const lower = key.toLowerCase();
+        if (SAFE_UPLINK_HEADERS.has(lower)) headers.set(key, val);
       }
+      headers.set('x-forwarded-host', url.host);
+      headers.set('x-forwarded-proto', url.protocol.replace(':', ''));
       const body = req.method !== "GET" && req.method !== "HEAD" ? await req.arrayBuffer() : undefined;
       let upstream;
       try {

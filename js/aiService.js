@@ -59,17 +59,14 @@ const AIService = {
   _getApiKeyForProvider() {
     if (this._apiKey) return this._apiKey;
     if (this._provider === 'openrouter') return CardStorage.getApiKey();
-    return CardStorage.getCustomApiKey() || '';
+    if (this._provider === 'custom') return CardStorage.getCustomApiKey();
+    return CardStorage.getProviderKey(this._provider);
   },
 
   _resolveModel(model) {
-    if (this._provider === 'custom') {
-      return CardStorage.getCustomModelId() || model || '';
-    }
-    if (this._provider !== 'openrouter') {
-      return CardStorage.getCustomModelId() || model || '';
-    }
-    return model;
+    // Prefer the navbar dropdown selection; fall back to a manually
+    // configured "Model ID" (Settings) for providers without a model list.
+    return model || CardStorage.getCustomModelId() || '';
   },
 
   async setApiKey(key) { this._apiKey = key; if (this._provider === 'openrouter') { await CardStorage.setApiKey(key); } else { await CardStorage.setCustomApiKey(key); } },
@@ -240,8 +237,11 @@ const AIService = {
 
   /**
    * Fetch API key info (credits, limits, usage).
+   * Only OpenRouter exposes /key; other providers return 404, so the callers
+   * only use this for OpenRouter.
    */
   async fetchKeyInfo() {
+    if (this._provider !== 'openrouter') throw new Error(I18n.t ? I18n.t('gen.notAvailable') : 'N/A');
     if (!this._getApiKeyForProvider()) throw new Error(I18n.t('error.apiKeyNotSet'));
     
     const resp = await fetch(`${this._getBaseUrl()}/key`, {
@@ -249,7 +249,7 @@ const AIService = {
         'Authorization': `Bearer ${this._getApiKeyForProvider()}`,
         'Content-Type': 'application/json',
       },
-      signal: AbortSignal.timeout(30000),
+      signal: this._withTimeout(null),
     });
     
     if (!resp.ok) {
@@ -261,8 +261,10 @@ const AIService = {
     const key = data.data || {};
     return {
       label: key.label || 'Unknown',
-      limit: key.limit || 0,
-      limit_remaining: key.limit_remaining ?? 0,
+      // Preserve null ("unlimited") instead of collapsing it to 0 — settings.js
+      // distinguishes "unlimited" (null) from "$0.00" (spent up).
+      limit: key.limit ?? null,
+      limit_remaining: key.limit_remaining ?? null,
       usage: key.usage || 0,
       is_free_tier: key.is_free_tier || false,
     };
@@ -291,8 +293,13 @@ const AIService = {
   _isUnsupportedFormatError(errMsg) {
     if (!errMsg) return false;
     const lower = errMsg.toLowerCase();
-    return lower.includes('response_format') || lower.includes('unsupported') ||
-      lower.includes('not support') || lower.includes('invalid parameter');
+    // Only retry without response_format when the error is *specifically*
+    // about the jsonMode we sent — not any unrelated "unsupported" wording.
+    return lower.includes('response_format') && (
+      lower.includes('unsupported') || lower.includes('not support') ||
+      lower.includes('invalid') || lower.includes('not allowed') ||
+      lower.includes('does not support')
+    );
   },
 
   /**
@@ -322,6 +329,27 @@ const AIService = {
     return baseUrl.endsWith('/v1') ? baseUrl : baseUrl + '/v1';
   },
 
+  /**
+   * Combine an external controller signal with the 120 s idle timeout.
+   */
+  _withTimeout(signal) {
+    const timeout = AbortSignal.timeout(120000);
+    if (!signal) return timeout;
+    if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
+    return signal; // Older browsers: rely on the caller's controller alone.
+  },
+
+  /**
+   * Chat-completions base URL for the active provider.
+   * Named providers ship a versioned API root (Z.AI is .../api/paas/v4,
+   * not /v1), so _v1BaseUrl is only applied to user-typed Custom endpoints.
+   */
+  _getChatBaseUrl() {
+    const baseUrl = this._getBaseUrl();
+    if (this._provider === 'custom') return this._v1BaseUrl(baseUrl);
+    return baseUrl;
+  },
+
   async chat(prompt, systemPrompt = '', model = '', opts = {}) {
     const safeOpts = (typeof opts === 'object' && opts !== null) ? opts : {};
     const { jsonMode = false, signal, history = [] } = safeOpts;
@@ -336,7 +364,7 @@ const AIService = {
 
     const baseUrl = this._getBaseUrl();
     if (!baseUrl) throw new Error(I18n.t ? I18n.t('error.customUrlNotSet') : 'Custom API base URL is not set');
-    const apiBaseUrl = this._v1BaseUrl(baseUrl);
+    const apiBaseUrl = this._getChatBaseUrl();
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
     if (this._provider === 'openrouter') {
@@ -349,7 +377,7 @@ const AIService = {
         method: 'POST',
         headers,
         body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: false })),
-        signal: signal || AbortSignal.timeout(120000),
+        signal: this._withTimeout(signal),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
@@ -408,7 +436,7 @@ const AIService = {
 
     const baseUrl = this._getBaseUrl();
     if (!baseUrl) throw new Error(I18n.t ? I18n.t('error.customUrlNotSet') : 'Custom API base URL is not set');
-    const apiBaseUrl = this._v1BaseUrl(baseUrl);
+    const apiBaseUrl = this._getChatBaseUrl();
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
     if (this._provider === 'openrouter') {
@@ -421,7 +449,7 @@ const AIService = {
         method: 'POST',
         headers,
         body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: true })),
-        signal: signal || AbortSignal.timeout(120000),
+        signal: this._withTimeout(signal),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
@@ -449,10 +477,11 @@ const AIService = {
     let full = '';
     let usage = null;
     let eventType = '';
+    let streamDone = false;
 
     try {
       let bufferStr = '';
-      while (true) {
+      while (!streamDone) {
         const { done, value } = await reader.read();
         if (done) break;
         bufferStr += decoder.decode(value, { stream: true });
@@ -465,7 +494,7 @@ const AIService = {
           if (trimmed.startsWith(':')) continue; // SSE comment (e.g. : ping)
           if (!trimmed.startsWith('data: ')) continue;
           const data = trimmed.slice(6).trim();
-          if (data === '[DONE]') { eventType = ''; break; }
+          if (data === '[DONE]') { eventType = ''; streamDone = true; break; }
           try {
             const parsed = JSON.parse(data);
             const delta = parsed.choices?.[0]?.delta?.content;
@@ -516,7 +545,12 @@ const AIService = {
       }
     } catch (_) { inputTokens = 0; }
     if (!inputTokens && messages?.length) {
-      inputTokens = (messages || []).reduce((sum, m) => sum + Math.ceil((m.content || '').length / 4), 0);
+      inputTokens = (messages || []).reduce((sum, m) => {
+        const quick = window.Tokenizer && typeof window.Tokenizer.quickCount === 'function'
+          ? window.Tokenizer.quickCount(m.content || '')
+          : Math.ceil((m.content || '').length / 3);
+        return sum + quick;
+      }, 0);
     }
 
     const safetyMargin = Math.max(512, Math.floor(ctxLength * 0.05));

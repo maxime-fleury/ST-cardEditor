@@ -6,13 +6,12 @@
    ============================================================ */
 
 const BASE_PATH = new URL('.', self.location.href).pathname;
-const CACHE_PREFIX = 'stce-v2.4';
+const CACHE_PREFIX = 'stce-v2.5';
 const CACHE_NAME = `${CACHE_PREFIX}:${BASE_PATH}`;
 const DEV_PATH = BASE_PATH.endsWith('/dev/')
   ? BASE_PATH
   : `${BASE_PATH.replace(/\/$/, '')}/dev/`;
 const SHELL_FILES = [
-  '',
   'index.html',
   'css/theme.css',
   'css/base.css',
@@ -43,13 +42,15 @@ const SHELL_FILES = [
 const shellUrl = (file) => new URL(file || './', self.location.href).toString();
 const shellPaths = new Set(SHELL_FILES.map(file => new URL(file || './', self.location.href).pathname));
 
-// Install: cache the app shell
+// Install: cache the app shell. Precaching is done per-file so one missing
+// asset (404) degrades offline coverage instead of aborting the whole install.
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(SHELL_FILES.map(shellUrl)).catch((err) => {
-        console.warn('SW: Failed to cache some shell files:', err);
-      });
+    caches.open(CACHE_NAME).then((cache) => Promise.allSettled(
+      SHELL_FILES.map((file) => cache.add(shellUrl(file)))
+    )).then((results) => {
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed) console.warn(`SW: ${failed} shell file(s) could not be precached.`);
     })
   );
   self.skipWaiting();
@@ -64,7 +65,11 @@ self.addEventListener('activate', (event) => {
       keys.filter((key) => {
         const separator = key.indexOf(':');
         const cachePath = separator >= 0 ? key.slice(separator + 1) : '';
-        return key.startsWith('stce-') && key !== CACHE_NAME && cachePath === BASE_PATH;
+        // Keys without a ':' are legacy caches (pre-path-scoping, e.g.
+        // "stce-v2.2"). They carry no path, so they can't be matched to any
+        // deployment and must be removed rather than leaked forever.
+        return key.startsWith('stce-') && key !== CACHE_NAME &&
+          (cachePath === BASE_PATH || cachePath === '');
       })
         .map((key) => caches.delete(key))
     ))
@@ -72,7 +77,9 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: network-first for non-shell files, cache-first for app shell.
+// Fetch: network-first for everything, cache as fallback (and offline cache).
+// Network-first means a freshly deployed index.html (with its new ?v= busters)
+// is always served online; the cache only matters when offline.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
@@ -81,29 +88,56 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin || url.pathname.startsWith(`${BASE_PATH}api/`)
       || (!BASE_PATH.endsWith('/dev/') && url.pathname.startsWith(DEV_PATH))) return;
 
+  const store = (request, response) => {
+    // Only clairvoyaged shell assets belong in the app cache. Caching every
+    // same-origin GET would grow the cache without bound (#35); shell files are
+    // the only assets the offline UI needs. Keep writes inside waitUntil so the
+    // worker doesn't die mid-write.
+    if (!isShellFile) return;
+    event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(request, response)));
+  };
+
+  // Shell files are cached under their bare path (query strings stripped) so a
+  // ?v= bump still hits the cached copy when offline.
   const isShellFile = shellPaths.has(url.pathname);
-  if (isShellFile) {
-    // Strip query strings so cache hits work despite ?v= cache-busters
-    const bareRequest = new Request(url.pathname);
-    event.respondWith(
-      caches.match(bareRequest).then((cached) => {
-        const fetchPromise = fetch(event.request).then((response) => {
-          if (response.ok) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(bareRequest, response.clone()));
-          }
-          return response;
-        }).catch(() => cached);
-        return cached || fetchPromise;
-      })
+  const cacheKey = isShellFile ? new Request(url.pathname) : event.request;
+  const fallbackUrl = isShellFile
+    ? event.request
+    : event.request.mode === 'navigate'
+      ? new Request(new URL('index.html', self.location.href))
+      : event.request;
+
+  const offlineHit = (request) =>
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.match(request, { ignoreVary: true }).then((hit) => hit || null)
     );
-  } else {
-    event.respondWith(
-      fetch(event.request).then((response) => {
-        if (response.ok) {
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
-        }
+
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok && !response.redirected) store(cacheKey, response.clone());
         return response;
-      }).catch(() => caches.match(event.request))
-    );
-  }
+      })
+      .catch(() =>
+        // Offline: prefer the exact asset, then the SPA shell. A cache miss on
+        // BOTH must not resolve to undefined — respondWith(undefined) throws a
+        // TypeError and the request fails without a meaningful response (#67).
+        offlineHit(cacheKey).then((hit) => {
+          if (hit) return hit;
+          const nav = event.request.mode === 'navigate';
+          return offlineHit(fallbackUrl).then((shell) => {
+            if (shell) return shell;
+            return new Response(
+              nav
+                ? '<!doctype html><meta charset="utf-8"><title>Offline</title><body style="font-family:system-ui;text-align:center;padding:3rem"><h1>ST Card Editor</h1><p>You appear to be offline and the app shell has not been cached yet.</p></body>'
+                : 'Offline',
+              {
+                status: 503,
+                headers: { 'Content-Type': nav ? 'text/html; charset=utf-8' : 'text/plain' },
+              }
+            );
+          });
+        })
+      )
+  );
 });

@@ -1,0 +1,261 @@
+Findings
+HIGH
+1. Z.AI chat endpoint is built wrong — every request 404s
+aiService.js:13 + aiService.js:321-323, used at :339 and :411
+zai: { baseUrl: 'https://api.z.ai/api/paas/v4', ... }
+_v1BaseUrl(baseUrl) { return baseUrl.endsWith('/v1') ? baseUrl : baseUrl + '/v1'; }
+_v1BaseUrl is applied unconditionally in chat()/chatStream(), so Z.AI POSTs go to https://api.z.ai/api/paas/v4/v1/chat/completions. Every other registered provider already ends in /v1, so Z.AI is the only one corrupted. Note fetchModels() (:117) does not apply _v1BaseUrl, so the model list loads fine — making it look configured correctly.
+Symptom: Z.AI users can browse models and select one, but every generation fails with HTTP 404.
+2. Model dropdown is ignored for all non-OpenRouter providers
+aiService.js:65-73
+if (this._provider !== 'openrouter') {
+  return CardStorage.getCustomModelId() || model || '';
+}
+model is the value of #aiModelSelect (aiChat.js:118). For xai/zai/chutes/deepseek/nanogpt/custom, the saved "Model ID" text field always wins.
+Symptom: on a named provider, changing the navbar model dropdown has no effect — requests keep going to the model typed in Settings.
+3. Aborted callbacks from a previous request clobber the new request's state
+aiChat.js:199-221 (catch handler) reached via aiChat.js:880-884
+this._abortAll();
+window.AppState.isAiLoading = false;
+...
+this.send(lastUserPrompt);
+_abortAll() rejects the in-flight fetches asynchronously, but send() runs synchronously right after and sets isAiLoading = true. The old closures' .catch then fire and run window.AppState.isAiLoading = false; this.updateSendButton(); (:217-218) plus chatHistory.push({role:'assistant', content: combinedContent.trim()}) (:213) against the new history array.
+Symptom: after Retry, the send button re-enables and the Stop button disappears while generation is still streaming; a partial/stale assistant message from the aborted run is appended to the new conversation and persisted.
+4. Retry on any message retries the last prompt and deletes unrelated messages
+aiChat.js:849-856 → aiChat.js:867-905
+retryBtn.addEventListener('click', (e) => { ...; this.retryLastMessage(); });
+retryLastMessage() takes no message identity: it scans for the last user entry, chatHistory.splice(lastUserIdx), and then unconditionally removes the last two non-system .ai-message nodes (:897-902). Every assistant bubble in a long transcript gets this same button.
+Symptom: clicking Retry on the 1st of 10 messages regenerates the 10th prompt and erases the last two bubbles from the view.
+5. Retried prompt vanishes from the transcript
+aiChat.js:900 removes the user bubble; aiChat.js:124-127
+if (!retryPrompt) { input.value = ''; this.addChatMessage('user', prompt); }
+Retry passes retryPrompt, so the user bubble is deleted from the DOM but never re-added — while chatHistory.push({role:'user', ...}) at :131 still records it.
+Symptom: after a Retry, the AI answer appears with no visible question above it; the message reappears only after a reload.
+6. "Review & Apply" silently does nothing when the model fences its answer
+aiChat.js:632-641
+let clean = content.replace(/```[\s\S]*?```/g, '').replace(/^\[.*?\]\s*/gm, '').trim();
+if (clean) { showPreview(...); }
+Fenced blocks are deleted, not unwrapped. Models commonly wrap the whole field in ``` — clean becomes '', the if fails, and there is no else toast.
+Symptom: clicking Review & Apply does nothing at all; no modal, no error, no console output. The generated text is unrecoverable from the UI except via "View full result" + manual copy.
+MEDIUM
+7. Passing a signal disables the request timeout entirely
+aiService.js:352 and aiService.js:424
+signal: signal || AbortSignal.timeout(120000),
+Both aiChat call sites always pass controller.signal (:177, :507), so the 120 s timeout is dead code in practice. There is no AbortSignal.any([...]) combination.
+Symptom: a stalled provider (connection open, no bytes) leaves the promise pending forever — send button stuck spinning, isAiLoading never cleared, until the user finds the Stop button.
+8. shorten/tone/grammar read a fallback field but always write description
+aiChat.js:737, :739, :753 vs aiChat.js:766-768
+shorten: '...\n\nCurrent:\n' + (activeCard.description || activeCard.personality || activeCard.first_mes || '(empty)'),
+...
+shorten: 'description', tone: 'description', grammar: 'description',
+Symptom: on a card with an empty description, "Shorten"/"Fix Grammar"/"Change Tone" feeds the AI the personality text and then writes the result into description — content is duplicated into the wrong field and personality is left untouched.
+9. _extractJSONArray restart offset is wrong, so the second array is never found
+aiChat.js:664-675
+start = i + 1;
+depth = 0;
+After a candidate fails validation, start is moved to the character after the closing ], not to the next [. When the next array is found, candidate = text.slice(start, i+1) includes all the prose between the two arrays, so JSON.parse always throws.
+Symptom: greeting generation fails with "failed to parse greetings" whenever the response contains any earlier bracketed text (e.g. Here are 3 greetings [see below]: before the real array).
+10. Clear Chat does not abort in-flight generation
+aiChat.js:1052-1059 — no _abortAll() call, unlike retryLastMessage (:880) and CardManager._doSelect (cardManager.js:477). The running .then still executes chatHistory.push(...) + CardStorage.saveChatHistory(...) (:191-192) against the freshly emptied array.
+Symptom: clearing the chat mid-generation shows an empty panel, but an orphan assistant message is written to storage and reappears on the next card switch/reload.
+11. Bracket-prefixed content lines are stripped from applied text
+aiChat.js:632 — .replace(/^\[.*?\]\s*/gm, '') runs on every line, not just the [Field] header the prompt asks for.
+Symptom: W++/bracket-formatted descriptions get mangled — [Name: Yeon-ju] likes cats becomes likes cats. Visible in the diff modal before accepting, so recoverable, but silent.
+12. fetchKeyInfo uses the OpenRouter-only /key route for every keyed provider
+aiService.js:244-253 + settings.js:201-203 (only custom is excluded)
+Symptom: on xai/deepseek/zai/chutes/nanogpt, every completed generation fires Settings.refreshCredits() (aiChat.js:196, :219) → a doomed request to e.g. https://api.deepseek.com/v1/key → Failed to fetch credits: HTTP 404 in the console and the credits badge hidden.
+13. Context bar ignores the user's Max Tokens setting and models the wrong prompt
+aiChat.js:1115-1118 uses getPrompt('fullCard'), but the default send path (buildSystemPrompt, :238) uses getPrompt('assistant') plus the field body, greetings list and instructions. aiChat.js:1140-1150 derives output size from max_output_tokens/resolveMaxTokens and never reads CardStorage.getMaxTokens(), which is what actually goes on the wire (aiService.js:281-282).
+Symptom: the bar under-reports input and over-reports output; with Max Tokens set to e.g. 1000 it can still show "⚠ Exceeds limit!" based on a 16 384-token assumption.
+LOW
+14. A new bootstrap.Modal is constructed on every open, leaking listeners
+aiChat.js:374 (new bootstrap.Modal(modalEl)) and aiChat.js:571 (new bootstrap.Modal('#aiPreviewModal')). Bootstrap's Modal constructor calls _addEventListeners(), removed only by dispose(), which is never called; Data.set silently overwrites the registry entry for the same key.
+Symptom: after N opens, one Escape keypress runs N hide paths; occasional stuck backdrop / modal-open scroll lock.
+15. The "select a field" guard is unreachable and silently edits description
+aiChat.js:86-91 returns ['description'] when the set is empty, so if (selectedFields.length === 0) at :103-106 can never fire.
+Symptom: with every chip deselected, Send silently rewrites the description instead of warning.
+16. Loading an empty session leaves a completely blank panel
+aiChat.js:1025 clears #aiChatMessages (removing the welcome block and its quick-action buttons), then renderChatHistory() returns early at :926 when chatHistory.length === 0.
+Symptom: clicking a session whose message list failed to persist leaves an empty chat with no welcome screen and no quick actions until reload.
+17. _finalizeGroupedCard wipes the header icon
+aiChat.js:417 — header.textContent = msg replaces the <i class="bi bi-robot"> child.
+Symptom: the robot icon disappears from the group header when the batch finishes.
+18. updateContextBar drops the newest history message
+aiChat.js:1121 calls _getRecentHistory(10), whose contract (:435-438) is "excludes the last entry (the current user message just pushed)" — but nothing has been pushed at context-bar time, so the last real assistant message is excluded from the estimate.
+19. _isUnsupportedFormatError is too broad
+aiService.js:291-296 matches unsupported, not support, invalid parameter anywhere in the message, then silently retries without response_format.
+Symptom: an unrelated 400 (e.g. "model does not support this input") causes a second full billed request whose JSON-mode guarantee is gone, so _extractJSON may then fail — the user sees "Response is not valid JSON" instead of the real API error.
+20. [DONE] only breaks the inner line loop — needs verification
+aiService.js:468 — if (data === '[DONE]') { eventType = ''; break; } exits the for (const line of lines) loop, not the while (true) reader loop. Termination therefore depends on the server closing the response. With OpenAI/OpenRouter this is fine; behind a proxy that keeps the stream open it would hang, and finding 7 means there is no timeout to rescue it. I could not verify a provider that does this.
+Checked and clean
+No XSS found in either file: every innerHTML sink with model/card/user data goes through Ui.escapeHtml first (aiChat.js:169, :290, :371, :498, :551, :995) or textContent (:372, :417, :541, :1167); addChatMessage (:799) routes through Ui.renderMarkdown, which DOMPurify-sanitizes and falls back to escaped text while the CDN libs load. No API key reaches a URL, a log line, or an error message — keys are only ever set as an Authorization header (aiService.js:169, :341, :413), and the console.warn at :480 prints response payload only.
+
+
+Critical / breaks a feature outright
+1. Z.AI provider can never generate — every request 404s
+aiService.js:13 baseUrl is https://api.z.ai/api/paas/v4, and _v1BaseUrl() (:321-323) is applied unconditionally in chat()/chatStream() (:339, :411) → POSTs go to /api/paas/v4/v1/chat/completions. fetchModels() (:117) skips _v1BaseUrl, so the model list loads fine and the provider looks configured.
+2. Model dropdown is ignored for every non-OpenRouter provider
+aiService.js:65-73 — _resolveModel returns CardStorage.getCustomModelId() || model for xai/zai/chutes/deepseek/nanogpt/custom. Changing #aiModelSelect has no effect; the Settings "Model ID" text field always wins.
+3. "Review & Apply" silently does nothing when the model fences its output
+aiChat.js:632-641 — content.replace(/``\s\S*?/g, '')` *deletes* fenced blocks instead of unwrapping them. If the model wraps the whole field in , clean === '', the if (clean) fails, and there is no else → no modal, no toast, no console output.
+4. Retry regenerates the wrong prompt and deletes unrelated messages
+aiChat.js:849-856 puts a Retry button on every assistant bubble, but retryLastMessage() (:867-905) takes no message identity: it scans for the last user entry, chatHistory.splice(lastUserIdx), then blindly removes the last two non-system .ai-message nodes (:897-902). Retry on message 1 of 10 regenerates prompt 10 and erases the last two bubbles.
+5. Retried prompt disappears from the transcript
+:900 removes the user bubble; send() skips addChatMessage when retryPrompt is set (:124-127). The answer appears with no question above it, until reload.
+6. Aborted callbacks from the previous run corrupt the new run
+retryLastMessage calls _abortAll() then send() synchronously (:880-884). The old fetches reject asynchronously, so the stale .catch (:199-221) later runs isAiLoading = false, updateSendButton(), and pushes a partial assistant message into the new history array and persists it.
+7. _extractJSONArray restart offset is wrong → greetings parsing fails
+aiChat.js:664-675 — after a failed candidate it sets start = i + 1 (past the ]) instead of advancing to the next [. The next candidate therefore includes all prose between the two arrays and JSON.parse always throws. Any response like Here are 3 greetings [see below]: [...] fails.
+8. Service worker serves stale JS/CSS forever
+sw.js:9 CACHE_PREFIX = 'stce-v2.4' is hand-maintained, and :87 strips the query string (new Request(url.pathname)) before a cache-first lookup. Bumping index.html's ?v=23 does nothing — the SW answers from cache. Cache invalidation depends entirely on someone remembering to edit that string.
+High
+9. Request timeout is dead code
+aiService.js:352 and :424 — signal: signal || AbortSignal.timeout(120000). Both aiChat call sites always pass controller.signal (:177, :507), and there's no AbortSignal.any([...]). A provider that opens the connection and sends nothing hangs forever with the send button spinning.
+10. "Clear all data" does not revoke the API key
+storage.js:617-630 clearAll() wipes localStorage + IDB but never resets the in-memory _secrets, _secretUnlocked, or _migrationDone. settings.js:358 AIService.setProvider('openrouter') clears _apiKey, but _getApiKeyForProvider() (aiService.js:59-63) falls back to CardStorage.getApiKey() → still returns the cached key. The key stays live until a page reload.
+11. window.syncFloatLabels doesn't exist — wizard labels overlap prefilled text
+ui.js:287 exports window.syncFloatingLabels; wizard.js:97 and :252 call window.syncFloatLabels. Guarded by if (...), so it's a silent no-op: restored/prefilled wizard values never get their labels floated.
+12. Fetch-image button label is always reverted
+wizard.js:657-665 sets the button text to "refetch others"/"fetch images", then finally { btn.innerHTML = origHtml; } (:672) restores the pre-fetch label. The state logic above it is unreachable in effect.
+13. Quick tag chips don't highlight when clicked
+wizard.js:482-498 — the click handler updates input.value and calls _renderQuickTags(), but never updates this._tagSearch, which is what :473-475 reads to compute activeTags.
+14. beforeunload prompt fires even after autosave
+ui.js:370-378 prompts whenever AppState._dirty. But Editor._doSync (editor.js:213) sets _dirty = true on every debounced keystroke and it's only cleared by an explicit Save or a card switch — so closing the tab nags every time despite the data already being persisted.
+15. Panel drag dies after 5 seconds
+ui.js:858 const safetyTimer = setTimeout(up, 5000) unconditionally tears down the drag listeners. Slow/careful resizing simply stops responding mid-drag.
+16. getSelectedFields() makes its own guard unreachable
+aiChat.js:86-91 returns ['description'] when the set is empty, so if (selectedFields.length === 0) at :103-106 can never fire. With all chips deselected, Send silently rewrites the description.
+17. Card deletion orphans chat data forever
+storage.js:471-483 deleteCard() never calls clearChatHistory(id); cardManager.batchDelete (:137-150) doesn't either. stce_aiChatHistory_<id>, stce_chatSessions_<id> and every stce_sessionMsgs_<id>_<ses> key survive the card, growing localStorage without bound.
+18. Delete is not atomic — orphaned IDB records
+storage.js:472-479 writes the filtered index to localStorage before awaiting the IDB deletes. If IDB throws, the card is gone from the UI but its record and image stay in IndexedDB permanently. cardManager.js:576-582 catches the error and shows a toast, so the user thinks nothing happened.
+19. CSP exists only on the dev server
+server.js:54 sets a detailed CSP, but production is GitHub Pages (.github/workflows/deploy.yml) which serves no headers, and public/index.html has no <meta http-equiv="Content-Security-Policy">. All of the script-src/connect-src hardening is absent where the app is actually hosted.
+20. Proxy forwards all client headers upstream
+server.js:112-115 copies every inbound header except Host — including Cookie and X-Forwarded-* — to openrouter.ai.
+Medium
+21. fetchKeyInfo hits OpenRouter's /key route for every keyed provider
+aiService.js:244-253; settings.js:201 only excludes custom. Every completed generation calls refreshCredits() (aiChat.js:196, :219) → e.g. https://api.deepseek.com/v1/key → HTTP 404 in console and the credits badge hidden.
+22. _isUnsupportedFormatError is too broad → double-billed retry
+aiService.js:291-296 matches unsupported, not support, invalid parameter anywhere in the message, then silently reissues the request without response_format. An unrelated 400 costs a second full request and loses the JSON guarantee, so the user then sees "not valid JSON" instead of the real API error.
+23. shorten/tone/grammar read one field and write another
+aiChat.js:737, :739, :753 use description || personality || first_mes; the field map at :766-768 always writes description. On a card with an empty description, personality text gets rewritten into description.
+24. Bracket-prefixed lines are stripped from applied content
+aiChat.js:632 — .replace(/^\[.*?\]\s*/gm, '') runs on every line, not just the [Field] header. [Name: Yeon-ju] likes cats → likes cats. W++/bracket-formatted descriptions get mangled.
+25. Clear Chat doesn't abort in-flight generation
+aiChat.js:1052-1059 has no _abortAll() (unlike retryLastMessage and cardManager._doSelect:477). The running .then still pushes and persists an assistant message into the emptied array, which reappears on the next reload.
+26. Context bar models the wrong prompt and ignores Max Tokens
+aiChat.js:1115-1118 uses getPrompt('fullCard'), but the send path uses getPrompt('assistant') plus the field body and greetings (:238). :1140-1150 derives output size from max_output_tokens/resolveMaxTokens and never reads CardStorage.getMaxTokens(), which is what actually goes on the wire (aiService.js:281-282). With Max Tokens set to 1000 it can still warn "Exceeds limit!" based on a 16384 assumption.
+27. Three different token estimators disagree
+tokenizer.js:62 uses length/3; aiService.js:519 and aiChat.js:1135 use length/4. editor.updateCharCounts uses quickCount (/3) while the context bar falls back to /4 — the exact inconsistency the comment at editor.js:287-288 claims to have fixed.
+28. Drag-reorder of the card list has no visible effect
+cardManager.js:448-451 persists the new index order, but renderCardList always pipes through _sortCards (:320) with _sortMode defaulting to 'name-asc' (:113). The reorder is saved and then immediately re-sorted away. (Needs confirmation that #cardSortSelect has no "manual" option.)
+29. Named providers and Custom share one API-key slot
+settings.js:13-14, 31 — both #namedApiKeyInput and #customApiKeyInput write CardStorage.setCustomApiKey. Configuring xAI then switching to a local endpoint overwrites the xAI key.
+30. refreshModelsList races the modal hide animation
+settings.js:57 calls modal.hide(), then :60 calls refreshModelsList(), which decides between form values and stored values via modalEl.classList.contains('show') (:222). Bootstrap removes show after the transition, so which credentials are used depends on timing.
+31. Markdown library loading retries forever when offline
+ui.js:147-181 — on failure _markdownReady stays false and _markdownLoading is reset to null, with no backoff. Every subsequent renderMarkdown injects two more <script> tags.
+32. Bootstrap modals are re-constructed on every open and never disposed
+aiChat.js:374, :571, cardManager.js:178. Each new bootstrap.Modal() re-runs _addEventListeners(); Data.set overwrites the registry entry, so the old listeners leak. After N opens, one Escape runs N hide paths — occasional stuck backdrop / scroll lock.
+33. Re-exporting a PNG appends a duplicate chara chunk
+exportUtils.js:149-190 inserts a new tEXt chara chunk before IEND without removing an existing one. parsePNG overwrites charaRaw on each match so it reads the last (new) one, but the file grows every round-trip and parsers that take the first chara chunk get stale data.
+34. Chat history writes fail silently on quota
+storage.js:534, :572, :603 — catch { /* silently fail */ }. The rest of the codebase surfaces error.storageFull; here the conversation is just lost.
+35. Service worker caches every same-origin GET with no cap
+sw.js:100-107 — non-shell branch cache.puts every OK response into the app cache. Unbounded growth, no expiry. The cache.open().then(put) is also not wrapped in event.waitUntil, so writes can be dropped when the handler settles.
+36. [DONE] only breaks the inner line loop
+aiService.js:468 — break exits for (const line of lines), not the while (true) reader loop. Termination relies on the server closing the response; combined with #9 (no timeout) a proxy that keeps the stream open would hang.
+37. Undo/redo doesn't cover greetings or lorebook
+ui.js:605-610 only registers beforeinput snapshots for the 12 top-level #edit* fields. Editing a greeting or lorebook entry records nothing, so the next Ctrl+Z reverts an unrelated earlier field instead.
+38. importWorkspace has no dedupe
+settings.js:474-484 — CardEngine.normalize mints a fresh _id each time, so importing the same workspace twice silently doubles the library. processFiles has duplicate detection (cardManager.js:40-56); this path doesn't.
+39. updateStorageUsage reports whole-origin usage
+settings.js:338-343 prefers navigator.storage.estimate().usage, which includes SW caches and unrelated storage, and displays it as the app's card data.
+Low
+40. _loadSession on an empty session leaves a blank panel — aiChat.js:1025 clears #aiChatMessages (removing the welcome block and quick actions), then renderChatHistory returns early at :926 for empty history.
+41. _finalizeGroupedCard wipes the header icon — aiChat.js:417 header.textContent = msg replaces the <i class="bi bi-robot"> child.
+42. _getRecentHistory drops the newest message in the context bar — its contract (:435-438) excludes the last entry as "the user message just pushed", but at updateContextBar time (:1121) nothing has been pushed, so a real assistant message is excluded from the estimate.
+43. Char counts appear on only 4 of 12 fields — editor.js:284 looks for .char-count in el.parentElement; public/index.html only has it at lines 246, 259, 303, 330. Scenario, example messages, creator notes, post-history, tags, creator, version, and name silently get none.
+44. PNG-imported cards get _hasImage: false — cardEngine.js:16-25 sets _imageBase64 and _thumbnail but never _hasImage (the webp branch at :32 does). Only cosmetic today since image presence is resolved via IDB lookup.
+45. _createThumbnail fires a spurious request to the page URL — cardEngine.js:310 sets img.src = '' before resolving, which makes the browser re-resolve the document URL and fire onerror.
+46. serveStatic treats zero-byte files as missing — server.js:38 if (file.size > 0). A legitimately empty asset 404s or falls through to the SPA fallback.
+47. Access-Control-Allow-Origin: * on all static responses — server.js:45, combined with connect-src http: in the CSP.
+48. storage event handler over-reacts — ui.js:906-909 re-renders the whole card list for any stce_-prefixed key change in another tab, including stce_theme and stce_panelLeft.
+49. _fetchImage dereferences the button without a null check — wizard.js:567-568, inconsistent with the deliberately null-safe on() helper at :122-125.
+50. "Remove image" nukes all three slots — wizard.js:686-705 revokes and clears the entire _fetchedImages array, not just the selected one.
+51. Final wizard step auto-fetches from api.waifu.im — wizard.js:309-312 fires a third-party request with no user action.
+52. exportSettings/importSettings are asymmetric on credentials — settings.js:383-384 deliberately excludes customApiKey from export, but :406 imports it and writes it into the visible inputs.
+Checked and clean
+No XSS found: every innerHTML sink carrying card/model/AI data goes through Ui.escapeHtml/escapeAttr or textContent, and renderMarkdown DOMPurify-sanitizes with an escaped-text fallback while the CDN libs load. No API key reaches a URL, log line, or error message — keys only ever appear as an Authorization header. All 202 I18n.t('...') keys used across js/ and index.html resolve (the only apparent miss, wizard.type., is a dynamic concat whose nine variants all exist). All ~105 DOM ids referenced from JS exist in public/index.html. Path traversal in server.js:153-165 is correctly guarded, and the proxy's Origin check plus redirect: "error" close the SSRF/open-relay holes.
+
+Critical — I missed these entirely
+53. Panel resize throws a TypeError on every mouse release
+ui.js:858 declares const safetyTimer; ui.js:854, inside up(), does safetyTimer = null. Assignment to a const → TypeError on every mouseup/touchend/blur, thrown after clearTimeout but before removeEventListener and the localStorage.setItem persistence. So: listeners leak, body.resizing is never removed, widths never persist, and setupErrorBoundary (ui.js:412) fires a user-visible red error toast every single time you finish resizing a panel. This supersedes my #15 — the drag doesn't just die after 5s, the cleanup path is broken outright.
+54. Wizard image selection never reaches the card
+wizard.js:711 / :747 call this._modal.hide(), which fires hidden.bs.modal → _onModalClose() (:48-58) → revokes every object URL, sets _fetchedImages = [] and _selectedImageIdx = -1. Only then do _generateBlank (:720) and _generateWithAI (:796) test if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) — always false. The avatar the user picked in the wizard is silently discarded, and the blob is already revoked so it's unrecoverable.
+55. XSS via character_book.entries[].order in imported cards
+editor.js:476 — value="' + (entry.order ?? 100) + '". Every sibling field uses Ui.escapeAttr (:473-475); order does not. It comes straight from untrusted card JSON via normalize's JSON.parse(JSON.stringify(source.character_book)) (cardEngine.js:189), which does no type validation. A card with "order": "1\" onfocus=alert(1) autofocus x=\"" injects attributes as soon as the user opens the Lorebook tab. Given the API key lives in localStorage, this is exfiltration-capable — the one genuine XSS in the codebase, and it invalidates my "no XSS found" conclusion.
+56. check-i18n.mjs silently skips 10 of 21 dictionaries
+The brace matcher (:33-45) only tracks ' as a string delimiter. i18n.js:706 contains "Langue de l'interface (rechargez la page si manquant)" — a double-quoted value with an apostrophe. The parser flips into inStr and stays there, swallowing braces until the next lone '. I instrumented it: the fr block spans lines 537→5756, absorbing es, de, pt, ja, zh, ko, el, ru, and it. It coincidentally yields exactly 520 keys, so the tool prints ✓ fr (520 keys) and all 21 languages in sync. Drift in any of those 10 languages is undetectable. (i18n.js:1040 has the same n'a problem.)
+57. Service worker precache is all-or-nothing and swallows the failure
+sw.js:50 — cache.addAll(...) is atomic per spec; one 404 in the 26-entry SHELL_FILES aborts the whole thing, and .catch(() => console.warn(...)) (:51) resolves the waitUntil successfully. The SW activates, reports installed, and has an empty cache. Offline mode appears to work and doesn't.
+High
+58. Dropping an image on the avatar also imports it as a new card
+ui.js:580-584 — the avatar's drop handler calls e.preventDefault() but never e.stopPropagation(). The event bubbles to the document handler at :474-481, whose guard is if (!dropZone.contains(e.target)) — the avatar is not inside #dropZone, so it passes and calls CardManager.processFiles(files). Dropping a character PNG onto the avatar sets the avatar and imports a duplicate card.
+59. CSP blocks the image CDN the wizard actually fetches from
+wizard.js:616 queries https://api.waifu.im/images (allowlisted in server.js:54), but :624 then does fetch(item.url) — those URLs are on cdn.waifu.im, which is not in connect-src. img-src ... https: permits displaying them but the code fetches them as blobs. Under server.js all three slots fail with "Failed to fetch images". Works on GitHub Pages only because #19 means there's no CSP there at all.
+60. Wizard language selector: 12 of 16 options silently fall back to English
+wizard.js:751 — const langMap = { en, fr, de, ja }, but index.html:866-881 offers 16 options (it, pl, tr, nl, uk, vi, id, hi, ar, he, fa, ...). For any of those, langMap[a.language] is undefined and a.languageCustom is empty (it's only filled for other), so langText becomes 'English' (:752). Pick Turkish, get an English card, no warning.
+61. Provider API keys are stored in one shared slot and cross-sent
+settings.js:186-187 prefills both #namedApiKeyInput and #customApiKeyInput from the same CardStorage.getCustomApiKey(), and :31 writes both back to setCustomApiKey. There is only apiKey and customApiKey in storage.js:_keys. Configure DeepSeek, switch to xAI, save → the DeepSeek key is transmitted in an Authorization: Bearer header to api.x.ai. This is a credential leak to a third party, not just the overwrite I logged as #29.
+62. AI message fade-ins are dead code
+animations.js:17 — if (!els || !els.length) return;. aiChat.js:280, :863, :916 and cardManager.js pass a single Element, which has no .length. Every AI message and grouped-card animation is a silent no-op.
+63. renderMarkdown mutates HTML after sanitizing it
+ui.js:199 runs DOMPurify.sanitize(html), then :202-205 string-replace {{char}}: / {{user}}: with <span> markup across the whole document — including inside attribute values that survived sanitization (e.g. an href="{{char}}:x"). Injecting tags into post-sanitization output is the classic mutation-bypass pattern. Card text and AI output are both untrusted. Exploitability needs a PoC, but the pattern is wrong regardless.
+**64. Unlimited OpenRouter keys display "$0.00 remaining"**
+`aiService.js:265` — `limit_remaining: key.limit_remaining ?? 0` converts OpenRouter's `null` (meaning unlimited) to `0`. `settings.js:205,207` then test `info.limit_remaining !== null`, which can never be false. The badge reads `$0.00 and the account looks drained. The limit field has the mirrored bug (:266 → || 0, then :206 shows "Unlimited" for 0`), so the two rows contradict each other.
+65. Saving a named provider destroys the Custom base URL
+settings.js:29-30 — const url = provider === 'custom' ? customApiUrl : info.baseUrl; CardStorage.setCustomApiUrl(url);. Saving with DeepSeek selected writes https://api.deepseek.com/v1 into the single customApiUrl slot. Your LM Studio endpoint is gone; switching back to Custom shows DeepSeek's URL. (Related to #29 but a distinct storage slot.)
+Medium
+66. Wizard draft loses the current step's edits — _onModalClose (:56) calls _saveDraft() without a preceding _collectStep(this._step), so _answers is one step stale. Closing the modal on step 3 silently discards everything typed on step 3.
+67. SW offline fallback throws instead of falling back — sw.js:106 .catch(() => caches.match(event.request)) resolves to undefined on a cache miss; respondWith(undefined) is a TypeError. There is also no navigation fallback to index.html for the non-shell branch, so offline SPA deep links fail hard.
+68. Pre-colon SW caches leak forever — sw.js:64-67 derives cachePath from the substring after :. Caches named stce-v2.1 / stce-v2.2 (no colon) yield '', never equal BASE_PATH, and are never deleted. They persist indefinitely and inflate the #39 storage readout.
+69. response.clone() after the response is returned — sw.js:92 and :103 call cache.put(req, response.clone()) inside a non-awaited .then() while :94/:105 already returned response to the page. If the page starts consuming the body first, clone() throws, unhandled. Neither cache.open chain is wrapped in event.waitUntil, so writes can also be dropped.
+70. Interrupted wizard step animation leaves two steps visible — animations.js:34-37 pauses the active timeline; a paused anime.js timeline never runs its complete callbacks, so outEl.classList.add('d-none') (:61) never executes. wizard.js:345-351's 400 ms safety net only un-hides the incoming element. Rapid Next→Next leaves step 1 and step 3 on screen together.
+71. Modal focus trap includes hidden elements and so never engages — ui.js:394,400 select button, [href], input, select, textarea, [tabindex] with no :not([hidden]), no d-none filter, and no disabled check. The settings modal has #settingsFileInput (hidden) plus three d-none provider sections. document.activeElement therefore rarely equals the computed first/last, so Tab escapes the modal entirely.
+72. Lorebook accordion is keyboard-inaccessible — editor.js:465 renders the header as a <div data-lore-toggle> with a click handler only: no tabindex, no role="button", no keydown. Lorebook entries cannot be expanded without a mouse. (charAvatar at index.html:175 gets this right, so it's an inconsistency, not a house style.)
+73. Textareas in inactive tabs collapse to height: 0 — editor.js:273-277 iterates all .editor-textarea, including those in display:none Bootstrap tab panes where scrollHeight === 0. No shown.bs.tab handler re-runs it, so Personality/Advanced/Lorebook fields open clamped to the CSS min-height regardless of content length. Same mechanism affects a textarea toggled to Preview (ui.js:636).
+74. Reordering greetings discards in-flight typing — the up/down/delete handlers (editor.js:329-372) mutate alternate_greetings and re-render immediately, while a 500 ms debounced write from the textarea you were just typing in (:375) is still pending. The gen !== self._greetGen guard re-reads the DOM — but the DOM has already been rebuilt from the stale array, so the characters are gone.
+75. Cross-card write via the _pendingSync queue — editor.js:196-199 captures activeCard at call time but _doSync runs after the previous promise settles, and _captureFields reads the DOM at execution time. _doSelect sets AppState.activeCard = fullCard (cardManager.js:484) ~30 lines before populateEditor refreshes the DOM (:513). A debounced input landing in that window writes card B's DOM values into card A's object and persists them. Needs a runtime repro to pin the exact window, but the ordering is there.
+76. flashSaved erases the dirty dot — ui.js:226-235 captures btn.innerHTML and restores it 1500 ms later. If you type during that window, setDirty(true) appends a .dirty-dot which the restore then wipes, while is-dirty stays on the button. Unsaved-changes indicator silently disappears.
+77. Toast countdown intervals leak on forced eviction — ui.js:18-25 calls inst.dispose() then oldest.remove(). Bootstrap's dispose does not emit hidden.bs.toast, so the clearInterval registered at :50 never runs. Every toast beyond the third leaves a 200 ms interval ticking forever on a detached node.
+78. Preview stays as escaped plaintext when the CDN is slow — ui.js:185-189 returns escaped text and kicks off _ensureMarkdownLibs(), but there is no callback to re-render once marked/DOMPurify land. The first Preview click after a cold load shows raw markdown until you toggle twice.
+79. AIService.setProvider mutates live state from an unsaved dropdown — settings.js:89 (toggleProvider, fires on every change) and :234 (refreshModelsList). Open Settings, switch provider, click Refresh Models, press Escape without saving → the app is now talking to a provider that was never persisted. No hidden.bs.modal handler reverts it.
+80. importWorkspace doesn't sync the provider it just changed — settings.js:487 calls CardStorage.setProvider(...) but never AIService.setProvider(...) nor updates #providerSelect. The imported provider takes effect only after a reload.
+81. securityWarning only shows for OpenRouter — settings.js:100 classList.toggle('d-none', !isOpenRouter). Users of named providers and Custom store keys in the same localStorage and never see the warning.
+82. The OpenRouter key cannot be cleared from the UI — settings.js:23 if (apiKey) await CardStorage.setApiKey(apiKey);. Blanking the field and saving is a no-op; the old key persists. customApiKey at :31 is written unconditionally, so the two behave oppositely. Only "Clear all data" removes it — and per my #10 that doesn't clear the in-memory copy either.
+83. Duplicate keys in the en dictionary — wizard.search and wizard.quick each appear twice. Invisible to the checker because keysOf (:50-53) collects into a Set. The second literal silently wins.
+84. HTML fallback text contradicts the i18n string on key storage — index.html:677 says the key is stored "in plaintext"; the settings.securityNote value says "encrypted at rest ... with a key tied to this address". Only visible pre-I18n.init(), but they disagree.
+85. Named providers with an empty Model ID keep a stale OpenRouter default — settings.js:34-37 only calls setDefaultModel when customModelId is truthy. Otherwise _resolveModel (aiService.js:69-71) returns '' || model, i.e. the leftover OpenRouter model ID, which gets POSTed to e.g. DeepSeek.
+86. renderModelList assumes name/id/provider are present — settings.js:294 calls .toLowerCase() on m.name, m.id, m.provider unguarded. _fetchCustomModels (aiService.js:221-230) defaults name to m.id but leaves id as whatever the server sent; a compatible server returning an entry without id throws and blanks the browser.
+87. _accentShades mix weights are inverted — settings.js:141-142: --accent-300 uses mix(white, 0.42) (58 % white) while --accent-400 uses mix(white, 0.72) (28 % white). The 300 shade is lighter than 400, inverting the ramp the rest of the stylesheet assumes.
+Low
+88. escapeHtml returns '' for all falsy input — ui.js:71 if (!str) return ''; swallows 0 and false. Harmless today; a trap if ever used on numeric fields.
+89. escapeHtml doesn't escape quotes — ui.js:70-73 uses div.textContent/innerHTML, which leaves " and ' intact. Correct for text context, wrong if it's ever used in an attribute — which is exactly what escapeAttr exists for. Worth an assertion rather than a convention.
+90. wasDirty is dead — ui.js:95 assigned, never read.
+91. updateUIState → setDirty(AppState._dirty) is a circular no-op — ui.js:91 reads the flag and :96 writes it straight back.
+92. _doSelect bypasses Ui.setDirty — cardManager.js:515 sets AppState._dirty = false directly, then :516 calls updateUIState(), so it works by accident; the dot state depends on statement order.
+93. modelSelect.value = modelId self-assignment — wizard.js:744, dead code.
+94. Ctrl+Shift+S can never match — ui.js:888 compares e.key === 'y' / 'z'; with Shift held, e.key is uppercase. The ? handler at :900 works only because ? is the shifted form.
+95. Five animation helpers are never called — chevronRotate, pulseIcon, toastEnter, skeletonReveal, progressBounce (the last is used once). Dead code in animations.js.
+96. slideStep's finish() fires onDone even on a stale token — animations.js:55-58 guards only the _activeTimeline reset, not the callback, so a superseded animation still runs the new step's completion logic.
+97. Lorebook debounced handlers have no generation token — editor.js:510-583 capture idx at render time. Deleting an entry re-renders but any pending 600 ms write fires against the now-shifted index. The greetings code solves exactly this with _greetGen (:304, :379); the lorebook doesn't.
+98. syncGreetings dereferences activeCard unguarded — editor.js:394,403. Reached from the beforeunload path (ui.js:372) and from debounced greeting callbacks after a card delete.
+99. Lorebook treats entry.key as a comma-joined string — editor.js:454 does (entry.key || '').split(','). The V2 spec defines keys as an array. A spec-conformant card silently loses all its keywords. Needs a spec cross-check before acting, but the ST-vs-spec mismatch is real.
+100. Unrecognized position values are rewritten to after_char — editor.js:483 marks the after_char option selected for anything that isn't exactly before_char, so V3 positions are silently normalized on the next save.
+101. Multiple "default greeting" badges — editor.js:314 const isDefault = g === card.first_mes; compares by value, so duplicate greeting texts all get the star badge.
+102. Empty-state early returns skip DOM cleanup — editor.js:429-432 (lorebook) and :308-311 (greetings) return after writing the placeholder, before the handler-binding code. Fine as written, but any future code added below those returns won't run for empty cards.
+103. Cross-tab "preserve remote changes" doesn't work — ui.js:99-104: when local edits win, _pendingRemoteReload is set, then the local save writes to IndexedDB and then setDirty(false) triggers _reloadActiveCard, which reloads the value the local save just wrote. The remote change is gone. The mechanism runs but achieves nothing.
+104. Repeated new bootstrap.Modal(...) on the same element — ui.js:486, :901 (#shortcutsModal) and cardManager.js:178. Bootstrap's Data.set overwrites the registry entry without disposing, so each construction stacks another set of backdrop/Escape listeners. Same root cause as my #32; these are two more call sites.
+Net: 52 additional findings (#53–#104), including 5 I'd rate critical. The two that most change my earlier report are #53 (the const reassignment — a hard TypeError on a routine interaction, which I walked right past) and #55 (a real XSS via entry.order, which contradicts my "no XSS found" sign-off). #56 is the reason so much of this was invisible: the i18n guard reports success while structurally unable to parse 10 of 21 dictionaries.

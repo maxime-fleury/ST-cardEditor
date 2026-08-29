@@ -45,13 +45,52 @@ const Editor = {
     this._redoStack = [];
   },
 
+  // Greetings + lorebook are rendered sub-sections, not top-level #edit* fields,
+  // so their undo entries snapshot the whole container value and restore by
+  // re-rendering (#37). `kind` is 'greetings' | 'lorebook'.
+  _snapshotSub(kind) {
+    const { activeCard } = window.AppState;
+    if (!activeCard) return;
+    const prop = kind === 'greetings' ? 'alternate_greetings' : 'character_book';
+    this._undoStack.push({
+      field: kind,
+      prop,
+      oldValue: JSON.parse(JSON.stringify(activeCard[prop] || (kind === 'greetings' ? [] : { entries: [] }))),
+    });
+    if (this._undoStack.length > this._maxUndo) this._undoStack.shift();
+    this._redoStack = [];
+  },
+
+  _applySubEntry(entry, newValue) {
+    const { activeCard } = window.AppState;
+    if (!activeCard) return;
+    if (entry.prop === 'alternate_greetings') {
+      activeCard.alternate_greetings = newValue;
+      this.renderGreetings(activeCard);
+    } else if (entry.prop === 'character_book') {
+      activeCard.character_book = newValue;
+      this.renderLorebook(activeCard);
+    }
+  },
+
   async undo() {
     if (!this._undoStack.length) return;
     const { activeCard } = window.AppState;
     if (!activeCard) return;
     this._lastSnapField = null;
     const entry = this._undoStack.pop();
-    this._redoStack.push({ ...entry, oldValue: entry.oldValue, newValue: activeCard[entry.prop] || '' });
+    this._redoStack.push({
+      ...entry,
+      oldValue: entry.oldValue,
+      newValue: JSON.parse(JSON.stringify(activeCard[entry.prop] || (entry.prop === 'alternate_greetings' ? [] : (entry.prop === 'character_book' ? { entries: [] } : '')))),
+    });
+    if (entry.prop === 'alternate_greetings' || entry.prop === 'character_book') {
+      this._applySubEntry(entry, entry.oldValue);
+      await this.syncEditorToCard();
+      AiChat.updateContextBar();
+      Ui.showToast(I18n.t('toast.undo') + ': ' + entry.field, 'info');
+      return;
+    }
     activeCard[entry.prop] = entry.oldValue;
     const el = document.querySelector('#' + this._fieldToDomId(entry.field));
     if (el) el.value = entry.oldValue;
@@ -68,7 +107,18 @@ const Editor = {
     if (!activeCard) return;
     this._lastSnapField = null;
     const entry = this._redoStack.pop();
-    this._undoStack.push({ ...entry, oldValue: activeCard[entry.prop] || '', newValue: entry.newValue });
+    this._undoStack.push({
+      ...entry,
+      oldValue: JSON.parse(JSON.stringify(activeCard[entry.prop] || (entry.prop === 'alternate_greetings' ? [] : (entry.prop === 'character_book' ? { entries: [] } : '')))),
+      newValue: entry.newValue,
+    });
+    if (entry.prop === 'alternate_greetings' || entry.prop === 'character_book') {
+      this._applySubEntry(entry, entry.newValue);
+      await this.syncEditorToCard();
+      AiChat.updateContextBar();
+      Ui.showToast(I18n.t('toast.redo') + ': ' + entry.field, 'info');
+      return;
+    }
     activeCard[entry.prop] = entry.newValue;
     const el = document.querySelector('#' + this._fieldToDomId(entry.field));
     if (el) el.value = entry.newValue;
@@ -81,6 +131,12 @@ const Editor = {
   populateEditor(card) {
     const $ = (sel) => document.querySelector(sel);
     function safeStyle(id, displayVal) { const el = $(id); if (el) el.style.display = displayVal; }
+
+    // Records which card the DOM currently reflects. _doSync uses this to refuse
+    // writes when a debounced sync fires after a card switch but before the new
+    // card's populateEditor has run — otherwise the old card's DOM values would
+    // be written into the new card object (#75).
+    this._renderedCardId = card._id;
 
     // Undo/redo stacks belong to a single card; never let edits to one card
     // bleed into another via Ctrl+Z/Ctrl+Y after switching cards.
@@ -200,6 +256,10 @@ const Editor = {
   },
 
   async _doSync(activeCard) {
+    // Guard against cross-card writes: if the DOM currently renders a different
+    // card than the one this write is destined for (card switch in progress),
+    // the debounced capture would persist the wrong card's values (#75).
+    if (this._renderedCardId && this._renderedCardId !== activeCard._id) return;
     this._captureFields(activeCard);
     // Warn if card has no name (throttled to once until name is filled)
     if (!activeCard.name && !this._nameWarned) {
@@ -217,6 +277,9 @@ const Editor = {
   syncEditorToCardSync() {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
+    // Same guard as _doSync so a stray debounced flush during a card switch
+    // can't write the wrong card's DOM values (#75).
+    if (this._renderedCardId && this._renderedCardId !== activeCard._id) return;
     this._captureFields(activeCard);
     // Fire-and-forget IndexedDB write via the shared connection.
     // Reuse the same save path as the async version to avoid divergent
@@ -272,6 +335,9 @@ const Editor = {
 
   autoResizeTextareas() {
     document.querySelectorAll('.editor-textarea').forEach(ta => {
+      // Skip textareas in hidden tab panes: their scrollHeight is 0, so resizing
+      // here would clamp them to the CSS min-height and never grow back (#73).
+      if (ta.offsetParent === null) return;
       ta.style.height = 'auto';
       ta.style.height = Math.min(ta.scrollHeight, 800) + 'px';
     });
@@ -281,8 +347,16 @@ const Editor = {
     for (const id of this._fieldIds) {
       const el = document.querySelector('#' + id);
       if (!el) continue;
-      const countEl = el.parentElement.querySelector('.char-count');
-      if (!countEl) continue;
+      let countEl = el.parentElement.querySelector('.char-count');
+      // Lazily create a counter for fields that don't ship one in the markup;
+      // updateCharCounts runs on every editor tab switch, so this keeps all
+      // 12 fields consistent without hand-adding markup to each of them (#43).
+      if (!countEl) {
+        countEl = document.createElement('small');
+        countEl.className = 'char-count text-secondary d-block mt-1';
+        countEl.style.fontSize = '0.7rem';
+        el.insertAdjacentElement('afterend', countEl);
+      }
       const len = (el.value || '').length;
       // Use the same estimator as Tokenizer (which the context bar uses) so the
       // char counts and the token context bar never disagree.
@@ -311,7 +385,9 @@ const Editor = {
     }
 
     container.innerHTML = greetings.map((g, idx) => {
-      const isDefault = g === card.first_mes;
+      // Badge only the *first* greeting whose text equals first_mes; comparing
+      // by value alone would star every duplicate greeting (#101).
+      const isDefault = idx === greetings.indexOf(card.first_mes);
       return '<div class="greeting-item' + (isDefault ? ' default-greeting' : '') + '" data-greeting-idx="' + idx + '">'
         + '<div class="greeting-item-actions">'
         + '<button class="btn btn-outline-secondary btn-sm greeting-up" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t('editor.greetingMoveUp') : 'Move up') + '"><i class="bi bi-chevron-up"></i></button>'
@@ -328,6 +404,9 @@ const Editor = {
     const self = this;
     container.querySelectorAll('.greeting-delete').forEach(btn => {
       btn.addEventListener('click', async () => {
+        // Flush any in-flight typed text into the array before re-rendering,
+        // otherwise the characters typed in the last 500 ms are discarded (#74).
+        self.syncGreetings();
         window.AppState.activeCard.alternate_greetings.splice(parseInt(btn.dataset.idx), 1);
         self.renderGreetings(window.AppState.activeCard);
         await self.syncEditorToCard();
@@ -336,6 +415,7 @@ const Editor = {
 
     container.querySelectorAll('.greeting-set-default').forEach(btn => {
       btn.addEventListener('click', async () => {
+        self.syncGreetings();
         const g = window.AppState.activeCard.alternate_greetings[parseInt(btn.dataset.idx)];
         if (g) {
           window.AppState.activeCard.first_mes = g;
@@ -349,6 +429,7 @@ const Editor = {
 
     container.querySelectorAll('.greeting-up').forEach(btn => {
       btn.addEventListener('click', async () => {
+        self.syncGreetings();
         const idx = parseInt(btn.dataset.idx);
         if (idx > 0) {
           const arr = window.AppState.activeCard.alternate_greetings;
@@ -361,6 +442,7 @@ const Editor = {
 
     container.querySelectorAll('.greeting-down').forEach(btn => {
       btn.addEventListener('click', async () => {
+        self.syncGreetings();
         const idx = parseInt(btn.dataset.idx);
         const arr = window.AppState.activeCard.alternate_greetings;
         if (idx < arr.length - 1) {
@@ -372,6 +454,15 @@ const Editor = {
     });
 
     container.querySelectorAll('.greeting-textarea').forEach(ta => {
+      // Undo support for the greetings section (#37): snapshot before the first
+      // edit of each burst, coalesced like the top-level fields.
+      ta.addEventListener('focus', () => { self._lastSnapField = null; });
+      ta.addEventListener('beforeinput', () => {
+        if (self._lastSnapField !== 'greetings') {
+          self._snapshotSub('greetings');
+          self._lastSnapField = 'greetings';
+        }
+      });
       ta.addEventListener('input', Ui.debounce(async () => {
         // If a re-render happened since this textarea was created, the DOM
         // entry (and the array) may have been reordered or replaced; fall back
@@ -392,6 +483,7 @@ const Editor = {
 
   syncGreetings() {
     const { activeCard } = window.AppState;
+    if (!activeCard) return;
     const $ = (sel) => document.querySelector(sel);
     const greetings = [];
     const list = $('#greetingsList');
@@ -422,6 +514,10 @@ const Editor = {
     const container = $('#lorebookEntries');
     const entries = card.character_book?.entries || [];
 
+    // Generation token invalidates stale debounced writes after a re-render
+    // (delete/reorder), so writebacks can't clobber a shifted entry (#97).
+    const gen = (this._loreGen = (this._loreGen || 0) + 1);
+
     // Get search filter
     const searchInput = $('#lorebookSearchInput');
     const searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : '';
@@ -451,9 +547,11 @@ const Editor = {
 
     container.innerHTML = '<div class="lorebook-accordion">'
       + filteredEntries.map(({ entry, idx }) => {
-        const keys = (entry.key || '').split(',').map(s => s.trim()).filter(Boolean);
+        // V2 treats keys as an array; older ST cards use a comma-joined string.
+        // Normalize both so spec-conformant cards don't lose their keywords (#99).
+        const keys = (Array.isArray(entry.key) ? entry.key : (entry.key || '').split(',')).map(s => String(s).trim()).filter(Boolean);
         const secondary = (entry.keysecondary || []);
-        const label = entry.comment || entry.key || (I18n.t ? I18n.t('editor.loreEntry', { num: idx + 1 }) : 'Entry ' + (idx + 1));
+        const label = entry.comment || (Array.isArray(entry.key) ? entry.key.join(', ') : entry.key) || (I18n.t ? I18n.t('editor.loreEntry', { num: idx + 1 }) : 'Entry ' + (idx + 1));
 
         const keyTagsHtml = keys.slice(0, 3).map(k =>
           '<span class="lorebook-key-tag primary">' + Ui.escapeHtml(k) + '</span>'
@@ -462,7 +560,7 @@ const Editor = {
         ).join('');
 
         return '<div class="lorebook-accordion-item" data-entry-idx="' + idx + '">'
-          + '<div class="lorebook-accordion-header" data-lore-toggle="' + idx + '">'
+          + '<div class="lorebook-accordion-header" data-lore-toggle="' + idx + '" role="button" tabindex="0" aria-expanded="false">'
           + '<i class="bi bi-chevron-right lorebook-chevron"></i>'
           + '<span class="lorebook-entry-label">' + Ui.escapeHtml(label) + '</span>'
           + '<div class="lorebook-key-tags">' + keyTagsHtml + '</div>'
@@ -470,17 +568,17 @@ const Editor = {
           + '</div>'
           + '<div class="lorebook-accordion-body">'
           + '<div class="row g-2 mb-2" style="font-size:0.8rem;">'
-          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.lorePrimaryKeys') : 'Primary Keywords') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.key || '') + '" placeholder="' + (I18n.t ? I18n.t('editor.lorePrimaryKeysPlaceholder') : 'Primary keywords \u2014 comma separated') + '" data-lore-key-idx="' + idx + '"></div>'
+          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.lorePrimaryKeys') : 'Primary Keywords') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((Array.isArray(entry.key) ? entry.key.join(', ') : entry.key) || '') + '" placeholder="' + (I18n.t ? I18n.t('editor.lorePrimaryKeysPlaceholder') : 'Primary keywords \u2014 comma separated') + '" data-lore-key-idx="' + idx + '"></div>'
           + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreSecondaryKeys') : 'Secondary Keywords') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(', ')) + '" placeholder="' + (I18n.t ? I18n.t('editor.loreSecondaryKeysPlaceholder') : 'Secondary keywords') + '" data-lore-secondary-idx="' + idx + '"></div>'
           + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreComment') : 'Comment') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || '') + '" placeholder="' + (I18n.t ? I18n.t('editor.loreCommentPlaceholder') : 'Comment') + '" data-lore-comment-idx="' + idx + '"></div>'
-          + '           <div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreOrder') : 'Order') + '</label><input type="number" class="form-control form-control-sm" value="' + (entry.order ?? 100) + '" placeholder="' + (I18n.t ? I18n.t('editor.loreOrderPlaceholder') : 'Order') + '" data-lore-order-idx="' + idx + '"></div>'
+          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreOrder') : 'Order') + '</label><input type="number" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.order ?? 100) + '" placeholder="' + (I18n.t ? I18n.t('editor.loreOrderPlaceholder') : 'Order') + '" data-lore-order-idx="' + idx + '"></div>'
           + '</div>'
           + '<div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">'
           + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? ' checked' : '') + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">' + (I18n.t ? I18n.t('editor.loreConstant') : 'Constant') + '</label></div>'
           + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.selective ? ' checked' : '') + ' data-lore-selective-idx="' + idx + '"><label class="form-check-label">' + (I18n.t ? I18n.t('editor.loreSelective') : 'Selective') + '</label></div>'
           + '<select class="form-select form-select-sm" style="width:auto;" data-lore-position-idx="' + idx + '">'
           + '<option value="before_char"' + (entry.position === 'before_char' ? ' selected' : '') + '>' + (I18n.t ? I18n.t('editor.loreBeforeChar') : 'Before char') + '</option>'
-          + '<option value="after_char"' + (entry.position !== 'before_char' ? ' selected' : '') + '>' + (I18n.t ? I18n.t('editor.loreAfterChar') : 'After char') + '</option></select>'
+          + '<option value="after_char"' + (entry.position === 'after_char' ? ' selected' : '') + '>' + (I18n.t ? I18n.t('editor.loreAfterChar') : 'After char') + '</option></select>'
           + '</div>'
           + '<label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreContent') : 'Content') + '</label>'
           + '<textarea class="form-control editor-textarea font-mono" rows="6" placeholder="' + (I18n.t ? I18n.t('editor.loreContentPlaceholder') : 'Entry content...') + '" data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || '') + '</textarea>'
@@ -489,12 +587,19 @@ const Editor = {
       }).join('')
       + '</div>';
 
-    // Accordion toggle handlers
+    // Accordion toggle handlers (mouse + keyboard, #72)
     container.querySelectorAll('[data-lore-toggle]').forEach(header => {
-      header.addEventListener('click', (e) => {
+      const toggle = (e) => {
         if (e.target.closest('.lorebook-delete-btn')) return;
         const item = header.closest('.lorebook-accordion-item');
-        if (item) item.classList.toggle('open');
+        if (item) {
+          item.classList.toggle('open');
+          header.setAttribute('aria-expanded', item.classList.contains('open') ? 'true' : 'false');
+        }
+      };
+      header.addEventListener('click', toggle);
+      header.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); }
       });
     });
 
@@ -507,8 +612,19 @@ const Editor = {
         await self.syncEditorToCard();
       });
     });
+    const loreFields = container.querySelectorAll('textarea[data-lore-idx], input[data-lore-key-idx], input[data-lore-secondary-idx], input[data-lore-comment-idx], input[data-lore-order-idx]');
+    loreFields.forEach(fld => {
+      fld.addEventListener('focus', () => { self._lastSnapField = null; });
+      fld.addEventListener('beforeinput', () => {
+        if (self._lastSnapField !== 'lorebook') {
+          self._snapshotSub('lorebook');
+          self._lastSnapField = 'lorebook';
+        }
+      });
+    });
     container.querySelectorAll('textarea[data-lore-idx]').forEach(ta => {
       ta.addEventListener('input', Ui.debounce(async () => {
+        if (!ta.isConnected || gen !== self._loreGen) return; // re-render superseded this write
         const idx = parseInt(ta.dataset.loreIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].content = ta.value;
@@ -519,6 +635,7 @@ const Editor = {
     });
     container.querySelectorAll('input[data-lore-key-idx]').forEach(input => {
       input.addEventListener('input', Ui.debounce(async () => {
+        if (!input.isConnected || gen !== self._loreGen) return;
         const idx = parseInt(input.dataset.loreKeyIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].key = input.value.trim();
@@ -528,6 +645,7 @@ const Editor = {
     });
     container.querySelectorAll('input[data-lore-secondary-idx]').forEach(input => {
       input.addEventListener('input', Ui.debounce(async () => {
+        if (!input.isConnected || gen !== self._loreGen) return;
         const idx = parseInt(input.dataset.loreSecondaryIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].keysecondary = input.value.split(',').map(s => s.trim()).filter(Boolean);
@@ -537,6 +655,7 @@ const Editor = {
     });
     container.querySelectorAll('input[data-lore-comment-idx]').forEach(input => {
       input.addEventListener('input', Ui.debounce(async () => {
+        if (!input.isConnected || gen !== self._loreGen) return;
         const idx = parseInt(input.dataset.loreCommentIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].comment = input.value;
@@ -546,6 +665,7 @@ const Editor = {
     });
     container.querySelectorAll('input[data-lore-order-idx]').forEach(input => {
       input.addEventListener('input', Ui.debounce(async () => {
+        if (!input.isConnected || gen !== self._loreGen) return;
         const idx = parseInt(input.dataset.loreOrderIdx);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           const parsed = parseInt(input.value, 10);

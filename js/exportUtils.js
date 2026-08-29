@@ -148,12 +148,25 @@ const ExportUtils = {
 
   embedCharaChunk(pngBytes, jsonStr) {
     const bytes = new Uint8Array(pngBytes);
+    // Walk the chunk list once: find the IEND position and strip any existing
+    // `chara` tEXt chunk so re-exports don't keep appending duplicates that
+    // bloat the file and confuse parsers reading the FIRST chara chunk (#33).
     let offset = 8, iendPos = -1;
+    const kept = [];
     while (offset + 12 <= bytes.length) {
       const length = CardEngine._readUint32(bytes, offset);
       if (offset + 12 + length > bytes.length) break;
       const type = String.fromCharCode(bytes[offset+4], bytes[offset+5], bytes[offset+6], bytes[offset+7]);
       if (type === 'IEND') { iendPos = offset; break; }
+      const isCharaText = type === 'tEXt' && (() => {
+        const nullIdx = bytes.indexOf(0, offset + 8);
+        if (nullIdx < 0 || nullIdx > offset + 8 + 79) return false;
+        const kw = String.fromCharCode.apply(null, bytes.subarray(offset + 8, nullIdx));
+        return kw === 'chara';
+      })();
+      if (!isCharaText) {
+        kept.push(bytes.subarray(offset, offset + 12 + length));
+      }
       offset += 12 + length;
     }
     if (iendPos < 0) {
@@ -181,11 +194,13 @@ const ExportUtils = {
     chunk.set(typeBytes, 4); chunk.set(textData, 8);
     new DataView(chunk.buffer).setUint32(8 + textData.length, crc, false);
 
-    // Reuse the original bytes via views (no extra copies) for the final array.
-    const result = new Uint8Array(bytes.length + chunk.length);
-    result.set(bytes.subarray(0, iendPos), 0);
-    result.set(chunk, iendPos);
-    result.set(bytes.subarray(iendPos), iendPos + chunk.length);
+    // Reassemble: kept chunks + new chara chunk + IEND and everything after it.
+    const keptSize = kept.reduce((n, c) => n + c.length, 0);
+    const result = new Uint8Array(keptSize + chunk.length + (bytes.length - iendPos));
+    let pos = 0;
+    for (const c of kept) { result.set(c, pos); pos += c.length; }
+    result.set(chunk, pos); pos += chunk.length;
+    result.set(bytes.subarray(iendPos), pos);
     return result;
   },
 

@@ -97,6 +97,7 @@ const CardStorage = {
     customApiUrl: 'customApiUrl',
     customApiKey: 'customApiKey',
     customModelId: 'customModelId',
+    providerApiKeys: 'providerApiKeys',
     darkAccent: 'darkAccent',
     lightAccent: 'lightAccent',
     promptAssistant: 'promptAssistant',
@@ -138,7 +139,7 @@ const CardStorage = {
   // the origin, moving the server to another port/host makes stored keys
   // undecryptable; we surface that with a toast and leave the ciphertext intact.
   // Legacy plaintext keys are auto-migrated to ciphertext on first unlock.
-  _secrets: { apiKey: '', customApiKey: '' },
+  _secrets: { apiKey: '', customApiKey: '', providerKeys: {} },
   _secretWarn: { apiKey: false, customApiKey: false },
   _secretUnlocked: false,
 
@@ -234,6 +235,57 @@ const CardStorage = {
         this._secretWarn[name] = true;
       }
     }
+    await this._unlockProviderKeys();
+  },
+
+  // Per-provider API keys (one slot per named provider). Stored as a single
+  // JSON object mapping provider id -> ciphertext; decrypted into the same
+  // _secrets.providerKeys shape on unlock.
+  async _unlockProviderKeys() {
+    const rawKey = this.PREFIX + this._keys.providerApiKeys;
+    const raw = localStorage.getItem(rawKey);
+    this._secrets.providerKeys = {};
+    if (!raw) return;
+    let map;
+    try { map = JSON.parse(raw); } catch (_) { localStorage.removeItem(rawKey); return; }
+    if (!map || typeof map !== 'object') return;
+    for (const provider of Object.keys(map)) {
+      const stored = map[provider];
+      if (typeof stored !== 'string' || !stored.startsWith(this._encSecretPrefix)) {
+        // Legacy plaintext entry within the map.
+        this._secrets.providerKeys[provider] = stored;
+        continue;
+      }
+      const plain = await this._decryptSecret(stored);
+      if (plain !== null) this._secrets.providerKeys[provider] = plain;
+    }
+  },
+
+  async _persistProviderKeys() {
+    const map = {};
+    for (const provider of Object.keys(this._secrets.providerKeys)) {
+      const plain = this._secrets.providerKeys[provider];
+      if (!plain) continue;
+      try {
+        map[provider] = await this._encryptSecret(plain);
+      } catch (_) {
+        map[provider] = plain; // encryption unavailable — fail open
+      }
+    }
+    const rawKey = this.PREFIX + this._keys.providerApiKeys;
+    if (!Object.keys(map).length) { localStorage.removeItem(rawKey); return; }
+    try { localStorage.setItem(rawKey, JSON.stringify(map)); } catch (_) {}
+  },
+
+  getProviderKey(provider) {
+    return this._secrets.providerKeys[provider] || '';
+  },
+
+  async setProviderKey(provider, key) {
+    const clean = key || '';
+    if (clean) this._secrets.providerKeys[provider] = clean;
+    else delete this._secrets.providerKeys[provider];
+    await this._persistProviderKeys();
   },
 
   getApiKey() {
@@ -469,14 +521,17 @@ const CardStorage = {
    * Delete a card by ID.
    */
   async deleteCard(id) {
-    const index = this.getCards().filter(c => c._id !== id);
-    localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
-    // Propagate IndexedDB failures so the caller can surface them instead of
-    // silently leaving orphaned cards behind while the in-memory index is gone.
+    // Delete the IndexedDB records FIRST, and only drop the localStorage index
+    // after they succeed — otherwise a failed IDB delete leaves an orphaned
+    // full card + image while the UI already considers the card gone.
     await Promise.all([
       this.deleteImage(id),
       this.DB.delete(this.DB.stores.cards, id),
     ]);
+    // Remove the card's chat history + sessions so they don't outlive the card.
+    this.clearChatHistory(id);
+    const index = this.getCards().filter(c => c._id !== id);
+    localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
     if (this.getActiveCardId() === id) {
       this.setActiveCardId(null);
     }
@@ -511,6 +566,20 @@ const CardStorage = {
     return this.PREFIX + this._keys.aiChatHistory + '_' + (cardId || 'global');
   },
 
+  _storageFullWarnedAt: 0,
+  _notifyStorageFull(e) {
+    // Chat-history writes used to fail silently on quota, silently losing the
+    // conversation (#34). Surface it like the rest of the codebase — throttled
+    // so repeated saves during a long generation don't spam the toast.
+    console.error('Chat history write failed:', e);
+    const now = Date.now();
+    if (now - this._storageFullWarnedAt < 5000) return;
+    this._storageFullWarnedAt = now;
+    if (window.Ui && typeof window.Ui.showToast === 'function') {
+      Ui.showToast(I18n.t ? I18n.t('error.storageFull') : 'Storage full! Try removing some cards or exporting them.', 'danger');
+    }
+  },
+
   _sessionKey(cardId) {
     return this.PREFIX + 'chatSessions_' + (cardId || 'global');
   },
@@ -531,7 +600,7 @@ const CardStorage = {
       }
       const trimmed = messages.slice(-this.CHAT_HISTORY_LIMIT);
       localStorage.setItem(this._chatKey(cardId), JSON.stringify(trimmed));
-    } catch { /* silently fail */ }
+    } catch (e) { this._notifyStorageFull(e); }
   },
 
   clearChatHistory(cardId) {
@@ -569,7 +638,7 @@ const CardStorage = {
         sessions.unshift(session);
       }
       localStorage.setItem(this._sessionKey(cardId), JSON.stringify(sessions));
-    } catch { /* silently fail */ }
+    } catch (e) { this._notifyStorageFull(e); }
   },
 
   deleteChatSession(cardId, sessionId) {
@@ -600,7 +669,7 @@ const CardStorage = {
     try {
       const trimmed = messages.slice(-this.CHAT_HISTORY_LIMIT);
       localStorage.setItem(this._sessionMsgKey(cardId, sessionId), JSON.stringify(trimmed));
-    } catch { /* silently fail */ }
+    } catch (e) { this._notifyStorageFull(e); }
   },
 
   deleteSessionMessages(cardId, sessionId) {
@@ -627,6 +696,13 @@ const CardStorage = {
       this.DB.clear(this.DB.stores.cards).catch(() => {}),
       this.DB.clear(this.DB.stores.images).catch(() => {}),
     ]);
+    // Reset in-memory state too — the keys above only touch localStorage/IDB,
+    // so without this the decrypted API keys survive a "clear all" until reload
+    // and get re-persisted on the next setApiKey call.
+    this._secrets = { apiKey: '', customApiKey: '', providerKeys: {} };
+    this._secretWarn = { apiKey: false, customApiKey: false };
+    this._secretUnlocked = false;
+    this._migrationDone = false;
   },
 
   // ─── Image Storage Helpers ─────────────────────────────
