@@ -126,6 +126,9 @@ const CardManager = {
   // drag-to-reorder works immediately. Persisted across reloads (see ui.js).
   _sortMode: 'manual',
   _activeTagFilters: new Set(),
+  // Letter-groups the user collapsed; kept so a re-render (search/filter/sort)
+  // doesn't silently re-expand them mid-session.
+  _collapsedGroups: new Set(),
 
   _toggleBatchSelect(cardId) {
     if (this._selectedIds.has(cardId)) this._selectedIds.delete(cardId);
@@ -435,9 +438,12 @@ const CardManager = {
 
     container.innerHTML = this._groupCards(filtered).map(group => {
       const rows = group.items.map(card => this._rowHtml(card, activeCard)).join('');
+      const collapsed = group.letter ? this._collapsedGroups.has(group.letter) : false;
       return '<div class="card-list-group" data-letter="' + Ui.escapeAttr(group.letter) + '">'
-        + (group.letter ? '<button type="button" class="card-group-header" data-letter="' + Ui.escapeAttr(group.letter) + '" aria-expanded="true"><span class="card-group-letter">' + Ui.escapeHtml(group.letter) + '</span><span class="card-group-count">' + group.items.length + '</span></button>' : '')
-        + '<div class="card-group-body">' + rows + '</div>'
+        + (group.letter
+            ? '<button type="button" class="card-group-header" data-letter="' + Ui.escapeAttr(group.letter) + '" aria-expanded="' + (collapsed ? 'false' : 'true') + '"><span class="card-group-letter">' + Ui.escapeHtml(group.letter) + '</span><span class="card-group-count">' + group.items.length + '</span></button>'
+            : '')
+        + '<div class="card-group-body' + (collapsed ? ' collapsed' : '') + '">' + rows + '</div>'
         + '</div>';
     }).join('');
 
@@ -469,8 +475,15 @@ const CardManager = {
       container.addEventListener('click', (e) => {
         const groupHeader = e.target.closest('.card-group-header');
         if (groupHeader) {
+          const letter = groupHeader.dataset.letter;
           const body = groupHeader.parentElement && groupHeader.parentElement.querySelector('.card-group-body');
-          if (body) { const collapsed = body.classList.toggle('collapsed'); groupHeader.setAttribute('aria-expanded', collapsed ? 'false' : 'true'); }
+          if (body) {
+            const collapsed = body.classList.toggle('collapsed');
+            groupHeader.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            // Persist so a re-render (search/filter/sort) keeps the group collapsed.
+            if (collapsed) this._collapsedGroups.add(letter);
+            else this._collapsedGroups.delete(letter);
+          }
           return;
         }
         const checkbox = e.target.closest('.card-batch-check');
@@ -497,7 +510,7 @@ const CardManager = {
         const handle = e.target.closest('.card-drag-handle');
         if (!handle) return;
         dragId = handle.dataset.cardId;
-        e.dataTransfer.effectAllowed = 'move';
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
         const dragItem = handle.closest('.card-list-item');
         if (dragItem && !Anims._disabled()) {
           dragItem.style.transition = 'transform 150ms ease, opacity 150ms ease';

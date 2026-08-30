@@ -587,3 +587,217 @@ test('avatar: set, persist across reload, remove, persist removal', async ({ pag
   expect(afterRemoveReload.hasImage).toBe(false);
   expect(errors, 'avatar lifecycle must not throw').toEqual([]);
 });
+
+// ─── 2.5.1 features: Extensions editor, token budget, grouped library ───────
+
+test('extensions editor: persist valid, reject invalid, undo, round-trip', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await importCards(page, [v2Card('ExHam')]);
+  await page.locator('.card-list-item', { hasText: 'ExHam' }).click();
+  await page.waitForTimeout(250);
+  await page.locator('#editorTabs .nav-link[data-bs-target="#tabAdvanced"]').click();
+  await page.waitForTimeout(250);
+
+  const extTa = page.locator('#editExtensions');
+  const status = page.locator('#extensionsStatus');
+
+  // Valid JSON persists after the 600ms debounce.
+  await extTa.fill('{\n  "project": "st",\n  "nums": [1,2,3]\n}');
+  await page.waitForTimeout(1300);
+  let ext = await page.evaluate(() => window.AppState.activeCard.extensions);
+  expect(ext.project).toBe('st');
+  expect(ext.nums).toEqual([1, 2, 3]);
+  await expect(extTa).not.toHaveClass(/is-invalid-json/);
+
+  // Invalid JSON is rejected, the old value kept, and the field flagged.
+  await extTa.fill('{ "broken": ');
+  await page.waitForTimeout(1300);
+  ext = await page.evaluate(() => window.AppState.activeCard.extensions);
+  expect(ext.project).toBe('st');
+  await expect(extTa).toHaveClass(/is-invalid-json/);
+  await expect(status).toHaveText(/Invalid JSON/);
+
+  // Blur + refocus so the next edit is a NEW undo burst.
+  await page.locator('#editName').click();
+  await page.waitForTimeout(250);
+  await extTa.click();
+  await extTa.fill('{ "second": true }');
+  await page.waitForTimeout(1300);
+  await page.evaluate(() => window.Editor.undo());
+  await page.waitForTimeout(300);
+  ext = await page.evaluate(() => window.AppState.activeCard.extensions);
+  expect(ext.project).toBe('st');
+  expect(await extTa.inputValue()).toContain('"project"');
+
+  // Extensions persist to IndexedDB and survive a reload.
+  await page.reload();
+  await page.locator('.card-list-item', { hasText: 'ExHam' }).click();
+  await page.waitForTimeout(300);
+  ext = await page.evaluate(() => window.AppState.activeCard.extensions);
+  expect(ext.project).toBe('st');
+  expect(errors, 'extensions flow must not throw').toEqual([]);
+});
+
+test('token budget badge tracks top-level, greetings, lorebook and extensions', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await importCards(page, [v2Card('Tk', { description: '', personality: '', scenario: '', first_mes: '', mes_example: '', alternate_greetings: [], tags: [] })]);
+  await page.locator('.card-list-item', { hasText: 'Tk' }).click();
+  await page.waitForTimeout(300);
+
+  const badge = page.locator('#metaTokens');
+  await expect(badge).toBeVisible();
+  const readNum = async () => {
+    const t = await badge.innerText();
+    const m = t.match(/([\d.]+k?)\s+tokens/);
+    return parseInt(m[1].replace('k', '000'), 10);
+  };
+  expect(await readNum()).toBeLessThan(40);
+
+  // Top-level field edit.
+  await page.locator('#editDescription').fill('word '.repeat(200));
+  await page.waitForTimeout(1300);
+  const afterDesc = await readNum();
+  expect(afterDesc).toBeGreaterThan(100);
+
+  // Greeting edit bumps the total (regression: badge went stale on greeting/lorebook edits).
+  await page.locator('#editorTabs .nav-link[data-bs-target="#tabAdvanced"]').click();
+  await page.waitForTimeout(250);
+  await page.locator('#btnAddGreeting').click();
+  await page.locator('#greetingsList .greeting-textarea').nth(0).fill('Hello there, gallant traveler.'.repeat(5));
+  await page.waitForTimeout(1300);
+  const afterGreet = await readNum();
+  expect(afterGreet).toBeGreaterThan(afterDesc);
+
+  // Lorebook content bumps it too.
+  await page.locator('#editorTabs .nav-link[data-bs-target="#tabLorebook"]').click();
+  await page.waitForTimeout(250);
+  await page.locator('#btnAddLoreEntry').click();
+  await page.waitForTimeout(200);
+  const entry = page.locator('.lorebook-accordion-item').first();
+  await entry.locator('[data-lore-toggle]').click();
+  await page.waitForTimeout(150);
+  await entry.locator('textarea[data-lore-idx]').fill('Deep secret lore about the realm.'.repeat(8));
+  await page.waitForTimeout(1300);
+  const afterLore = await readNum();
+  expect(afterLore).toBeGreaterThan(afterGreet);
+
+  expect(errors, 'budget badge must not throw').toEqual([]);
+});
+
+test('grouped library: letter groups, collapse, tag chips, persisted sort', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await importCards(page, [
+    v2Card('Alpha', { tags: ['rpg'] }), v2Card('Bravado', { tags: ['rpg'] }),
+    v2Card('Citroen', { tags: ['modern'] }), v2Card('delta', { tags: ['modern'] }),
+    v2Card('Zed', { tags: [] }), v2Card('1Nine', { tags: [] }), v2Card('.hidden', { tags: [] }),
+  ]);
+
+  await page.locator('#cardSortSelect').selectOption('name-asc');
+  await page.locator('#cardSortSelect').dispatchEvent('change');
+  await page.waitForTimeout(300);
+  const letters = await page.evaluate(() =>
+    [...document.querySelectorAll('.card-group-header')].map((h) => h.dataset.letter)
+  );
+  expect(letters[0]).toBe('#');
+  expect(letters).toEqual(['#', '1', 'A', 'B', 'C', 'D', 'Z']);
+
+  // Collapse/expand the A group.
+  await page.locator('.card-group-header[data-letter="A"]').click();
+  await page.waitForTimeout(150);
+  await expect(page.locator('.card-group-header[data-letter="A"]')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.card-list-group[data-letter="A"] .card-list-item').first()).toBeHidden();
+  await page.locator('.card-group-header[data-letter="A"]').click();
+  await page.waitForTimeout(150);
+  await expect(page.locator('.card-group-header[data-letter="A"]')).toHaveAttribute('aria-expanded', 'true');
+
+  // Under name-asc sorting a drop must not reshuffle the (invisible) manual order.
+  const orderBefore = await page.evaluate(() => window.AppState.cards.map((c) => c.name));
+  await page.locator('.card-drag-handle[data-card-id]').first().dispatchEvent('dragstart');
+  await page.locator('.card-list-item', { hasText: 'Bravado' }).dispatchEvent('dragover');
+  await page.locator('.card-list-item', { hasText: 'Bravado' }).dispatchEvent('drop');
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.AppState.cards.map((c) => c.name))).toEqual(orderBefore);
+
+  // Tag chips filter the library.
+  await page.locator('#tagChipStrip .tag-chip-strip-chip[data-tag="modern"]').first().click();
+  await page.waitForTimeout(250);
+  await expect(page.locator('.card-list-item')).toHaveCount(2);
+
+  // Sort mode persists after a reload.
+  await page.locator('#cardSortSelect').selectOption('name-desc');
+  await page.locator('#cardSortSelect').dispatchEvent('change');
+  await page.reload();
+  await expect(page.locator('#cardSortSelect')).toHaveValue('name-desc');
+  expect(await page.locator('.card-list-item .card-list-name').first().innerText()).toBe('Zed');
+
+  expect(errors, 'grouped library must not throw').toEqual([]);
+});
+
+test('2.5.3: preview-mode chips, token-insert undo, persisted collapse, invalid-extensions budget', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await importCards(page, [
+    v2Card('Annar', { description: '', personality: '', scenario: '', first_mes: '', mes_example: '', alternate_greetings: [], tags: [] }),
+    v2Card('Besta', { tags: [] }), v2Card('Coral', { tags: [] }), v2Card('Delta', { tags: [] }),
+  ]);
+  await page.locator('.card-list-item', { hasText: 'Annar' }).click();
+  await page.waitForTimeout(300);
+
+  // 1) Preview mode hides the token-insert chips for that field; Edit shows them again.
+  const chips = page.locator('.token-insert-btn[data-target="editFirstMes"]');
+  await expect(chips.first()).toBeVisible();
+  await page.locator('.field-toggle-group[data-target="editFirstMes"] .field-toggle-btn[data-mode="preview"]').click();
+  await page.waitForTimeout(200);
+  await expect(chips.first()).toBeHidden();
+  await page.locator('.field-toggle-group[data-target="editFirstMes"] .field-toggle-btn[data-mode="edit"]').click();
+  await page.waitForTimeout(200);
+  await expect(chips.first()).toBeVisible();
+
+  // 2) A token insert is its own undo step: Ctrl+Z reverts exactly the token.
+  const field = page.locator('#editFirstMes');
+  await field.fill('Hello, adventurer.');
+  await page.waitForTimeout(1200);
+  // Leave + re-enter the field so the insert opens a fresh undo burst.
+  await page.locator('#editScenario').click();
+  await page.waitForTimeout(100);
+  await field.click();
+  await field.press('End');
+  await chips.first().click();
+  await page.waitForTimeout(1300);
+  expect(await field.inputValue()).toBe('Hello, adventurer.{{char}}');
+  await field.press('ControlOrMeta+z');
+  await page.waitForTimeout(350);
+  expect(await field.inputValue()).toBe('Hello, adventurer.');
+
+  // 3) A collapsed letter-group survives a re-render driven by library search.
+  await page.locator('#cardSortSelect').selectOption('name-asc');
+  await page.locator('#cardSortSelect').dispatchEvent('change');
+  await page.waitForTimeout(300);
+  await page.locator('.card-group-header[data-letter="A"]').click();
+  await page.waitForTimeout(150);
+  await expect(page.locator('.card-list-group[data-letter="A"] .card-list-item').first()).toBeHidden();
+  await page.locator('#cardSearchInput').fill('a');
+  await page.waitForTimeout(400);
+  await expect(page.locator('.card-group-header[data-letter="A"]')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.card-list-group[data-letter="A"] .card-list-item').first()).toBeHidden();
+  await page.locator('#cardSearchInput').fill('');
+
+  // 4) Invalid Extensions JSON must not inflate the budget badge.
+  const badge = page.locator('#metaTokens');
+  const readToks = async () => parseInt((await badge.innerText()).match(/([\d.]+k?)\s+tokens/)[1].replace('k', '000'), 10);
+  await page.locator('#editorTabs .nav-link[data-bs-target="#tabAdvanced"]').click();
+  await page.waitForTimeout(250);
+  const baseBudget = await readToks();
+  await page.locator('#editExtensions').fill('{"unclosed": ');
+  await page.waitForTimeout(1300);
+  await expect(page.locator('#editExtensions')).toHaveClass(/is-invalid-json/);
+  expect(await readToks()).toBe(baseBudget);
+  await page.locator('#editExtensions').fill('{"config": "' + 'X'.repeat(1500) + '"}');
+  await page.waitForTimeout(1300);
+  expect(await readToks()).toBeGreaterThan(baseBudget);
+
+  expect(errors, '2.5.3 fixes must not throw').toEqual([]);
+});

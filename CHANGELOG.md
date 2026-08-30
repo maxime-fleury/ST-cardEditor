@@ -8,6 +8,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [2.5.3] - 2026-08-30
+
+### Fixed
+- Chat transcript could **stack duplicate messages** when switching cards mid-chat, and card metadata could go stale after a grouped (multi-card) AI reply failed — transcript and session state now reset/sync correctly in both cases.
+- **Token budget badge** went stale when editing alternate greetings or lorebook entries; it now re-counts after every greeting/lorebook change, and no longer over-counts while the Extensions JSON is invalid (rejected text was being counted as data).
+- **Token auto-fill chips** stayed clickable in Preview mode, silently editing a hidden field; they now hide in Preview and return in Edit. Each token insert is a genuine native edit, so **Ctrl+Z in the field reverts exactly the inserted token**.
+- **Library letter-groups** that are collapsed stay collapsed across search, filter, and sort re-renders within a session.
+- **Drag-to-reorder** no longer snaps back the first time the sort dropdown and applied order disagree (they now default consistently), is safely ignored while auto-sorting, and tolerates drag-start events that carry no `dataTransfer`.
+
 ## [2.5.1] - 2026-08-30
 
 ### Added

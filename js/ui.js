@@ -904,6 +904,13 @@ function bindEvents(settingsModal) {
           preview.classList.remove('visible');
           preview.innerHTML = '';
         }
+        // The {{char}}/{{user}} insert chips target the (now hidden) textarea;
+        // hide them in Preview mode so a click can't silently edit a field the
+        // user is only previewing.
+        document.querySelectorAll('.token-insert-btn[data-target="' + targetId + '"]').forEach(btn => {
+          const grp = btn.closest('.token-insert-group');
+          if (grp) grp.style.display = (mode === 'preview') ? 'none' : '';
+        });
       });
     });
   });
@@ -964,10 +971,14 @@ function bindEvents(settingsModal) {
   const insertTokenAtCursor = (ta, text) => {
     const start = (typeof ta.selectionStart === 'number') ? ta.selectionStart : (ta.value || '').length;
     const end = (typeof ta.selectionEnd === 'number') ? ta.selectionEnd : start;
-    ta.setRangeText(text, start, end, 'end');
-    // Trigger the field's normal debounced sync + char/token update.
-    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    if (typeof ta.selectionStart !== 'number') return;
     ta.focus();
+    ta.setSelectionRange(start, end);
+    // Insert as a genuine native text edit (execCommand fires the field's
+    // normal input event), so in-field Ctrl+Z reverts exactly the inserted
+    // token — matching how typed edits behave. Synthetic setRangeText + a
+    // dispatched input event would bypass the browser's undo stack.
+    document.execCommand('insertText', false, text);
   };
   document.querySelectorAll('.token-insert-btn').forEach(btn => {
     btn.addEventListener('click', () => {

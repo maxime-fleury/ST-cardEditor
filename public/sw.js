@@ -6,7 +6,7 @@
    ============================================================ */
 
 const BASE_PATH = new URL('.', self.location.href).pathname;
-const CACHE_PREFIX = 'stce-v2.5.1';
+const CACHE_PREFIX = 'stce-v2.5.3';
 const CACHE_NAME = `${CACHE_PREFIX}:${BASE_PATH}`;
 const DEV_PATH = BASE_PATH.endsWith('/dev/')
   ? BASE_PATH
@@ -41,7 +41,7 @@ const shellPaths = new Set(SHELL_FILES.map(file => new URL(file || './', self.lo
 // libs). They're cross-origin, so the shell list above cannot precache them;
 // cache them at runtime (stale-while-revalidate) so the app truly works offline.
 const CDN_HOSTS = new Set(['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com']);
-const CDN_CACHE = 'stce-cdn-v2.5.1';
+const CDN_CACHE = 'stce-cdn-v2.5.3';
 
 // Install: cache the app shell. Precaching is done per-file so one missing
 // asset (404) degrades offline coverage instead of aborting the whole install.

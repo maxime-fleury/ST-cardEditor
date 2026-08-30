@@ -443,6 +443,7 @@ const Editor = {
         window.AppState.activeCard.alternate_greetings.splice(parseInt(btn.dataset.idx), 1);
         self.renderGreetings(window.AppState.activeCard);
         await self.syncEditorToCard();
+        self.updateCharCounts();
       });
     });
 
@@ -510,6 +511,7 @@ const Editor = {
           window.AppState.activeCard.alternate_greetings[idx] = ta.value;
         }
         await self.syncEditorToCard();
+        self.updateCharCounts();
       }, 500));
     });
   },
@@ -599,7 +601,9 @@ const Editor = {
     }
     const extra = [];
     const extEl = document.querySelector('#editExtensions');
-    if (extEl && extEl.value) extra.push(extEl.value);
+    // Skip extensions while they're invalid: the rejected JSON textarea content
+    // is not the card's data, so counting it would overstate the budget.
+    if (extEl && extEl.value && !extEl.classList.contains('is-invalid-json')) extra.push(extEl.value);
     const gr = document.querySelector('#greetingsList');
     if (gr) gr.querySelectorAll('.greeting-textarea').forEach(ta => extra.push(ta.value || ''));
     const lb = document.querySelector('#lorebookEntries');
@@ -745,6 +749,7 @@ const Editor = {
         window.AppState.activeCard.character_book.entries.splice(parseInt(btn.dataset.idx), 1);
         self.renderLorebook(window.AppState.activeCard);
         await self.syncEditorToCard();
+        self.updateCharCounts();
       });
     });
     const loreFields = container.querySelectorAll('textarea[data-lore-idx], input[data-lore-key-idx], input[data-lore-secondary-idx], input[data-lore-comment-idx], input[data-lore-order-idx]');
@@ -765,6 +770,7 @@ const Editor = {
           window.AppState.activeCard.character_book.entries[idx].content = ta.value;
           await self.syncEditorToCard();
           self.autoResizeTextareas();
+          self.updateCharCounts();
         }
       }, 600));
     });

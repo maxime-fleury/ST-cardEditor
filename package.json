@@ -1,6 +1,6 @@
 {
   "name": "st-card-editor",
-  "version": "2.5.1",
+  "version": "2.5.3",
   "description": "SillyTavern Character Card Reader & Editor - Edit, translate, and enhance character cards with AI",
   "type": "module",
   "scripts": {

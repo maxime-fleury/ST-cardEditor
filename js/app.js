@@ -2426,6 +2426,7 @@ ${value}`).join(`
           window.AppState.activeCard.alternate_greetings.splice(parseInt(btn.dataset.idx), 1);
           self.renderGreetings(window.AppState.activeCard);
           await self.syncEditorToCard();
+          self.updateCharCounts();
         });
       });
       container.querySelectorAll(".greeting-set-default").forEach((btn) => {
@@ -2486,6 +2487,7 @@ ${value}`).join(`
             window.AppState.activeCard.alternate_greetings[idx] = ta.value;
           }
           await self.syncEditorToCard();
+          self.updateCharCounts();
         }, 500));
       });
     },
@@ -2583,7 +2585,7 @@ ${value}`).join(`
       }
       const extra = [];
       const extEl = document.querySelector("#editExtensions");
-      if (extEl && extEl.value)
+      if (extEl && extEl.value && !extEl.classList.contains("is-invalid-json"))
         extra.push(extEl.value);
       const gr = document.querySelector("#greetingsList");
       if (gr)
@@ -2677,6 +2679,7 @@ ${value}`).join(`
           window.AppState.activeCard.character_book.entries.splice(parseInt(btn.dataset.idx), 1);
           self.renderLorebook(window.AppState.activeCard);
           await self.syncEditorToCard();
+          self.updateCharCounts();
         });
       });
       const loreFields = container.querySelectorAll("textarea[data-lore-idx], input[data-lore-key-idx], input[data-lore-secondary-idx], input[data-lore-comment-idx], input[data-lore-order-idx]");
@@ -2700,6 +2703,7 @@ ${value}`).join(`
             window.AppState.activeCard.character_book.entries[idx].content = ta.value;
             await self.syncEditorToCard();
             self.autoResizeTextareas();
+            self.updateCharCounts();
           }
         }, 600));
       });
@@ -2901,6 +2905,7 @@ ${value}`).join(`
     _selectedIds: new Set,
     _sortMode: "manual",
     _activeTagFilters: new Set,
+    _collapsedGroups: new Set,
     _toggleBatchSelect(cardId) {
       if (this._selectedIds.has(cardId))
         this._selectedIds.delete(cardId);
@@ -3181,7 +3186,8 @@ ${value}`).join(`
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       container.innerHTML = this._groupCards(filtered).map((group) => {
         const rows = group.items.map((card) => this._rowHtml(card, activeCard)).join("");
-        return '<div class="card-list-group" data-letter="' + Ui.escapeAttr(group.letter) + '">' + (group.letter ? '<button type="button" class="card-group-header" data-letter="' + Ui.escapeAttr(group.letter) + '" aria-expanded="true"><span class="card-group-letter">' + Ui.escapeHtml(group.letter) + '</span><span class="card-group-count">' + group.items.length + "</span></button>" : "") + '<div class="card-group-body">' + rows + "</div>" + "</div>";
+        const collapsed = group.letter ? this._collapsedGroups.has(group.letter) : false;
+        return '<div class="card-list-group" data-letter="' + Ui.escapeAttr(group.letter) + '">' + (group.letter ? '<button type="button" class="card-group-header" data-letter="' + Ui.escapeAttr(group.letter) + '" aria-expanded="' + (collapsed ? "false" : "true") + '"><span class="card-group-letter">' + Ui.escapeHtml(group.letter) + '</span><span class="card-group-count">' + group.items.length + "</span></button>" : "") + '<div class="card-group-body' + (collapsed ? " collapsed" : "") + '">' + rows + "</div>" + "</div>";
       }).join("");
       Anims.staggerFadeIn(container.querySelectorAll(".card-list-item"), { stagger: 25, duration: 200 });
       if (!reducedMotion) {
@@ -3208,10 +3214,15 @@ ${value}`).join(`
         container.addEventListener("click", (e) => {
           const groupHeader = e.target.closest(".card-group-header");
           if (groupHeader) {
+            const letter = groupHeader.dataset.letter;
             const body = groupHeader.parentElement && groupHeader.parentElement.querySelector(".card-group-body");
             if (body) {
               const collapsed = body.classList.toggle("collapsed");
               groupHeader.setAttribute("aria-expanded", collapsed ? "false" : "true");
+              if (collapsed)
+                this._collapsedGroups.add(letter);
+              else
+                this._collapsedGroups.delete(letter);
             }
             return;
           }
@@ -3241,7 +3252,8 @@ ${value}`).join(`
           if (!handle)
             return;
           dragId = handle.dataset.cardId;
-          e.dataTransfer.effectAllowed = "move";
+          if (e.dataTransfer)
+            e.dataTransfer.effectAllowed = "move";
           const dragItem = handle.closest(".card-list-item");
           if (dragItem && !Anims._disabled()) {
             dragItem.style.transition = "transform 150ms ease, opacity 150ms ease";
@@ -3932,8 +3944,10 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       let lastOut = "";
       const statusEl = streamingEl.querySelector(".ai-stream-status");
       const liveTimer = setInterval(() => {
-        if (!streamingEl.isConnected)
+        if (!streamingEl.isConnected) {
+          clearInterval(liveTimer);
           return;
+        }
         const secs = Math.floor((Date.now() - startedAt) / 1000) + "s";
         let liveCount = 0;
         if (lastOut) {
@@ -20805,6 +20819,11 @@ Each greeting should be an in-character opening message that could start a conve
             preview.classList.remove("visible");
             preview.innerHTML = "";
           }
+          document.querySelectorAll('.token-insert-btn[data-target="' + targetId + '"]').forEach((btn2) => {
+            const grp = btn2.closest(".token-insert-group");
+            if (grp)
+              grp.style.display = mode === "preview" ? "none" : "";
+          });
         });
       });
     });
@@ -20859,9 +20878,11 @@ Each greeting should be an in-character opening message that could start a conve
     const insertTokenAtCursor = (ta, text) => {
       const start = typeof ta.selectionStart === "number" ? ta.selectionStart : (ta.value || "").length;
       const end = typeof ta.selectionEnd === "number" ? ta.selectionEnd : start;
-      ta.setRangeText(text, start, end, "end");
-      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      if (typeof ta.selectionStart !== "number")
+        return;
       ta.focus();
+      ta.setSelectionRange(start, end);
+      document.execCommand("insertText", false, text);
     };
     document.querySelectorAll(".token-insert-btn").forEach((btn) => {
       btn.addEventListener("click", () => {

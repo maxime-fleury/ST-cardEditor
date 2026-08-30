@@ -506,7 +506,11 @@ const AiChat = {
     let lastOut = '';
     const statusEl = streamingEl.querySelector('.ai-stream-status');
     const liveTimer = setInterval(() => {
-      if (!streamingEl.isConnected) return;
+      // The stream message can be detached without the promise settling (e.g. a
+      // card switch mid-generation, or a clear that wipes the transcript before
+      // the fetch resolves). Stop the timer when its element is gone so we never
+      // leak an interval updating a detached node forever.
+      if (!streamingEl.isConnected) { clearInterval(liveTimer); return; }
       const secs = Math.floor((Date.now() - startedAt) / 1000) + 's';
       let liveCount = 0;
       if (lastOut) {
