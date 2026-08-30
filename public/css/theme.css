@@ -38,6 +38,11 @@
   --text-primary: #ece8f5;
   --text-secondary: #a49cc0;
   --text-muted: #6c6585;
+  /* Bootstrap .text-muted / .text-secondary map to --bs-secondary-color. The
+     app toggles its own [data-theme] (not data-bs-theme), so Bootstrap's light
+     default #6c757d would otherwise render as dark-on-dark muted text. Pin it
+     to the app's dark muted token so muted labels are readable on dark. */
+  --bs-secondary-color: var(--text-muted);
   --text-accent: #cbd5e1;
   --text-placeholder: #8e88a8;
 
@@ -143,10 +148,16 @@
 [data-theme="light"] .panel { background: var(--bg-base); }
 [data-theme="light"] .panel-header { background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
 [data-theme="light"] .form-control, [data-theme="light"] .form-select {
-  background: var(--bg-surface); color: var(--text-primary); border-color: var(--border-subtle);
+  /* background-color (not the `background` shorthand): the shorthand resets
+     background-image/repeat/size and deletes Bootstrap's select chevron. */
+  background-color: var(--bg-surface); color: var(--text-primary); border-color: var(--border-subtle);
 }
 [data-theme="light"] .form-control:focus, [data-theme="light"] .form-select:focus {
-  background: #fff; color: var(--text-primary);
+  background-color: #fff; color: var(--text-primary);
+}
+[data-theme="light"] {
+  /* Restore a dark muted for light surfaces (Bootstrap's muted gray). */
+  --bs-secondary-color: #6c757d;
 }
 [data-theme="light"] .ai-chat-messages { background: var(--bg-deep); }
 [data-theme="light"] .ai-message.user { background: linear-gradient(135deg, #e2e8f0, #cbd5e1); color: var(--text-primary); }

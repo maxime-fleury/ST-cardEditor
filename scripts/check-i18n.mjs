@@ -41,4 +41,25 @@ if (failures) {
   console.error(`\ncheck-i18n: ${failures} language(s) out of sync with English.`);
   process.exit(1);
 }
-console.log(`\ncheck-i18n: all ${langs.length} languages in sync with English (${enKeys.length} keys).`);
+
+// Placeholder-consistency guard: I18n.t only substitutes {{var}} (double
+// braces). A value with a single-brace {var} renders the literal braces to the
+// user (e.g. "Imported {count} prompts"), so we reject them. Lookbehind/
+// lookahead skip {...} that is already part of a {{...}} group.
+const phRe = /(?<!{)\{(?!{)[A-Za-z][A-Za-z0-9_]*\}(?!})/;
+let ph = 0;
+for (const lang of langs) {
+  for (const [key, value] of Object.entries(translations[lang])) {
+    const m = phRe.exec(value);
+    if (m) {
+      ph++;
+      if (ph <= 15) console.error(`✗ ${lang}.${key}: single-brace "${m[0]}" — use "{{${m[0].slice(1, -1)}}}".`);
+    }
+  }
+}
+if (ph) {
+  console.error(`\ncheck-i18n: ${ph} single-brace placeholder(s) — I18n.t only substitutes {{var}}.`);
+  process.exit(1);
+}
+
+console.log(`\ncheck-i18n: all ${langs.length} languages in sync with English (${enKeys.length} keys, no single-brace placeholders).`);

@@ -365,7 +365,10 @@
   gap: 0.5rem;
 }
 .ai-model-select, .ai-target-select {
-  background: var(--bg-surface) !important;
+  /* Only background-color (not the `background` shorthand): the shorthand
+     would reset background-repeat/position/size to their defaults and make
+     Bootstrap's dropdown chevron tile into a row of ∨∨∨∨ characters. */
+  background-color: var(--bg-surface) !important;
   border: 1px solid var(--surface-border) !important;
   color: var(--text-secondary) !important;
   font-size: 0.72rem !important;

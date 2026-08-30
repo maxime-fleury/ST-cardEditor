@@ -876,6 +876,25 @@
               <button type="button" class="btn btn-outline-secondary btn-sm" id="btnResetPrompts" data-i18n="settings.restoreDefaultPrompts">Restore default prompts</button>
             </div>
             <input type="file" id="promptFileInput" accept=".json" hidden>
+            <div class="prompt-vars-box mt-2 p-2 rounded" style="background:var(--bg-tertiary);border:1px solid var(--border-default);">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <i class="bi bi-info-circle text-accent"></i>
+                <span class="small fw-bold text-uppercase" style="color:var(--text-secondary)" data-i18n="settings.promptVariables">Prompt variables</span>
+              </div>
+              <div class="d-flex flex-wrap gap-1">
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{card}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{lang}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{tone}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{count}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{current}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{field}</code>
+                <!-- Single-brace {x} are substituted by the app at send time;
+                     double-brace {{char}}/{{user}} are SillyTavern chat placeholders
+                     passed through to the model. {original} is NOT substituted. -->
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{{char}}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{{user}}</code>
+              </div>
+            </div>
             <small class="form-text text-muted d-block mt-2" data-i18n="settings.promptHint">These fields show the current prompts. If a field is empty, the built-in default prompt is used. Restore defaults to view or restore the original prompts.</small>
           </div>
           </div>
