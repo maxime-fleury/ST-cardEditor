@@ -3272,6 +3272,11 @@ ${value}`).join(`
             dragId = null;
             return;
           }
+          if (this._sortMode !== "manual") {
+            Ui.showToast(I18n.t("toast.reorderManual"), "info");
+            dragId = null;
+            return;
+          }
           const dropId = item.dataset.cardId;
           if (dragId === dropId)
             return;
@@ -3685,8 +3690,8 @@ ${value}`).join(`
             if (combinedContent.trim()) {
               window.AppState.chatHistory.push({ role: "assistant", content: combinedContent.trim() });
               CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
-              this._updateSession();
             }
+            this._updateSession();
             window.AppState.isAiLoading = false;
             this.updateSendButton();
             Settings.refreshCredits();
@@ -4595,11 +4600,12 @@ Current:
       const { chatHistory } = window.AppState;
       const $ = (sel) => document.querySelector(sel);
       const container = $("#aiChatMessages");
-      if (chatHistory.length === 0)
+      if (chatHistory.length === 0) {
+        this._historyRendered = true;
+        this._showWelcome();
         return;
-      const welcome = container.querySelector(".ai-welcome");
-      if (welcome)
-        welcome.remove();
+      }
+      container.innerHTML = "";
       chatHistory.forEach((msg, i) => this.addChatMessage(msg.role, msg.content, null, null, i));
       this._historyRendered = true;
     },
@@ -7287,6 +7293,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.undo": "Undo",
     "toast.redo": "Redo",
     "toast.reorderFiltered": "Turn off search and filters to reorder cards.",
+    "toast.reorderManual": "Switch to Manual sort to reorder cards.",
     "error.apiKeyNotSet": "API key not set. Enter your API key in Settings.",
     "error.customUrlNotSet": "Custom API base URL is not set. Open Settings → Custom (OpenAI-compatible) and enter your endpoint URL (e.g. http://localhost:1234/v1).",
     "error.customServerError": "The server returned an error: {{detail}}",
@@ -8052,6 +8059,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.noNameWarning": `Avertissement : la carte n'a pas de nom. Le fichier sera enregistré sous "character.json".`,
     "toast.redo": "Rétablir",
     "toast.reorderFiltered": "Désactivez la recherche et les filtres pour réorganiser les cartes.",
+    "toast.reorderManual": "Passez au tri Manuel pour réorganiser les cartes.",
     "wizard.language.en": "English",
     "wizard.language.fr": "French",
     "wizard.language.de": "German",
@@ -8670,6 +8678,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.noNameWarning": 'Advertencia: la tarjeta no tiene nombre. El archivo se guardará como "character.json".',
     "toast.redo": "Rehacer",
     "toast.reorderFiltered": "Desactiva la búsqueda y los filtros para reordenar las tarjetas.",
+    "toast.reorderManual": "Cambie a la ordenación Manual para reordenar las tarjetas.",
     "wizard.language.en": "English",
     "wizard.language.fr": "French",
     "wizard.language.de": "German",
@@ -9288,6 +9297,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.noNameWarning": 'Warnung: Die Karte hat keinen Namen. Die Datei wird als "character.json" gespeichert.',
     "toast.redo": "Wiederholen",
     "toast.reorderFiltered": "Schalten Sie Suche und Filter aus, um Karten neu anzuordnen.",
+    "toast.reorderManual": "Wechseln Sie zur manuellen Sortierung, um Karten neu anzuordnen.",
     "wizard.language.en": "English",
     "wizard.language.fr": "French",
     "wizard.language.de": "German",
@@ -9906,6 +9916,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.noNameWarning": 'Aviso: a carta não tem nome. O arquivo será salvo como "character.json".',
     "toast.redo": "Refazer",
     "toast.reorderFiltered": "Desative a pesquisa e os filtros para reordenar as cartas.",
+    "toast.reorderManual": "Altere para a ordenação Manual para reordenar as cartas.",
     "wizard.language.en": "English",
     "wizard.language.fr": "French",
     "wizard.language.de": "German",
@@ -10524,6 +10535,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.noNameWarning": '警告: カードに名前がありません。ファイルは "character.json" として保存されます。',
     "toast.redo": "やり直す",
     "toast.reorderFiltered": "カードを並べ替えるには、検索とフィルターをオフにしてください。",
+    "toast.reorderManual": "カードを並べ替えるには、手動ソートに切り替えてください。",
     "wizard.language.en": "English",
     "wizard.language.fr": "French",
     "wizard.language.de": "German",
@@ -11142,6 +11154,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.noNameWarning": '警告：卡片没有名称。文件将保存为 "character.json"。',
     "toast.redo": "重做",
     "toast.reorderFiltered": "关闭搜索和筛选以重新排列卡片。",
+    "toast.reorderManual": "切换到手动排序以重新排列卡片。",
     "wizard.language.en": "English",
     "wizard.language.fr": "French",
     "wizard.language.de": "German",
@@ -11760,6 +11773,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.noNameWarning": '경고: 카드에 이름이 없습니다. 파일이 "character.json"으로 저장됩니다.',
     "toast.redo": "다시 실행",
     "toast.reorderFiltered": "카드를 다시 정렬하려면 검색과 필터를 끄세요.",
+    "toast.reorderManual": "카드를 다시 정렬하려면 수동 정렬으로 전환하세요.",
     "wizard.language.en": "English",
     "wizard.language.fr": "French",
     "wizard.language.de": "German",
@@ -12378,6 +12392,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.noNameWarning": 'Προειδοποίηση: Η κάρτα δεν έχει όνομα. Το αρχείο θα αποθηκευτεί ως "character.json".',
     "toast.redo": "Επανάληψη",
     "toast.reorderFiltered": "Απενεργοποιήστε την αναζήτηση και τα φίλτρα για να αναδιατάξετε τις κάρτες.",
+    "toast.reorderManual": "Μεταβείτε στη χειροκίνητη ταξινόμηση για να αναδιατάξετε τις κάρτες.",
     "wizard.language.en": "English",
     "wizard.language.fr": "French",
     "wizard.language.de": "German",
@@ -12996,6 +13011,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.noNameWarning": 'Предупреждение: у карточки нет имени. Файл будет сохранён как "character.json".',
     "toast.redo": "Повторить",
     "toast.reorderFiltered": "Отключите поиск и фильтры, чтобы изменить порядок карточек.",
+    "toast.reorderManual": "Переключитесь на ручную сортировку, чтобы изменить порядок карточек.",
     "wizard.language.en": "English",
     "wizard.language.fr": "French",
     "wizard.language.de": "German",
@@ -13467,6 +13483,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.undo": "Annulla",
     "toast.redo": "Ripeti",
     "toast.reorderFiltered": "Disattiva ricerca e filtri per riordinare le schede.",
+    "toast.reorderManual": "Passa all'ordinamento Manuale per riordinare le schede.",
     "error.apiKeyNotSet": "Chiave API non impostata. Inserisci la tua chiave API nelle Impostazioni.",
     "error.customUrlNotSet": "L'URL di base dell'API personalizzata non è impostata. Apri Impostazioni → Personalizzato (compatibile con OpenAI) e inserisci l'URL dell'endpoint (es. http://localhost:1234/v1).",
     "error.customAuthFailed": "Autenticazione fallita (HTTP {{status}}). Controlla la chiave API per questo endpoint.",
@@ -14085,6 +14102,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.undo": "Cofnij",
     "toast.redo": "Ponów",
     "toast.reorderFiltered": "Wyłącz wyszukiwanie i filtry, aby zmienić kolejność kart.",
+    "toast.reorderManual": "Przełącz na sortowanie ręczne, aby zmienić kolejność kart.",
     "error.apiKeyNotSet": "Klucz API nie został ustawiony. Wprowadź klucz API w Ustawieniach.",
     "error.customUrlNotSet": "Nie ustawiono podstawowego adresu URL niestandardowego API. Otwórz Ustawienia → Niestandardowe (zgodne z OpenAI) i wpisz adres URL punktu końcowego (np. http://localhost:1234/v1).",
     "error.customServerError": "Serwer zwrócił błąd: {{detail}}",
@@ -14703,6 +14721,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.undo": "Geri al",
     "toast.redo": "Yinele",
     "toast.reorderFiltered": "Kartları yeniden sıralamak için aramayı ve filtreleri kapatın.",
+    "toast.reorderManual": "Kartları yeniden sıralamak için Manuel sıralamaya geçin.",
     "error.apiKeyNotSet": "API anahtarı ayarlanmadı. API anahtarınızı Ayarlar bölümüne girin.",
     "error.customUrlNotSet": "Özel API temel URL'si ayarlanmadı. Ayarlar → Özel (OpenAI uyumlu) bölümünü açın ve uç nokta URL'sini girin (örn. http://localhost:1234/v1).",
     "error.customAuthFailed": "Kimlik doğrulama başarısız (HTTP {{status}}). Bu uç nokta için API anahtarını kontrol edin.",
@@ -15321,6 +15340,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.undo": "Ongedaan maken",
     "toast.redo": "Opnieuw",
     "toast.reorderFiltered": "Schakel zoeken en filters uit om kaarten te herordenen.",
+    "toast.reorderManual": "Schakel over op handmatige sortering om kaarten te herordenen.",
     "error.apiKeyNotSet": "API-sleutel niet ingesteld. Voer uw API-sleutel in bij Instellingen.",
     "error.customUrlNotSet": "De basis-URL van de aangepaste API is niet ingesteld. Open Instellingen → Aangepast (OpenAI-compatibel) en voer de endpoint-URL in (bijv. http://localhost:1234/v1).",
     "error.customServerError": "De server gaf een fout terug: {{detail}}",
@@ -15939,6 +15959,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.undo": "Скасувати",
     "toast.redo": "Повторити",
     "toast.reorderFiltered": "Вимкніть пошук і фільтри, щоб змінити порядок карток.",
+    "toast.reorderManual": "Перемкніться на ручне сортування, щоб змінити порядок карток.",
     "error.apiKeyNotSet": "Ключ API не встановлено. Введіть ключ API в налаштуваннях.",
     "error.customUrlNotSet": "Базовий URL користувацького API не встановлено. Відкрийте Налаштування → Користувацький (сумісний з OpenAI) і введіть URL кінцевої точки (наприклад, http://localhost:1234/v1).",
     "error.customServerError": "Сервер повернув помилку: {{detail}}",
@@ -16557,6 +16578,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.undo": "Hoàn tác",
     "toast.redo": "Làm lại",
     "toast.reorderFiltered": "Tắt tìm kiếm và bộ lọc để sắp xếp lại thẻ.",
+    "toast.reorderManual": "Chuyển sang sắp xếp Thủ công để sắp xếp lại thẻ.",
     "error.apiKeyNotSet": "Chưa đặt khóa API. Nhập khóa API của bạn trong Cài đặt.",
     "error.customUrlNotSet": "URL cơ sở của API tùy chỉnh chưa được đặt. Mở Cài đặt → Tùy chỉnh (tương thích OpenAI) và nhập URL điểm cuối (ví dụ: http://localhost:1234/v1).",
     "error.customServerError": "Máy chủ đã trả về lỗi: {{detail}}",
@@ -17175,6 +17197,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.undo": "Urungkan",
     "toast.redo": "Ulangi",
     "toast.reorderFiltered": "Matikan pencarian dan filter untuk mengurutkan ulang kartu.",
+    "toast.reorderManual": "Beralih ke pengurutan Manual untuk mengurutkan ulang kartu.",
     "error.apiKeyNotSet": "Kunci API belum diatur. Masukkan kunci API Anda di Pengaturan.",
     "error.customUrlNotSet": "URL dasar API kustom belum diatur. Buka Pengaturan → Kustom (kompatibel OpenAI) dan masukkan URL endpoint (mis. http://localhost:1234/v1).",
     "error.customServerError": "Server mengembalikan kesalahan: {{detail}}",
@@ -17793,6 +17816,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.undo": "पूर्ववत करें",
     "toast.redo": "फिर से करें",
     "toast.reorderFiltered": "कार्ड पुनः क्रमित करने के लिए खोज और फ़िल्टर बंद करें।",
+    "toast.reorderManual": "कार्ड को पुनः क्रमित करने के लिए मैन्युअल क्रम में जाएँ।",
     "error.apiKeyNotSet": "API कुंजी सेट नहीं है। सेटिंग्स में अपनी API कुंजी दर्ज करें।",
     "error.customUrlNotSet": "कस्टम API का बेस URL सेट नहीं है। सेटिंग्स → कस्टम (OpenAI-संगत) खोलें और एंडपॉइंट URL दर्ज करें (जैसे http://localhost:1234/v1)।",
     "error.customServerError": "सर्वर ने एक त्रुटि लौटाई: {{detail}}",
@@ -18411,6 +18435,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.undo": "تراجع",
     "toast.redo": "إعادة",
     "toast.reorderFiltered": "أوقف تشغيل البحث والفلاتر لإعادة ترتيب البطاقات.",
+    "toast.reorderManual": "بدّل إلى الفرز اليدوي لإعادة ترتيب البطاقات.",
     "error.apiKeyNotSet": "لم يتم تعيين مفتاح API. أدخل مفتاح API الخاص بك في الإعدادات.",
     "error.customUrlNotSet": "لم يتم تعيين عنوان URL الأساسي لواجهة برمجة التطبيقات المخصصة. افتح الإعدادات ← مخصص (متوافق مع OpenAI) وأدخل عنوان URL لنقطة النهاية (مثل http://localhost:1234/v1).",
     "error.customServerError": "أعاد الخادم خطأً: {{detail}}",
@@ -19029,6 +19054,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.undo": "ביטול",
     "toast.redo": "ביצוע מחדש",
     "toast.reorderFiltered": "כבו את החיפוש והפילטרים כדי לסדר מחדש את הכרטיסים.",
+    "toast.reorderManual": "עברו למיון ידני כדי לסדר מחדש את הכרטיסים.",
     "error.apiKeyNotSet": "מפתח ה-API לא הוגדר. הזן את מפתח ה-API שלך בהגדרות.",
     "error.customUrlNotSet": "כתובת ה-URL הבסיסית של ה-API המותאם אינה מוגדרת. פתח את ההגדרות ← מותאם אישית (תואם OpenAI) והזן את כתובת ה-URL של נקודת הקצה (למשל http://localhost:1234/v1).",
     "error.customServerError": "השרת החזיר שגיאה: {{detail}}",
@@ -19647,6 +19673,7 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.undo": "واگردانی",
     "toast.redo": "بازانجام",
     "toast.reorderFiltered": "برای مرتب‌سازی مجدد کارت‌ها، جستجو و فیلترها را خاموش کنید.",
+    "toast.reorderManual": "برای مرتب‌سازی مجدد کارت‌ها، به مرتب‌سازی دستی بروید.",
     "error.apiKeyNotSet": "کلید API تنظیم نشده است. کلید API خود را در تنظیمات وارد کنید.",
     "error.customUrlNotSet": "آدرس پایه API سفارشی تنظیم نشده است. تنظیمات ← سفارشی (سازگار با OpenAI) را باز کنید و آدرس نقطه پایانی را وارد کنید (مثلاً http://localhost:1234/v1).",
     "error.customServerError": "سرور خطایی برگرداند: {{detail}}",

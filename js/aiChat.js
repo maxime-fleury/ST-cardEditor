@@ -221,8 +221,13 @@ const AiChat = {
             if (combinedContent.trim()) {
               window.AppState.chatHistory.push({ role: 'assistant', content: combinedContent.trim() });
               CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
-              this._updateSession();
             }
+            // _updateSession() must run for partial AND complete failure alike:
+            // if any field produced content the history already changed; if none
+            // did, the pushed user message still needs the session's
+            // preview/count/lastUpdated to catch up, or it goes stale and the
+            // next message forks a fresh session.
+            this._updateSession();
             window.AppState.isAiLoading = false;
             this.updateSendButton();
             Settings.refreshCredits();
@@ -1214,9 +1219,17 @@ const AiChat = {
     const { chatHistory } = window.AppState;
     const $ = (sel) => document.querySelector(sel);
     const container = $('#aiChatMessages');
-    if (chatHistory.length === 0) return;
-    const welcome = container.querySelector('.ai-welcome');
-    if (welcome) welcome.remove();
+    if (chatHistory.length === 0) {
+      // Card has no chat: never leave a previous card's messages on screen,
+      // and still latch the flag so re-selecting a card with history cannot
+      // append duplicates on top of the still-visible DOM.
+      this._historyRendered = true;
+      this._showWelcome();
+      return;
+    }
+    // Switching cards must not stack histories: rebuild the transcript from
+    // scratch instead of appending below a previous card's messages.
+    container.innerHTML = '';
     chatHistory.forEach((msg, i) => this.addChatMessage(msg.role, msg.content, null, null, i));
     this._historyRendered = true;
   },

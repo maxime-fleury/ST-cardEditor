@@ -526,6 +526,14 @@ const CardManager = {
           dragId = null;
           return;
         }
+        // The visible order only matches the stored index order in Manual mode;
+        // under any other sort a drop would silently reshuffle the hidden
+        // manual order while the list visibly snaps right back.
+        if (this._sortMode !== 'manual') {
+          Ui.showToast(I18n.t('toast.reorderManual'), 'info');
+          dragId = null;
+          return;
+        }
         const dropId = item.dataset.cardId;
         if (dragId === dropId) return;
         const cards = window.AppState.cards;

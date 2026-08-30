@@ -189,6 +189,64 @@ test('one chat message creates exactly one session', async ({ page }) => {
   await expect(page.locator('#aiHistoryList .ai-history-item')).toHaveCount(1);
 });
 
+test('switching cards clears stale AI chat and never duplicates history', async ({ page }) => {
+  // Regression: renderChatHistory() bailed out with an empty history WITHOUT
+  // clearing the DOM or latching _historyRendered, so a card with no chat
+  // showed the previous card's messages; cards with history STACKED their
+  // transcripts on top of the previous card's, and switching back re-appended
+  // the whole history (duplicates).
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const seed = async (name, sid, msgs) => {
+      const card = CardEngine.createEmptyCard();
+      card.name = name;
+      await CardStorage.upsertCard(card);
+      if (!msgs) return;
+      const now = Date.now();
+      CardStorage.saveChatSession(card._id, {
+        id: sid,
+        created: now,
+        lastUpdated: now,
+        preview: msgs[0].content,
+        messageCount: msgs.length,
+      });
+      CardStorage.saveSessionMessages(card._id, sid, msgs);
+    };
+    await seed('Aria', 'ses_a_0001', [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'hi there' },
+    ]);
+    await seed('Borin', 'ses_b_0001', [
+      { role: 'user', content: 'ola' },
+      { role: 'assistant', content: 'hola' },
+    ]);
+    await seed('Cleo', null, null); // no chat at all
+  });
+  await page.reload();
+  await expect(page.locator('.card-list-item')).toHaveCount(3);
+
+  // Card with history renders its own two messages...
+  await page.locator('.card-list-item', { hasText: 'Aria' }).click();
+  await expect(page.locator('#aiChatMessages .ai-message')).toHaveCount(2);
+
+  // ...and a second card with history renders ITS OWN two — not Aria's plus
+  // its own stacked below.
+  await page.locator('.card-list-item', { hasText: 'Borin' }).click();
+  await expect(page.locator('#aiChatMessages .ai-message')).toHaveCount(2);
+
+  // A card with no chat must show the welcome, never the previous chat.
+  await page.locator('.card-list-item', { hasText: 'Cleo' }).click();
+  await expect(page.locator('#aiChatMessages .ai-message')).toHaveCount(0);
+  await expect(page.locator('#aiChatMessages .ai-welcome')).toBeVisible();
+
+  // Switching back to a card with history renders it exactly once.
+  await page.locator('.card-list-item', { hasText: 'Aria' }).click();
+  await expect(page.locator('#aiChatMessages .ai-message')).toHaveCount(2);
+
+  expect(errors, 'card-switch chat flow must not throw').toEqual([]);
+});
+
 test('appearance presets and settings apply live without errors', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/');
@@ -329,4 +387,203 @@ test('translate quick action opens the in-app language dialog', async ({ page })
   await expect(page.locator('#dialogSelect option')).toHaveCount(21);
   await page.locator('#dialogCancel').click();
   await expect(page.locator('#dialogModal')).not.toBeVisible();
+});
+
+// 1×1 red PNG — enough for the avatar pipeline (FileReader + canvas thumbnail).
+const TINY_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
+
+// ─── Editor interaction coverage (greetings / lorebook / duplicate / avatar) ─
+
+test('greetings: add, reorder, set default, delete, undo/redo', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await importCards(page, [v2Card('GreetHam', { alternate_greetings: [] })]);
+  await page.locator('.card-list-item').first().click();
+  await page.locator('#editorTabs .nav-link[data-bs-target="#tabAdvanced"]').click();
+  await page.waitForTimeout(250);
+
+  await page.locator('#btnAddGreeting').click();
+  await page.locator('#greetingsList .greeting-textarea').nth(0).fill('greet one');
+  await page.waitForTimeout(600);
+  await page.locator('#btnAddGreeting').click();
+  await page.locator('#greetingsList .greeting-textarea').nth(1).fill('greet two');
+  await page.waitForTimeout(600);
+
+  // Move the second greeting above the first.
+  await page.locator('#greetingsList .greeting-item').nth(1).locator('.greeting-up').click();
+  await page.waitForTimeout(120);
+  // Mark the now-first greeting as the default first message.
+  await page.locator('#greetingsList .greeting-item').nth(0).locator('.greeting-set-default').click();
+  await page.waitForTimeout(150);
+  // Delete the trailing greeting.
+  await page.locator('#greetingsList .greeting-item').nth(1).locator('.greeting-delete').click();
+  await page.waitForTimeout(300);
+  // Undo restores it; redo deletes again.
+  await page.evaluate(() => window.Editor.undo());
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.AppState.activeCard.alternate_greetings.length)).toBe(2);
+  await page.evaluate(() => window.Editor.redo());
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.AppState.activeCard.alternate_greetings.length)).toBe(1);
+
+  const state = await page.evaluate(() => window.AppState.activeCard);
+  expect(state.alternate_greetings[0]).toBe('greet two'); // reorder stuck
+  expect(state.first_mes).toBe('greet two'); // default stuck
+  expect(errors, 'greetings flow must not throw').toEqual([]);
+});
+
+test('lorebook: add, edit, live-search filter, delete', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await importCards(page, [v2Card('LoreHam')]);
+  await page.locator('.card-list-item').first().click();
+  await page.locator('#editorTabs .nav-link[data-bs-target="#tabLorebook"]').click();
+  await page.waitForTimeout(250);
+
+  await page.locator('#btnAddLoreEntry').click();
+  await page.waitForTimeout(100);
+  const first = page.locator('.lorebook-accordion-item').first();
+  await first.locator('[data-lore-toggle]').click();
+  await first.locator('textarea[data-lore-idx]').fill('secret lore about dragons');
+  await first.locator('input[data-lore-key-idx]').fill('dragon');
+  await first.locator('input[data-lore-comment-idx]').fill('The Dragon');
+  await page.waitForTimeout(700);
+
+  // Search narrows to matching entries (key match), then to none.
+  await page.locator('#lorebookSearchInput').fill('dragon');
+  await page.waitForTimeout(400);
+  await expect(page.locator('.lorebook-accordion-item')).toHaveCount(1);
+  await page.locator('#lorebookSearchInput').fill('zzzz-nope');
+  await page.waitForTimeout(400);
+  await expect(page.locator('.lorebook-accordion-item')).toHaveCount(0);
+
+  // Clear the search and delete the entry from the persisted card.
+  await page.locator('#lorebookSearchInput').fill('');
+  await page.waitForTimeout(400);
+  await page.locator('.lorebook-accordion-item').first().locator('.lorebook-delete-btn').click();
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.AppState.activeCard.character_book.entries.length)).toBe(0);
+  expect(errors, 'lorebook flow must not throw').toEqual([]);
+});
+
+test('duplicate card then delete with confirm', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await importCards(page, [v2Card('DupSource')]);
+  await page.locator('.card-list-item').first().click();
+  await page.locator('#btnDuplicateCard').click();
+  await page.waitForTimeout(300);
+  await expect(page.locator('.card-list-item')).toHaveCount(2);
+  // The clone becomes active with a "(Copy)" suffix.
+  expect(await page.evaluate(() => window.AppState.activeCard.name)).toContain('Copy');
+
+  // Reselect the original (exact name — the clone contains "DupSource" too) and
+  // delete it through the in-app confirm dialog.
+  await page.locator('.card-list-item').filter({ has: page.getByText('DupSource', { exact: true }) }).click();
+  await page.waitForTimeout(150);
+  await page.locator('#btnDeleteCard').click();
+  await page.locator('#dialogOk').click();
+  await page.waitForTimeout(400);
+  await expect(page.locator('.card-list-item')).toHaveCount(1);
+  expect(await page.evaluate(() => window.AppState.cards[0].name)).toContain('Copy');
+  expect(errors, 'duplicate/delete flow must not throw').toEqual([]);
+});
+
+test('rapid card switching never cross-writes debounced edits', async ({ page }) => {
+  // Regression for #75: a debounced editor sync firing mid card-switch must not
+  // persist one card's values into another.
+  const errors = collectErrors(page);
+  await page.goto('/');
+  // Import one card with description filled, plus five that stay empty.
+  const withDesc = v2Card('Hold');
+  await importCards(page, [withDesc, v2Card('Empty2'), v2Card('Empty3'), v2Card('Empty4'), v2Card('Empty5'), v2Card('Empty6')]);
+  await page.locator('.card-list-item', { hasText: 'Hold' }).click();
+  await page.locator('#editName').fill('Hold Renamed');
+  for (let i = 2; i <= 6; i++) {
+    await page.locator('.card-list-item', { hasText: 'Empty' + i }).click();
+  }
+  await page.waitForTimeout(1000); // let the 500ms debounce (and its guard) run
+
+  // Every OTHER card must still hold its own data: no name drift and no card
+// absorbed the "Hold" text typed into the previous card (its own template
+// description legitimately contains "Hold is a test character…").
+  const contaminated = await page.evaluate(async () => {
+    const bad = [];
+    for (const meta of CardStorage.getCards()) {
+      if (meta.name === 'Hold Renamed') continue;
+      const full = await CardStorage.getCard(meta._id);
+      if (!full) continue;
+      if (full.name !== meta.name) bad.push('name:' + meta.name);
+      if ((full.description || '').includes('Hold')) bad.push('desc:' + meta.name);
+    }
+    return bad;
+  });
+  expect(contaminated, 'no cross-card write contamination').toEqual([]);
+  // And the intended card kept its edit (proves the writes aren't just lost).
+  const heldName = await page.evaluate(async () => {
+    const meta = CardStorage.getCards().find((c) => c.name === 'Hold Renamed');
+    if (!meta) return null;
+    const full = await CardStorage.getCard(meta._id);
+    return full ? full.name : null;
+  });
+  expect(heldName).toBe('Hold Renamed');
+  expect(errors, 'rapid-switch flow must not throw').toEqual([]);
+});
+
+test('avatar: set, persist across reload, remove, persist removal', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await importCards(page, [v2Card('Av')]);
+  await page.locator('.card-list-item').first().click();
+  await page.waitForTimeout(200);
+
+  await page.locator('#avatarInput').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: TINY_PNG });
+  await page.waitForTimeout(500);
+  const afterSet = await page.evaluate(() => ({
+    base64: window.AppState.activeCard._imageBase64,
+    hasImage: window.AppState.activeCard._hasImage,
+    src: document.querySelector('#charAvatarImg').getAttribute('src'),
+  }));
+  expect(afterSet.base64).toContain('data:image/png');
+  expect(afterSet.hasImage).toBe(true);
+  expect(afterSet.src).toContain('data:image/png');
+
+  // The image is restored from IndexedDB after a reload.
+  await page.reload();
+  await page.locator('.card-list-item').first().click();
+  await page.waitForTimeout(200);
+  const afterReload = await page.evaluate(() => ({
+    base64: window.AppState.activeCard._imageBase64,
+    hasImage: window.AppState.activeCard._hasImage,
+  }));
+  expect(afterReload.base64).toContain('data:image/png');
+  expect(afterReload.hasImage).toBe(true);
+
+  // Remove via the Waifu-tab remove button, then verify the removal persists.
+  await page.locator('#editorTabs .nav-link[data-bs-target="#tabWaifu"]').click();
+  await page.waitForTimeout(250);
+  await page.locator('#waifuBtnRemove').click();
+  await page.waitForTimeout(300);
+  const afterRemove = await page.evaluate(() => ({
+    base64: window.AppState.activeCard._imageBase64 ?? null,
+    hasImage: window.AppState.activeCard._hasImage,
+    imgHidden: document.querySelector('#charAvatarImg').hidden,
+  }));
+  expect(afterRemove.base64).toBe(null);
+  expect(afterRemove.hasImage).toBe(false);
+  expect(afterRemove.imgHidden).toBe(true);
+
+  await page.reload();
+  await page.locator('.card-list-item').first().click();
+  await page.waitForTimeout(200);
+  const afterRemoveReload = await page.evaluate(() => ({
+    base64: window.AppState.activeCard._imageBase64 ?? null,
+    hasImage: window.AppState.activeCard._hasImage,
+  }));
+  expect(afterRemoveReload.base64).toBe(null);
+  expect(afterRemoveReload.hasImage).toBe(false);
+  expect(errors, 'avatar lifecycle must not throw').toEqual([]);
 });
