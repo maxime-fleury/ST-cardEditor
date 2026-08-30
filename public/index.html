@@ -882,17 +882,17 @@
                 <span class="small fw-bold text-uppercase" style="color:var(--text-secondary)" data-i18n="settings.promptVariables">Prompt variables</span>
               </div>
               <div class="d-flex flex-wrap gap-1">
-                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{card}</code>
-                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{lang}</code>
-                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{tone}</code>
-                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{count}</code>
-                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{current}</code>
-                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{field}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;" title="Inserts the current card as JSON into the prompt." data-i18n-title="settings.varCard">{card}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;" title="Target language for a Translate quick action." data-i18n-title="settings.varLang">{lang}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;" title="Chosen tone applied by the Tone quick action." data-i18n-title="settings.varTone">{tone}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;" title="Number of items to generate (e.g. alternate greetings)." data-i18n-title="settings.varCount">{count}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;" title="Current content of the field being edited." data-i18n-title="settings.varCurrent">{current}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;" title="Name of the field being edited." data-i18n-title="settings.varField">{field}</code>
                 <!-- Single-brace {x} are substituted by the app at send time;
                      double-brace {{char}}/{{user}} are SillyTavern chat placeholders
                      passed through to the model. {original} is NOT substituted. -->
-                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{{char}}</code>
-                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;">{{user}}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;" title="Character name, substituted by the chat engine (SillyTavern)." data-i18n-title="settings.varChar">{{char}}</code>
+                <code class="prompt-var" style="background:var(--bg-elevated);color:var(--text-accent);border:1px solid var(--border-default);border-radius:6px;padding:0.1rem 0.4rem;font-size:0.72rem;" title="User name, substituted by the chat engine (SillyTavern)." data-i18n-title="settings.varUser">{{user}}</code>
               </div>
             </div>
             <small class="form-text text-muted d-block mt-2" data-i18n="settings.promptHint">These fields show the current prompts. If a field is empty, the built-in default prompt is used. Restore defaults to view or restore the original prompts.</small>
