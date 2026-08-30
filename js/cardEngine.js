@@ -358,4 +358,8 @@ const CardEngine = {
   },
 };
 
-window.CardEngine = CardEngine;
+export { CardEngine };
+// Classic-script consumers (the rest of the app still reads the global); the
+// guarded assignment keeps the module importable in non-browser runtimes
+// (Bun unit tests) where `window` does not exist.
+if (typeof window !== 'undefined') window.CardEngine = CardEngine;

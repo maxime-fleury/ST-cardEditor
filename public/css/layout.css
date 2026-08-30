@@ -108,7 +108,17 @@ body.resizing { cursor: col-resize; user-select: none; }
   color: var(--text-secondary);
   margin: 0;
   white-space: nowrap;
+  /* Long localized titles (e.g. "BIBLIOTHÈQUE DE CARTES") must truncate
+     instead of pushing the header's count badge / collapse button out of the
+     panel, where overflow:hidden clips it. */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+.panel-header > .d-flex { flex-shrink: 0; }
+.panel-header > .card-count { flex-shrink: 0; }
 
 .card-count {
   font-size: 0.72rem;
@@ -117,5 +127,59 @@ body.resizing { cursor: col-resize; user-select: none; }
   padding: 0.2rem 0.55rem;
   border-radius: 100px;
   border: 1px solid var(--surface-border);
+}
+
+/* ============================================================
+   PANEL COLLAPSE + FOCUS MODE
+   ============================================================ */
+.app-container .panel-left,
+.app-container .panel-right {
+  transition: width var(--transition-normal), min-width var(--transition-normal), max-width var(--transition-normal);
+}
+
+.side-left-collapsed #panelLeft,
+.side-right-collapsed #panelRight {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  border-inline-end: 0;
+}
+.side-left-collapsed #panelLeft { border-inline-end: 0; }
+.side-right-collapsed #panelRight { border-inline-start: 0; }
+
+.side-left-collapsed #resizerLeft,
+.side-right-collapsed #resizerRight {
+  display: none;
+}
+
+/* Floating edge-expand toggles — appear when a side panel is collapsed */
+.panel-edge-toggle {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  display: none;
+  width: 22px;
+  height: 54px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--surface-border);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.panel-edge-toggle:hover { color: var(--text-primary); background: var(--bg-surface-hover); }
+#edgeExpandLeft { inset-inline-start: 0; border-inline-start: none; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+#edgeExpandRight { inset-inline-end: 0; border-inline-end: none; border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+
+.side-left-collapsed #edgeExpandLeft,
+.side-right-collapsed #edgeExpandRight {
+  display: flex;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-container .panel-left,
+  .app-container .panel-right { transition: none; }
 }
 

@@ -492,6 +492,7 @@ const AiChat = {
     CardStorage.saveSessionMessages(cardId, this._currentSessionId, window.AppState.chatHistory);
 
     const streamingEl = this.createStreamingMessage();
+    let shimmerGone = false;
 
     const cardJson = activeCard ? CardEngine.toJSON(activeCard) : '';
     const systemPrompt = [
@@ -510,6 +511,13 @@ const AiChat = {
 
     AIService.chatStream(prompt, systemPrompt, modelId,
       (fullText) => {
+        // Replace the shimmer skeleton with live content on the first real
+        // token, so users get a clear "model is thinking" cue while waiting.
+        if (!shimmerGone && fullText) {
+          shimmerGone = true;
+          const sk = streamingEl.querySelector('.ai-shimmer');
+          if (sk) sk.remove();
+        }
         streamingEl.querySelector('.ai-message-content').innerHTML = Ui.escapeHtml(fullText)
           .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')
           .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -1147,7 +1155,8 @@ const AiChat = {
     if (welcome) welcome.remove();
     const el = document.createElement('div');
     el.className = 'ai-message assistant';
-    el.innerHTML = '<div class="ai-message-content"></div>';
+    el.innerHTML = '<div class="ai-message-content"></div>'
+      + '<div class="ai-shimmer" aria-hidden="true"><div class="shimmer-line"></div><div class="shimmer-line"></div><div class="shimmer-line short"></div></div>';
     container.appendChild(el);
     Anims.staggerFadeIn(el, { duration: 200, from: 10 });
     container.scrollTop = container.scrollHeight;
@@ -1440,4 +1449,5 @@ const AiChat = {
   },
 };
 
-window.AiChat = AiChat;
+export { AiChat };
+if (typeof window !== 'undefined') window.AiChat = AiChat;

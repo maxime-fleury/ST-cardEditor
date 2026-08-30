@@ -7,7 +7,7 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 - **[Stable demo](https://maxime-fleury.github.io/ST-cardEditor/)** — the recommended current version
 - **[Beta demo](https://maxime-fleury.github.io/ST-cardEditor/dev/)** — the latest development build; features may change or break
 
-![Version](https://img.shields.io/badge/version-2.3.0-purple)
+![Version](https://img.shields.io/badge/version-2.5.0-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-000?logo=bun)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![Stable Demo](https://img.shields.io/badge/stable-demo-9147ff?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/)
@@ -134,7 +134,7 @@ Powered by [anime.js](https://animejs.com/) with full `prefers-reduced-motion` s
 
 ### Localization (i18n)
 
-Full interface translation across **21 languages** with **540+** translation keys:
+Full interface translation across **21 languages** with **585+** translation keys:
 
 | Language | Key | Status |
 |----------|-----|--------|
@@ -215,6 +215,21 @@ bun run dev
 # Or start in production mode
 bun run start
 ```
+
+### Building the bundle
+
+The app is distributed as **one built entry module** (`js/app.js`) produced by a
+Bun bundler pass — source files live under `js/*.js` and are wrapped into a
+single artifact so the browser loads exactly one versioned script, the service
+worker precaches exactly one JS file, and cache-busters stay uniform:
+
+```bash
+bun run build   # -> js/app.js (bundle checked into the repo for the deploy flow)
+```
+
+`bun scripts/check-assets.mjs` (run in CI) verifies the committed bundle is
+fresh (byte-identical to a rebuild from current sources), so a forgotten rebuild
+fails the check instead of shipping stale logic.
 
 The app will be available at **http://localhost:8182**.
 
@@ -313,6 +328,7 @@ st-card-editor/
 │       ├── components.css   # Toasts, lorebook, greetings
 │       └── responsive.css   # Media queries and responsive rules
 ├── js/
+│   ├── app.js              # BUILT single-entry bundle (bun run build) — what the browser loads
 │   ├── cardEngine.js       # Card parsing, normalization, PNG chunk embedding
 │   ├── aiService.js        # AI API client (7 providers + custom)
 │   ├── storage.js          # localStorage + IndexedDB persistence layer
@@ -324,7 +340,7 @@ st-card-editor/
 │   ├── settings.js         # Settings modal, model list, credits, provider config, workspace backup
 │   ├── tokenizer.js        # Token estimation (lazy-loaded BPE tokenizer)
 │   ├── animations.js       # anime.js animation utilities (stagger, slide, pulse, etc.)
-│   ├── i18n.js             # Internationalization: 340+ keys × 10 languages
+│   ├── i18n.js             # Internationalization: 585+ keys × 21 languages
 │   └── ui.js               # Main controller: utilities, init, event binding, error boundary
 ├── .github/
 │   ├── screenshots/        # README screenshots
@@ -335,6 +351,9 @@ st-card-editor/
 │   └── smoke.spec.js       # Playwright end-to-end smoke suite
 ├── playwright.config.js    # Playwright config (server boot, Chrome channel)
 ├── scripts/
+│   ├── build.mjs           # Bundles all js/*.js into js/app.js (single entry module)
+│   ├── app.entry.js        # Bundle entry — imports every app module once
+│   ├── check-assets.mjs    # Asset / SW-shell / version / bundle-freshness guard
 │   └── check-i18n.mjs      # i18n key-parity guard
 ├── server.js               # Bun static file server with OpenRouter API proxy + CSP headers
 ├── package.json            # Project metadata and scripts
@@ -356,7 +375,7 @@ The app is a **single-page application** built with vanilla JavaScript and **Boo
 - **`settings.js`** — Settings modal with provider selection (7 providers), API key management, model browsing/selection, credit tracking, storage usage display, language switching, and full workspace backup/restore.
 - **`tokenizer.js`** — Token estimation using lazy-loaded `gpt-tokenizer` BPE library with offline heuristic fallback.
 - **`animations.js`** — Reusable animation functions built on anime.js: stagger fade-in, slide transitions, pulse, shake, scale click, progress bounce, icon spin, skeleton reveal, toast entrance. All respect `prefers-reduced-motion`.
-- **`i18n.js`** — Internationalization module: `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings. 490+ keys across 21 languages, with automatic RTL layout for Arabic/Hebrew/Persian.
+- **`i18n.js`** — Internationalization module: `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings. 585+ keys across 21 languages, with automatic RTL layout for Arabic/Hebrew/Persian.
 - **`ui.js`** — Thin controller: shared state (`AppState`), utility functions (`escapeHtml`, `debounce`, `showToast`, `renderMarkdown`), initialization, I18n boot, global error boundary, markdown library lazy-loading, and all event binding.
 
 ---
@@ -444,7 +463,7 @@ bun run test:headed
 
 ## CI/CD
 
-The [GitHub Actions workflow](.github/workflows/deploy.yml) runs a `check` job (compile-check all JS, i18n key parity, Playwright smoke suite) on every push and pull request, and keeps a stable build and a development build available at the same time:
+The [GitHub Actions workflow](.github/workflows/deploy.yml) runs a `check` job (compile-check all JS + the bundle, asset/version/freshness guard, i18n key parity, unit tests, Playwright smoke suite) on every push and pull request, and keeps a stable build and a development build available at the same time:
 
 - **Stable (default):** [maxime-fleury.github.io/ST-cardEditor/](https://maxime-fleury.github.io/ST-cardEditor/), deployed from `master`
 - **Development:** [maxime-fleury.github.io/ST-cardEditor/dev/](https://maxime-fleury.github.io/ST-cardEditor/dev/), deployed from `dev`

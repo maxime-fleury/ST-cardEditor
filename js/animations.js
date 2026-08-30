@@ -146,4 +146,5 @@ const Anims = {
   },
 };
 
-window.Anims = Anims;
+export { Anims };
+if (typeof window !== 'undefined') window.Anims = Anims;

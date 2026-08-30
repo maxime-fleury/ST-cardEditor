@@ -189,6 +189,70 @@ test('one chat message creates exactly one session', async ({ page }) => {
   await expect(page.locator('#aiHistoryList .ai-history-item')).toHaveCount(1);
 });
 
+test('appearance presets and settings apply live without errors', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await page.locator('#btnSettings').click();
+  await page.locator('#settingsModal.show').waitFor({ timeout: 5_000 });
+  await page.waitForTimeout(500);
+
+  // Curated accent swatch applies in realtime.
+  await page.locator('.accent-swatch[title="Magenta"]').click();
+  await expect(page.locator('html')).toHaveAttribute('data-accent-custom', 'true');
+
+  // Density, radius and vignette are applied live as CSS variables.
+  await page.locator('#glassDensitySelect').selectOption('bold');
+  await page.locator('#cardRadiusSelect').selectOption('rounded');
+  await page.locator('#vignetteToggle').uncheck();
+  const vars = await page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      accent: cs.getPropertyValue('--accent-500').trim(),
+      blur: cs.getPropertyValue('--glass-blur').trim(),
+      radius: cs.getPropertyValue('--radius-sm').trim(),
+      vignette: cs.getPropertyValue('--vignette-opacity').trim(),
+    };
+  });
+  expect(vars.accent).toBe('#ec4899');
+  expect(vars.blur).toBe('blur(22px)');
+  expect(vars.radius).toBe('10px');
+  expect(vars.vignette).toBe('0');
+
+  await page.locator('#btnSaveSettings').click();
+  await page.waitForTimeout(300);
+  expect(errors, 'appearance flow must not throw').toEqual([]);
+});
+
+test('panel collapse, focus mode and dirty indicator work without errors', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await importCards(page, [v2Card('DirtyTest')]);
+  await page.locator('.card-list-item').first().click();
+  await page.waitForTimeout(250);
+
+  // Collapse the left panel.
+  await page.locator('#btnCollapseLeft').click();
+  await expect(page.locator('#appContainer')).toHaveClass(/side-left-collapsed/);
+
+  // Focus mode collapses both.
+  await page.locator('#btnFocusMode').click();
+  await expect(page.locator('#appContainer')).toHaveClass(/side-left-collapsed/);
+  await expect(page.locator('#appContainer')).toHaveClass(/side-right-collapsed/);
+
+  // The edge chevron re-expands the left panel.
+  await page.locator('#edgeExpandLeft').click();
+  await expect(page.locator('#appContainer')).not.toHaveClass(/side-left-collapsed/);
+
+  // Editing shows the modified dot on the active card row + Save dirty state.
+  await page.locator('#editName').fill('Changed');
+  await expect(page.locator('.card-list-item.active .card-modified-dot')).toBeVisible();
+  await expect(page.locator('#btnSaveCard.is-dirty')).toBeVisible();
+  await page.locator('#btnSaveCard').click();
+  await expect(page.locator('.card-list-item.active .card-modified-dot')).toHaveCount(0);
+
+  expect(errors, 'collapse/focus/dirty flow must not throw').toEqual([]);
+});
+
 test('PWA manifest and icons are served', async ({ page, request }) => {
   await page.goto('/');
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', 'manifest.webmanifest');

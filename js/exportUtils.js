@@ -218,4 +218,5 @@ const ExportUtils = {
   },
 };
 
-window.ExportUtils = ExportUtils;
+export { ExportUtils };
+if (typeof window !== 'undefined') window.ExportUtils = ExportUtils;

@@ -100,6 +100,9 @@ const CardStorage = {
     providerApiKeys: 'providerApiKeys',
     darkAccent: 'darkAccent',
     lightAccent: 'lightAccent',
+    glassDensity: 'glassDensity',
+    vignette: 'vignette',
+    cardRadius: 'cardRadius',
     promptAssistant: 'promptAssistant',
     promptFullCard: 'promptFullCard',
     promptWizard: 'promptWizard',
@@ -343,6 +346,36 @@ const CardStorage = {
   getInjectCopyright() {
     const val = localStorage.getItem(this.PREFIX + this._keys.injectCopyright);
     return val === null ? true : val === 'true';
+  },
+
+  // ─── Appearance ─────────────────────────────────────
+
+  // Glass density: 'subtle' | 'default' | 'bold'.
+  getGlassDensity() {
+    return localStorage.getItem(this.PREFIX + this._keys.glassDensity) || 'default';
+  },
+
+  setGlassDensity(density) {
+    localStorage.setItem(this.PREFIX + this._keys.glassDensity, String(density));
+  },
+
+  // Edge vignette overlay (boolean).
+  getVignette() {
+    const val = localStorage.getItem(this.PREFIX + this._keys.vignette);
+    return val === null ? true : val === 'true';
+  },
+
+  setVignette(on) {
+    localStorage.setItem(this.PREFIX + this._keys.vignette, String(!!on));
+  },
+
+  // Card corner radius: 'compact' | 'rounded' | 'pill'.
+  getCardRadius() {
+    return localStorage.getItem(this.PREFIX + this._keys.cardRadius) || 'compact';
+  },
+
+  setCardRadius(radius) {
+    localStorage.setItem(this.PREFIX + this._keys.cardRadius, String(radius));
   },
 
   // ─── Provider ───────────────────────────────────────
@@ -755,4 +788,5 @@ const CardStorage = {
   },
 };
 
-window.CardStorage = CardStorage;
+export { CardStorage };
+if (typeof window !== 'undefined') window.CardStorage = CardStorage;

@@ -1,0 +1,159 @@
+/* ============================================================
+   appearance.css — Theme gallery + appearance settings
+   Vignette overlay, accent swatches, and related controls.
+   ============================================================ */
+
+/* Edge vignette — a subtle cinematic darkening at the screen edges,
+   controlled by --vignette-opacity (0/1) set by Settings.applyAppearance().
+   pointer-events: none so it never blocks interaction; sits above the panels
+   (inside #appContainer) but below the navbar and modals. */
+#appContainer::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: var(--vignette-opacity, 0);
+  transition: opacity var(--transition-normal);
+  background: radial-gradient(ellipse 130% 110% at 50% 45%, transparent 55%, rgba(7, 5, 15, 0.5) 100%);
+}
+
+[data-theme="light"] #appContainer::before {
+  background: radial-gradient(ellipse 130% 110% at 50% 45%, transparent 55%, rgba(62, 52, 94, 0.26) 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #appContainer::before { transition: none; }
+}
+
+/* Accent preset swatches (settings modal) */
+.accent-swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--border-default);
+  background: var(--swatch);
+  cursor: pointer;
+  position: relative;
+  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.accent-swatch::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  pointer-events: none;
+}
+
+.accent-swatch:hover { transform: scale(1.12); }
+
+.accent-swatch.active {
+  border-color: var(--swatch);
+  box-shadow: 0 0 0 2px var(--text-primary);
+}
+
+.accent-swatch.active::after { border-color: var(--swatch); }
+
+@media (prefers-reduced-motion: reduce) {
+  .accent-swatch { transition: none; }
+  .accent-swatch:hover { transform: none; }
+}
+
+/* ============================================================
+   UNIFIED MOTION LAYER
+   Subtle lifts + glows; everything gated behind prefers-reduced-motion.
+   ============================================================ */
+@media (prefers-reduced-motion: no-preference) {
+  .quick-action:hover,
+  .field-toggle-btn:hover,
+  .field-toggle-group .field-toggle-btn:not(.active):hover,
+  .greeting-item:hover { transform: translateY(-1px); }
+
+  .lorebook-accordion-header:hover { transform: translateX(2px); }
+
+  /* Soft glow under the active editor tab (keeps the accent underline too) */
+  .editor-tabs .nav-link.active { box-shadow: 0 3px 0 0 var(--purple-glow); }
+}
+
+/* ── AI streaming shimmer skeleton ───────────────────────────── */
+.ai-shimmer {
+  display: grid;
+  gap: 10px;
+  padding: 2px 0;
+}
+.shimmer-line {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-surface-hover) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer-slide 1.4s ease-in-out infinite;
+}
+.shimmer-line.short { width: 55%; }
+
+@keyframes shimmer-slide {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-shimmer { display: none; }
+  .quick-action:hover,
+  .field-toggle-btn:hover,
+  .greeting-item:hover,
+  .lorebook-accordion-header:hover { transform: none; }
+  .editor-tabs .nav-link.active { box-shadow: none; }
+  .shimmer-line { animation: none; }
+}
+
+/* ============================================================
+   PREDICTABLE FEEDBACK
+   ============================================================ */
+/* Unified per-field counter pill: amber near the limit, red over it */
+.field-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.08rem 0.5rem;
+  border-radius: 100px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: help;
+  transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+}
+.field-counter.is-warn {
+  color: var(--warning);
+  background: rgba(245, 158, 11, 0.10);
+  border-color: var(--warning);
+}
+.field-counter.is-danger {
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.10);
+  border-color: var(--danger);
+  font-weight: 600;
+}
+
+/* Native dropdown lists (select options) must match the app palette; without
+   this, the OS renders them white-on-white with the app's light text. */
+select.form-select option,
+select.form-select optgroup {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+}
+select.form-select optgroup { color: var(--text-muted); }
+
+/* Amber dot on the active card row while edits are unsaved */
+.card-modified-dot {
+  position: absolute;
+  top: 7px;
+  inset-inline-end: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+  pointer-events: none;
+}

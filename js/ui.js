@@ -6,7 +6,7 @@
 window.AppState = { cards: [], activeCard: null, models: [], chatHistory: [], isAiLoading: false, _dirty: false };
 
 // ─── Utilities ──────────────────────────────────────────
-window.Ui = {
+const Ui = {
   $(sel) { return document.querySelector(sel); },
   $$(sel) { return document.querySelectorAll(sel); },
 
@@ -108,6 +108,21 @@ window.Ui = {
       const cardId = this._pendingRemoteCardId;
       this._pendingRemoteCardId = null;
       this._mergePendingRemote(cardId);
+    }
+    // Active-card row indicator: a small amber dot while there are unsaved
+    // edits, so the library mirror the Save button's dirty state.
+    const item = document.querySelector('.card-list-item.active');
+    if (item) {
+      if (dirty) {
+        if (!item.querySelector('.card-modified-dot')) {
+          const dot = document.createElement('span');
+          dot.className = 'card-modified-dot';
+          dot.title = I18n.t ? I18n.t('ui.cardModified') : 'Unsaved edits';
+          item.appendChild(dot);
+        }
+      } else {
+        item.querySelectorAll('.card-modified-dot').forEach((x) => x.remove());
+      }
     }
     const btn = document.querySelector('#btnSaveCard');
     if (!btn) return;
@@ -324,6 +339,9 @@ window.Ui = {
     }, 1500);
   },
 };
+
+export { Ui };
+if (typeof window !== 'undefined') window.Ui = Ui;
 
 // ─── Constants ──────────────────────────────────────────
 const DEBOUNCE_INPUT_MS = 800;
@@ -647,24 +665,73 @@ function bindEvents(settingsModal) {
       Settings.resetAccent(theme);
     });
   }
-  const btnPresetNeutral = $('#btnPresetNeutral');
-  if (btnPresetNeutral) {
-    btnPresetNeutral.addEventListener('click', () => {
-      const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-      Settings.applyAccent(theme, '#64748b');
-      Settings.syncAccentControls();
-    });
-  }
-  const btnPresetPurple = $('#btnPresetPurple');
-  if (btnPresetPurple) {
-    btnPresetPurple.addEventListener('click', () => {
-      const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-      Settings.applyAccent(theme, '#8b5cf6');
-      Settings.syncAccentControls();
-    });
-  }
 
-  settingsModal._element.addEventListener('shown.bs.modal', () => Settings.openSettings());
+  // Accent preset gallery — render a swatch per curated preset. Clicking a
+  // swatch applies that color to the current light/dark theme in realtime and
+  // syncs the picker/hex controls.
+  function buildAppearancePresets() {
+    const wrap = $('#appearancePresets');
+    if (!wrap) return;
+    const selected = CardStorage.getAccent(document.documentElement.getAttribute('data-theme') || 'dark');
+    const fragment = document.createDocumentFragment();
+    (Settings.APPEARANCE_PRESETS || []).forEach((preset) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'accent-swatch' + (selected === preset.color ? ' active' : '');
+      btn.dataset.color = preset.color;
+      btn.title = preset.name;
+      btn.setAttribute('aria-label', 'Accent: ' + preset.name);
+      btn.style.setProperty('--swatch', preset.color);
+      btn.appendChild(document.createTextNode(''));
+      fragment.appendChild(btn);
+    });
+    wrap.innerHTML = '';
+    wrap.appendChild(fragment);
+    wrap.addEventListener('click', (e) => {
+      const swatch = e.target.closest('.accent-swatch');
+      if (!swatch) return;
+      const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+      Settings.applyAccent(theme, swatch.dataset.color);
+      Settings.syncAccentControls();
+      wrap.querySelectorAll('.accent-swatch').forEach((s) => s.classList.toggle('active', s === swatch));
+    });
+  }
+  buildAppearancePresets();
+
+  // Live appearance prefs: density / radius apply immediately while the modal
+  // is open; they're persisted (along with the vignette) on Save.
+  const glassDensitySelect = $('#glassDensitySelect');
+  if (glassDensitySelect) {
+    glassDensitySelect.addEventListener('change', () => {
+      CardStorage.setGlassDensity(glassDensitySelect.value);
+      Settings.applyAppearance();
+    });
+  }
+  const cardRadiusSelect = $('#cardRadiusSelect');
+  if (cardRadiusSelect) {
+    cardRadiusSelect.addEventListener('change', () => {
+      CardStorage.setCardRadius(cardRadiusSelect.value);
+      Settings.applyAppearance();
+    });
+  }
+  const vignetteToggle = $('#vignetteToggle');
+  if (vignetteToggle) {
+    vignetteToggle.addEventListener('change', () => {
+      CardStorage.setVignette(vignetteToggle.checked);
+      Settings.applyAppearance();
+    });
+  }
+  settingsModal._element.addEventListener('shown.bs.modal', () => {
+    Settings.openSettings();
+    // Re-mark the active swatch whenever the modal opens (theme or accent may
+    // have changed since it was first rendered).
+    const wrap = $('#appearancePresets');
+    if (wrap) {
+      const current = CardStorage.getAccent(document.documentElement.getAttribute('data-theme') || 'dark');
+      wrap.querySelectorAll('.accent-swatch').forEach((s) => s.classList.toggle('active', s.dataset.color === current));
+    }
+  });
+
   // Closing settings without saving must not leave AIService pointing at a
   // provider that was only picked in the (unsaved) dropdown.
   settingsModal._element.addEventListener('hidden.bs.modal', () => {
@@ -848,6 +915,7 @@ function bindEvents(settingsModal) {
   if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); }
   const initialAccent = CardStorage.getAccent(savedTheme);
   if (initialAccent) Settings.applyAccent(savedTheme, initialAccent);
+  Settings.applyAppearance();
   if (themeToggle) {
     themeToggle.innerHTML = savedTheme === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
     themeToggle.addEventListener('click', () => {
@@ -865,6 +933,8 @@ function bindEvents(settingsModal) {
         document.documentElement.removeAttribute('data-accent-custom');
       }
       localStorage.setItem(CardStorage.PREFIX + 'theme', next);
+      // Re-apply appearance so the glass colors match the newly-selected theme.
+      Settings.applyAppearance();
       Anims.iconSpin(themeToggle.querySelector('i'));
       themeToggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
     });
@@ -881,6 +951,62 @@ function bindEvents(settingsModal) {
   });
 
     setupPanelResizers();
+    setupPanelCollapse();
+  }
+
+  // ─── PANEL COLLAPSE + FOCUS MODE ──────────────────
+  // Collapse either side panel to a 0-width rail (an edge chevron lets the
+  // user expand it back). Focus mode is simply both panels collapsed.
+  function setupPanelCollapse() {
+    const app = document.querySelector('#appContainer');
+    const storageKey = (side) => CardStorage.PREFIX + 'panel' + (side === 'left' ? 'Left' : 'Right') + 'Collapsed';
+
+    const setCollapsed = (side, collapsed) => {
+      const cls = side === 'left' ? 'side-left-collapsed' : 'side-right-collapsed';
+      app.classList.toggle(cls, collapsed);
+      localStorage.setItem(storageKey(side), collapsed ? '1' : '0');
+      const btn = document.querySelector(side === 'left' ? '#btnCollapseLeft' : '#btnCollapseRight');
+      if (btn) {
+        btn.classList.toggle('active', collapsed);
+        const icon = btn.querySelector('i');
+        if (icon) {
+          const left = side === 'left';
+          icon.className = (left ? collapsed : !collapsed) ? 'bi bi-chevron-double-right' : 'bi bi-chevron-double-left';
+        }
+      }
+    };
+    const isCollapsed = (side) => app.classList.contains(side === 'left' ? 'side-left-collapsed' : 'side-right-collapsed');
+    const toggle = (side) => setCollapsed(side, !isCollapsed(side));
+
+    // Restore each side's persisted state.
+    setCollapsed('left', (localStorage.getItem(storageKey('left')) || '0') === '1');
+    setCollapsed('right', (localStorage.getItem(storageKey('right')) || '0') === '1');
+
+    // NOTE: top-level function — `$` (Ui.$) is scoped to init() only, so use
+    // document.querySelector directly.
+    const q = (sel) => document.querySelector(sel);
+    const collapseLeft = q('#btnCollapseLeft');
+    const collapseRight = q('#btnCollapseRight');
+    const expandLeft = q('#edgeExpandLeft');
+    const expandRight = q('#edgeExpandRight');
+    const focusBtn = q('#btnFocusMode');
+
+    if (collapseLeft) collapseLeft.addEventListener('click', () => toggle('left'));
+    if (collapseRight) collapseRight.addEventListener('click', () => toggle('right'));
+    if (expandLeft) expandLeft.addEventListener('click', () => setCollapsed('left', false));
+    if (expandRight) expandRight.addEventListener('click', () => setCollapsed('right', false));
+    if (focusBtn) {
+      focusBtn.addEventListener('click', () => {
+        const enterFocus = !(isCollapsed('left') && isCollapsed('right'));
+        setCollapsed('left', enterFocus);
+        setCollapsed('right', enterFocus);
+        Anims.pulseIcon(focusBtn.querySelector('i'));
+      });
+    }
+
+    // Share the collapse controls with the shortcut API.
+    Ui.togglePanelCollapse = (side) => toggle(side);
+    Ui.setFocusMode = (on) => { setCollapsed('left', on); setCollapsed('right', on); };
   }
 
   // ─── PANEL RESIZERS ───────────────────────────────
@@ -1025,6 +1151,18 @@ function handleKeyboardShortcuts(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
     e.preventDefault();
     CardManager.createNewCard();
+  }
+  if (e.altKey && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    const app = document.querySelector('#appContainer');
+    const focused = app && app.classList.contains('side-left-collapsed') && app.classList.contains('side-right-collapsed');
+    if (Ui.setFocusMode) Ui.setFocusMode(!focused);
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
+    e.preventDefault();
+    if (Ui.togglePanelCollapse) Ui.togglePanelCollapse('right');
+    return;
   }
   if (e.key === '?') {
     Ui._shortcutsModal = Ui._shortcutsModal || new bootstrap.Modal('#shortcutsModal');

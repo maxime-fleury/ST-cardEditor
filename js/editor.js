@@ -344,6 +344,9 @@ const Editor = {
   },
 
   updateCharCounts() {
+    // Output token limit doubles as a "context budget" reference: when the user
+    // sets a max, the per-field counter turns amber (>75%) then red (over).
+    const maxTokens = (typeof CardStorage !== 'undefined' && CardStorage.getMaxTokens) ? CardStorage.getMaxTokens() : 0;
     for (const id of this._fieldIds) {
       const el = document.querySelector('#' + id);
       if (!el) continue;
@@ -353,17 +356,28 @@ const Editor = {
       // 12 fields consistent without hand-adding markup to each of them (#43).
       if (!countEl) {
         countEl = document.createElement('small');
-        countEl.className = 'char-count text-secondary d-block mt-1';
+        countEl.className = 'char-count field-counter text-secondary d-block mt-1';
         countEl.style.fontSize = '0.7rem';
         el.insertAdjacentElement('afterend', countEl);
       }
+      countEl.classList.add('field-counter');
+      countEl.classList.remove('is-warn', 'is-danger');
       const len = (el.value || '').length;
       // Use the same estimator as Tokenizer (which the context bar uses) so the
       // char counts and the token context bar never disagree.
       const tokens = typeof Tokenizer !== 'undefined' && Tokenizer.quickCount
         ? Tokenizer.quickCount(el.value || '')
         : Math.ceil(len / 3);
-      countEl.textContent = I18n.t ? I18n.t('editor.charCount', { chars: len, tokens: tokens }) : (len + ' chars ~' + tokens + ' tokens');
+      countEl.textContent = I18n.t ? I18n.t('editor.charCount', { chars: len, tokens }) : (len + ' chars ~' + tokens + ' tokens');
+      if (maxTokens > 0) {
+        if (tokens > maxTokens) {
+          countEl.classList.add('is-danger');
+          countEl.title = I18n.t ? I18n.t('editor.counterDanger', { tokens, max: maxTokens }) : 'Exceeds the output token limit (' + maxTokens + ').';
+        } else if (tokens > maxTokens * 0.75) {
+          countEl.classList.add('is-warn');
+          countEl.title = I18n.t ? I18n.t('editor.counterWarn', { tokens, max: maxTokens }) : 'Approaching the output token limit (' + maxTokens + ').';
+        }
+      }
     }
   },
 
@@ -734,4 +748,5 @@ const Editor = {
   },
 };
 
-window.Editor = Editor;
+export { Editor };
+if (typeof window !== 'undefined') window.Editor = Editor;

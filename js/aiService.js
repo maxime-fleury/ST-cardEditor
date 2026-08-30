@@ -614,4 +614,5 @@ const AIService = {
 
 };
 
-window.AIService = AIService;
+export { AIService };
+if (typeof window !== 'undefined') window.AIService = AIService;

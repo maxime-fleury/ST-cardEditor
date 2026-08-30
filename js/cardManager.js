@@ -2,6 +2,12 @@
    cardManager.js — Card List Rendering, Selection, CRUD
    ============================================================ */
 
+// Same debounce delay as ui.js's DEBOUNCE_SEARCH_MS. Kept as a local copy
+// instead of an import: index.html loads the modules with ?v= cache-busters,
+// so an import specifier (bare path) would evaluate ui.js twice, registering
+// duplicate init() listeners. A future bundle step can unify these.
+const DEBOUNCE_SEARCH_MS = 300;
+
 const CardManager = {
   async migrateImagesToIndexedDB() {
     const all = CardStorage.getCards();
@@ -663,4 +669,5 @@ const CardManager = {
   },
 };
 
-window.CardManager = CardManager;
+export { CardManager };
+if (typeof window !== 'undefined') window.CardManager = CardManager;

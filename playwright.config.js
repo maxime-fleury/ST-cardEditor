@@ -7,6 +7,9 @@ import { defineConfig } from '@playwright/test';
 // In CI:   falls back to the bundled Chromium, installed by the workflow.
 export default defineConfig({
   testDir: './tests',
+  // The unit tests under tests/unit are Bun unit tests (bun:test) and must not
+  // run in the browser suite.
+  testIgnore: ['**/unit/**'],
   timeout: 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,

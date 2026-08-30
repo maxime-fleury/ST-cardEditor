@@ -44,15 +44,24 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Compile check (every JS entry must build)
+      - name: Compile check (bundle entry + every JS entry must build)
         run: |
           set -euo pipefail
+          # The production bundle entry imports all js/*.js; building it in
+          # isolation catches bundler-level breakage the per-file loop can miss.
+          bun build --target browser --format iife --outfile /dev/null scripts/app.entry.js > /dev/null
           for f in js/*.js public/sw.js server.js; do
             bun build --target browser --outfile /dev/null "$f" > /dev/null
           done
 
       - name: i18n key parity check
         run: bun scripts/check-i18n.mjs
+
+      - name: Asset / SW-shell / version drift check
+        run: bun scripts/check-assets.mjs
+
+      - name: Unit tests (cardEngine + tokenizer)
+        run: bun test tests/unit
 
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium
@@ -61,6 +70,10 @@ jobs:
         run: bunx playwright test
 
   deploy:
+    # Deploy only on pushes to master/dev or manual dispatch. PR runs just run
+    # `check`; deploying from a PR event would publish unvetted content to the
+    # live site (and the gh-pages push fails there anyway).
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout triggering branch

@@ -5,6 +5,11 @@
 /* â”€â”€â”€ DESIGN TOKENS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 :root {
   /* Core palette â€” Dark */
+  /* Native form controls (select dropdowns, scrollbars, etc.) should follow
+     the dark theme instead of the OS light palette. color-scheme is the only
+     reliable way to darken the OS-rendered dropdown list across browsers. */
+  color-scheme: dark;
+
   --bg-deepest: #07060d;
   --bg-deep: #0c0b14;
   --bg-base: #110f1e;
@@ -90,6 +95,7 @@
 
 /* â”€â”€â”€ LIGHT THEME â€” Snowy Lavender & Pastel Violet â”€â”€â”€â”€â”€â”€ */
 [data-theme="light"] {
+  color-scheme: light;
   --bg-deepest: #f3f0f9;
   --bg-deep: #f7f5fc;
   --bg-base: #faf8ff;

@@ -241,6 +241,22 @@
   border-color: var(--border-accent) !important;
   box-shadow: 0 0 0 0.15rem var(--purple-glow) !important;
 }
+
+/* Dropdowns: match the dark palette (Bootstrap ships a white .form-select).
+   The chevron is swapped for a light stroke so it stays visible on the dark
+   surface; the light theme keeps its own override in theme.css. */
+:root:not([data-theme="light"]) .form-select {
+  background-color: var(--bg-surface) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--text-primary) !important;
+  border-radius: var(--radius-sm) !important;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23a49cc0' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e") !important;
+}
+:root:not([data-theme="light"]) .form-select:hover { border-color: var(--border-default) !important; }
+:root:not([data-theme="light"]) .form-select:focus {
+  border-color: var(--border-accent) !important;
+  box-shadow: 0 0 0 0.15rem var(--purple-glow) !important;
+}
 .form-label { color: var(--text-secondary); }
 .form-text { color: var(--text-muted) !important; }
 

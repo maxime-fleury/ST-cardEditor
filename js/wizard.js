@@ -841,4 +841,5 @@ const Wizard = {
   },
 };
 
-window.Wizard = Wizard;
+export { Wizard };
+if (typeof window !== 'undefined') window.Wizard = Wizard;

@@ -6,7 +6,7 @@
    ============================================================ */
 
 const BASE_PATH = new URL('.', self.location.href).pathname;
-const CACHE_PREFIX = 'stce-v2.6';
+const CACHE_PREFIX = 'stce-v2.5.0';
 const CACHE_NAME = `${CACHE_PREFIX}:${BASE_PATH}`;
 const DEV_PATH = BASE_PATH.endsWith('/dev/')
   ? BASE_PATH
@@ -17,6 +17,7 @@ const SHELL_FILES = [
   'icons/icon-192.png',
   'icons/icon-512.png',
   'css/theme.css',
+  'css/appearance.css',
   'css/base.css',
   'css/layout.css',
   'css/library.css',
@@ -27,19 +28,9 @@ const SHELL_FILES = [
   'css/wizard.css',
   'css/components.css',
   'css/responsive.css',
-  'js/aiChat.js',
-  'js/aiService.js',
-  'js/animations.js',
-  'js/cardEngine.js',
-  'js/cardManager.js',
-  'js/editor.js',
-  'js/exportUtils.js',
-  'js/i18n.js',
-  'js/settings.js',
-  'js/storage.js',
-  'js/tokenizer.js',
-  'js/ui.js',
-  'js/wizard.js',
+  // App JS is a single built bundle (bun run build) — js/app.js. Source modules
+  // under js/*.js are bundled into it, so the shell only needs the artifact.
+  'js/app.js',
 ];
 
 const shellUrl = (file) => new URL(file || './', self.location.href).toString();

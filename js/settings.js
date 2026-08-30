@@ -85,6 +85,15 @@ const Settings = {
 
     CardStorage.setMaxTokens(maxTokens);
     CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
+    // Appearance prefs (read the live controls so saving persists what the
+    // user actually picked, then apply so the theme updates immediately).
+    const densitySel = $('#glassDensitySelect');
+    if (densitySel) CardStorage.setGlassDensity(densitySel.value);
+    const radiusSel = $('#cardRadiusSelect');
+    if (radiusSel) CardStorage.setCardRadius(radiusSel.value);
+    const vignetteToggle = $('#vignetteToggle');
+    if (vignetteToggle) CardStorage.setVignette(vignetteToggle.checked);
+    this.applyAppearance();
     this.PROMPTS.forEach(name => {
       const input = document.querySelector('#prompt' + name[0].toUpperCase() + name.slice(1) + 'Input');
       const value = input ? input.value : '';
@@ -223,6 +232,57 @@ const Settings = {
     if (hex) hex.value = color;
   },
 
+  // Curated one-click accent themes. Each applies its color as the custom
+  // accent without wiping a user's stored color for the other theme.
+  APPEARANCE_PRESETS: [
+    { id: 'slate',   name: 'Slate',        color: '#64748b' },
+    { id: 'purple',  name: 'Cosmic Purple',color: '#8b5cf6' },
+    { id: 'magenta', name: 'Magenta',      color: '#ec4899' },
+    { id: 'emerald', name: 'Emerald',      color: '#10b981' },
+    { id: 'solar',   name: 'Solar',        color: '#f59e0b' },
+    { id: 'ocean',   name: 'Ocean',        color: '#3b82f6' },
+  ],
+
+  // Translate stored appearance prefs into concrete CSS custom properties so
+  // the theme reacts live to glass density, corner radius, and the vignette.
+  applyAppearance() {
+    const root = document.documentElement;
+    const theme = root.getAttribute('data-theme') || 'dark';
+    const GLASS = {
+      subtle:  { dark: 'rgba(17,15,30,0.92)', light: 'rgba(255,255,255,0.94)', blur: 'blur(8px)' },
+      default: { dark: 'rgba(17,15,30,0.72)', light: 'rgba(255,255,255,0.78)', blur: 'blur(12px)' },
+      bold:    { dark: 'rgba(17,15,30,0.58)', light: 'rgba(255,255,255,0.60)', blur: 'blur(22px)' },
+    };
+    const g = GLASS[CardStorage.getGlassDensity()] || GLASS.default;
+    root.style.setProperty('--glass-bg', g[theme]);
+    root.style.setProperty('--glass-blur', g.blur);
+
+    const RADII = {
+      compact: { sm: '6px',  md: '10px', lg: '14px' },
+      rounded: { sm: '10px', md: '14px', lg: '18px' },
+      pill:    { sm: '14px', md: '18px', lg: '24px' },
+    };
+    const r = RADII[CardStorage.getCardRadius()] || RADII.compact;
+    root.style.setProperty('--radius-sm', r.sm);
+    root.style.setProperty('--radius-md', r.md);
+    root.style.setProperty('--radius-lg', r.lg);
+
+    root.style.setProperty('--vignette-opacity', CardStorage.getVignette() ? '1' : '0');
+  },
+
+  // Mirror the stored appearance prefs into the settings form controls. This
+  // is separate from applyAppearance() so opening settings never overwrites
+  // the live CSS with stale dialog state.
+  syncAppearanceControls() {
+    const $ = (sel) => document.querySelector(sel);
+    const density = $('#glassDensitySelect');
+    if (density) density.value = CardStorage.getGlassDensity();
+    const radius = $('#cardRadiusSelect');
+    if (radius) radius.value = CardStorage.getCardRadius();
+    const vignette = $('#vignetteToggle');
+    if (vignette) vignette.checked = CardStorage.getVignette();
+  },
+
   async openSettings() {
     const $ = (sel) => document.querySelector(sel);
     await CardStorage._unlockKeys();
@@ -237,6 +297,7 @@ const Settings = {
     $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
     this.toggleProvider();
     this.syncAccentControls();
+    this.syncAppearanceControls();
     this.PROMPTS.forEach(name => {
       const input = $('#prompt' + name[0].toUpperCase() + name.slice(1) + 'Input');
       if (input) input.value = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
@@ -544,6 +605,9 @@ const Settings = {
         defaultModel: CardStorage.getDefaultModel(),
         maxTokens: CardStorage.getMaxTokens(),
         injectCopyright: CardStorage.getInjectCopyright(),
+        glassDensity: CardStorage.getGlassDensity(),
+        cardRadius: CardStorage.getCardRadius(),
+        vignette: CardStorage.getVignette(),
       },
     };
     Ui.downloadFile('st-card-editor-workspace-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(workspace, null, 2), 'application/json');
@@ -619,9 +683,14 @@ const Settings = {
           }
           if (workspace.settings.maxTokens !== undefined) CardStorage.setMaxTokens(workspace.settings.maxTokens);
           if (workspace.settings.injectCopyright !== undefined) CardStorage.setInjectCopyright(workspace.settings.injectCopyright);
+          // Appearance prefs are optional for backward compatibility.
+          if (workspace.settings.glassDensity !== undefined) CardStorage.setGlassDensity(workspace.settings.glassDensity);
+          if (workspace.settings.cardRadius !== undefined) CardStorage.setCardRadius(workspace.settings.cardRadius);
+          if (workspace.settings.vignette !== undefined) CardStorage.setVignette(workspace.settings.vignette);
         }
         window.AppState.cards = CardStorage.getCards();
         CardManager.renderCardList();
+        Settings.applyAppearance();
         Settings.refreshModelsList();
         const modelSel = document.querySelector('#aiModelSelect');
         if (modelSel) modelSel.value = CardStorage.getDefaultModel() || '';
@@ -637,4 +706,5 @@ const Settings = {
   },
 };
 
-window.Settings = Settings;
+export { Settings };
+if (typeof window !== 'undefined') window.Settings = Settings;

@@ -418,3 +418,6 @@ const WaifuTab = {
     }
   },
 };
+
+export { WaifuTab };
+if (typeof window !== 'undefined') window.WaifuTab = WaifuTab;
