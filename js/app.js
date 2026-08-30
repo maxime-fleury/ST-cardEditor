@@ -1414,6 +1414,13 @@ ${value}`).join(`
     setCardRadius(radius) {
       localStorage.setItem(this.PREFIX + this._keys.cardRadius, String(radius));
     },
+    getSortMode() {
+      const val = localStorage.getItem(this.PREFIX + "sortMode");
+      return val || "";
+    },
+    setSortMode(mode) {
+      localStorage.setItem(this.PREFIX + "sortMode", String(mode));
+    },
     getProvider() {
       return localStorage.getItem(this.PREFIX + this._keys.provider) || "openrouter";
     },
@@ -2033,15 +2040,32 @@ ${value}`).join(`
         this._undoStack.shift();
       this._redoStack = [];
     },
+    _SUB_MAP: { greetings: "alternate_greetings", lorebook: "character_book", extensions: "extensions" },
+    _subDefault(activeCard, prop) {
+      if (prop === "alternate_greetings")
+        return activeCard[prop] || [];
+      if (prop === "character_book")
+        return activeCard[prop] || { entries: [] };
+      if (prop === "extensions")
+        return activeCard[prop] || {};
+      return activeCard[prop] || "";
+    },
     _snapshotSub(kind) {
       const { activeCard } = window.AppState;
       if (!activeCard)
         return;
-      const prop = kind === "greetings" ? "alternate_greetings" : "character_book";
+      const prop = this._SUB_MAP[kind];
+      if (!prop)
+        return;
+      let def = [];
+      if (prop === "character_book")
+        def = { entries: [] };
+      else if (prop === "extensions")
+        def = {};
       this._undoStack.push({
         field: kind,
         prop,
-        oldValue: JSON.parse(JSON.stringify(activeCard[prop] || (kind === "greetings" ? [] : { entries: [] })))
+        oldValue: JSON.parse(JSON.stringify(activeCard[prop] || def))
       });
       if (this._undoStack.length > this._maxUndo)
         this._undoStack.shift();
@@ -2057,6 +2081,9 @@ ${value}`).join(`
       } else if (entry.prop === "character_book") {
         activeCard.character_book = newValue;
         this.renderLorebook(activeCard);
+      } else if (entry.prop === "extensions") {
+        activeCard.extensions = newValue;
+        this.renderExtensions(activeCard);
       }
     },
     async undo() {
@@ -2070,9 +2097,9 @@ ${value}`).join(`
       this._redoStack.push({
         ...entry,
         oldValue: entry.oldValue,
-        newValue: JSON.parse(JSON.stringify(activeCard[entry.prop] || (entry.prop === "alternate_greetings" ? [] : entry.prop === "character_book" ? { entries: [] } : "")))
+        newValue: JSON.parse(JSON.stringify(this._subDefault(activeCard, entry.prop)))
       });
-      if (entry.prop === "alternate_greetings" || entry.prop === "character_book") {
+      if (entry.prop === "alternate_greetings" || entry.prop === "character_book" || entry.prop === "extensions") {
         this._applySubEntry(entry, entry.oldValue);
         await this.syncEditorToCard();
         AiChat.updateContextBar();
@@ -2099,10 +2126,10 @@ ${value}`).join(`
       const entry = this._redoStack.pop();
       this._undoStack.push({
         ...entry,
-        oldValue: JSON.parse(JSON.stringify(activeCard[entry.prop] || (entry.prop === "alternate_greetings" ? [] : entry.prop === "character_book" ? { entries: [] } : ""))),
+        oldValue: JSON.parse(JSON.stringify(this._subDefault(activeCard, entry.prop))),
         newValue: entry.newValue
       });
-      if (entry.prop === "alternate_greetings" || entry.prop === "character_book") {
+      if (entry.prop === "alternate_greetings" || entry.prop === "character_book" || entry.prop === "extensions") {
         this._applySubEntry(entry, entry.newValue);
         await this.syncEditorToCard();
         AiChat.updateContextBar();
@@ -2196,6 +2223,7 @@ ${value}`).join(`
           img.hidden = true;
       }
       this.renderLorebook(card);
+      this.renderExtensions(card);
       this.showEditor();
       this.updateCharCounts();
       this.autoResizeTextareas();
@@ -2374,6 +2402,7 @@ ${value}`).join(`
           }
         }
       }
+      this._updateCardTokenTotal();
     },
     renderGreetings(card) {
       const $ = (sel) => document.querySelector(sel);
@@ -2488,6 +2517,97 @@ ${value}`).join(`
       const last = allTas[allTas.length - 1];
       if (last)
         last.focus();
+    },
+    renderExtensions(card) {
+      if (!card)
+        return;
+      const el = document.querySelector("#editExtensions");
+      const st = document.querySelector("#extensionsStatus");
+      if (!el)
+        return;
+      el.value = card.extensions && typeof card.extensions === "object" ? JSON.stringify(card.extensions, null, 2) : "{}";
+      el.classList.remove("is-invalid-json");
+      if (st) {
+        st.textContent = "";
+        st.classList.remove("is-danger");
+      }
+    },
+    async _applyExtensionsFromDom() {
+      const { activeCard } = window.AppState;
+      const el = document.querySelector("#editExtensions");
+      const st = document.querySelector("#extensionsStatus");
+      if (!activeCard || !el)
+        return false;
+      const val = el.value.trim();
+      let parsed = {};
+      if (val) {
+        try {
+          parsed = JSON.parse(val);
+        } catch (_) {
+          el.classList.add("is-invalid-json");
+          if (st) {
+            st.textContent = I18n.t ? I18n.t("editor.extensionsParseError") : "Invalid JSON — keeping the last valid extensions.";
+            st.classList.add("is-danger");
+          }
+          return false;
+        }
+        if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
+          el.classList.add("is-invalid-json");
+          if (st) {
+            st.textContent = I18n.t ? I18n.t("editor.extensionsParseError") : "Invalid JSON — expected an object.";
+            st.classList.add("is-danger");
+          }
+          return false;
+        }
+      }
+      el.classList.remove("is-invalid-json");
+      if (st) {
+        st.textContent = "";
+        st.classList.remove("is-danger");
+      }
+      activeCard.extensions = parsed;
+      await this.syncEditorToCard();
+      this.updateCharCounts();
+      return true;
+    },
+    _cardTotals() {
+      let chars = 0;
+      let tokens = 0;
+      for (const id of this._fieldIds) {
+        const el = document.querySelector("#" + id);
+        if (!el)
+          continue;
+        const v = el.value || "";
+        chars += v.length;
+        tokens += typeof Tokenizer !== "undefined" && Tokenizer.quickCount ? Tokenizer.quickCount(v) : Math.ceil(v.length / 3);
+      }
+      const extra = [];
+      const extEl = document.querySelector("#editExtensions");
+      if (extEl && extEl.value)
+        extra.push(extEl.value);
+      const gr = document.querySelector("#greetingsList");
+      if (gr)
+        gr.querySelectorAll(".greeting-textarea").forEach((ta) => extra.push(ta.value || ""));
+      const lb = document.querySelector("#lorebookEntries");
+      if (lb)
+        lb.querySelectorAll("textarea[data-lore-idx]").forEach((ta) => extra.push(ta.value || ""));
+      for (const v of extra) {
+        chars += v.length;
+        tokens += typeof Tokenizer !== "undefined" && Tokenizer.quickCount ? Tokenizer.quickCount(v) : Math.ceil(v.length / 3);
+      }
+      return { chars, tokens };
+    },
+    _updateCardTokenTotal() {
+      const el = document.querySelector("#metaTokens");
+      if (!el)
+        return;
+      const { chars, tokens } = this._cardTotals();
+      const fmt = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : String(n);
+      const label = I18n.t ? I18n.t("editor.cardTokenTotal", { tokens: fmt(tokens), chars: fmt(chars) }) : "~" + tokens + " tokens · " + chars + " chars";
+      el.textContent = label;
+      const maxTokens = CardStorage.getMaxTokens ? CardStorage.getMaxTokens() : 0;
+      el.classList.toggle("is-warn", maxTokens > 0 && tokens > maxTokens);
+      el.title = "";
     },
     renderLorebook(card) {
       const $ = (sel) => document.querySelector(sel);
@@ -2779,7 +2899,7 @@ ${value}`).join(`
     },
     _searchQuery: "",
     _selectedIds: new Set,
-    _sortMode: "name-asc",
+    _sortMode: "manual",
     _activeTagFilters: new Set,
     _toggleBatchSelect(cardId) {
       if (this._selectedIds.has(cardId))
@@ -2808,7 +2928,11 @@ ${value}`).join(`
         Ui.showToast(I18n.t("toast.noSelected"), "info");
         return;
       }
-      if (!confirm(I18n.t("batch.deleteConfirm", { count: this._selectedIds.size })))
+      if (!await Ui.confirm({
+        title: I18n.t("batch.deleteTitle", { count: this._selectedIds.size }),
+        message: I18n.t("batch.deleteConfirm", { count: this._selectedIds.size }),
+        buttonLabel: I18n.t("dialog.delete")
+      }))
         return;
       for (const id of this._selectedIds)
         await CardStorage.deleteCard(id);
@@ -2951,6 +3075,68 @@ ${value}`).join(`
         });
       });
     },
+    _rowHtml(card, activeCard) {
+      const isActive = activeCard && activeCard._id === card._id;
+      const isBatch = this._selectedIds.has(card._id);
+      const tags = (card.tags || []).slice(0, 2);
+      const thumb = card._thumbnail || card._imageBase64;
+      const desc = (card.description || "").slice(0, 300);
+      const fileSize = card._fileSize ? Ui.formatFileSize(card._fileSize) : "";
+      return '<div class="card-list-item' + (isActive ? " active" : "") + (isBatch ? " batch-selected" : "") + '" data-card-id="' + card._id + '" role="option" aria-selected="' + isActive + '">' + '<div class="card-list-avatar">' + (thumb ? '<img src="' + Ui.escapeAttr(thumb) + '" alt="">' : '<i class="bi bi-person-fill"></i>') + "</div>" + '<div class="card-list-info">' + '<div class="card-list-name">' + Ui.escapeHtml(card.name || I18n.t("gen.unnamed")) + "</div>" + '<div class="card-list-meta">' + (card.creator ? Ui.escapeHtml(card.creator) : "") + (card.creator && tags.length ? " · " : "") + tags.map((t) => Ui.escapeHtml(t)).join(", ") + (fileSize ? ' <span class="meta-filesize">' + fileSize + "</span>" : "") + "</div></div>" + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? " checked" : "") + ">" + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"><i class="bi bi-grip-vertical"></i></span>' + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + "</span>" : "") + '<div class="card-preview-tooltip">' + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : "") + '<div class="fw-semibold">' + Ui.escapeHtml(card.name || I18n.t("gen.unnamed")) + "</div>" + (card.creator ? '<div class="text-muted" style="font-size:0.7rem;">' + I18n.t("gen.byCreator", { name: Ui.escapeHtml(card.creator) }) + "</div>" : "") + (desc ? '<div class="preview-desc">' + Ui.escapeHtml(desc) + "</div>" : "") + "</div></div>";
+    },
+    _groupCards(list) {
+      if (this._sortMode !== "name-asc" && this._sortMode !== "name-desc") {
+        return [{ letter: "", items: list }];
+      }
+      const groups = [];
+      const byLetter = new Map;
+      for (const card of list) {
+        const name = (card.name || "").trim();
+        let letter = "#", ch = name ? name[0] : "";
+        if (/[A-Za-z0-9]/.test(ch))
+          letter = ch.toUpperCase();
+        let g = byLetter.get(letter);
+        if (!g) {
+          g = { letter, items: [] };
+          byLetter.set(letter, g);
+          groups.push(g);
+        }
+        g.items.push(card);
+      }
+      if (this._sortMode === "name-desc") {
+        groups.sort((a, b) => a.letter < b.letter ? 1 : a.letter > b.letter ? -1 : 0);
+      }
+      return groups;
+    },
+    _renderTagChipStrip() {
+      const el = document.querySelector("#tagChipStrip");
+      if (!el)
+        return;
+      const counts = {};
+      (window.AppState.cards || []).forEach((c) => (c.tags || []).forEach((t) => counts[t] = (counts[t] || 0) + 1));
+      const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 12);
+      if (sorted.length === 0) {
+        el.style.display = "none";
+        el.innerHTML = "";
+        return;
+      }
+      el.style.display = "";
+      el.innerHTML = sorted.map(([tag]) => {
+        const active = this._activeTagFilters.has(tag);
+        return '<button type="button" class="tag-chip-strip-chip' + (active ? " active" : "") + '" data-tag="' + Ui.escapeAttr(tag) + '">#' + Ui.escapeHtml(tag) + "</button>";
+      }).join("") + (this._activeTagFilters.size ? '<button type="button" class="tag-chip-strip-clear" data-clear="1" aria-label="Clear filters">×</button>' : "");
+      el.querySelectorAll(".tag-chip-strip-chip, .tag-chip-strip-clear").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (btn.dataset.clear)
+            this._activeTagFilters.clear();
+          else {
+            const t = btn.dataset.tag;
+            this._activeTagFilters.has(t) ? this._activeTagFilters.delete(t) : this._activeTagFilters.add(t);
+          }
+          this.renderCardList();
+        });
+      });
+    },
     renderCardList() {
       const $ = (sel) => document.querySelector(sel);
       const { cards, activeCard } = window.AppState;
@@ -2964,6 +3150,7 @@ ${value}`).join(`
       if (controlsWrap)
         controlsWrap.style.display = cards.length > 3 ? "" : "none";
       this._renderTagCloud();
+      this._renderTagChipStrip();
       let filtered = cards;
       if (this._searchQuery) {
         const q = this._searchQuery.toLowerCase();
@@ -2992,14 +3179,9 @@ ${value}`).join(`
       }
       emptyState.style.display = "none";
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      container.innerHTML = filtered.map((card) => {
-        const isActive = activeCard && activeCard._id === card._id;
-        const isBatch = this._selectedIds.has(card._id);
-        const tags = (card.tags || []).slice(0, 2);
-        const thumb = card._thumbnail || card._imageBase64;
-        const desc = (card.description || "").slice(0, 300);
-        const fileSize = card._fileSize ? Ui.formatFileSize(card._fileSize) : "";
-        return '<div class="card-list-item' + (isActive ? " active" : "") + (isBatch ? " batch-selected" : "") + '" data-card-id="' + card._id + '" role="option" aria-selected="' + isActive + '">' + '<div class="card-list-avatar">' + (thumb ? '<img src="' + Ui.escapeAttr(thumb) + '" alt="">' : '<i class="bi bi-person-fill"></i>') + "</div>" + '<div class="card-list-info">' + '<div class="card-list-name">' + Ui.escapeHtml(card.name || I18n.t("gen.unnamed")) + "</div>" + '<div class="card-list-meta">' + (card.creator ? Ui.escapeHtml(card.creator) : "") + (card.creator && tags.length ? " · " : "") + tags.map((t) => Ui.escapeHtml(t)).join(", ") + (fileSize ? ' <span class="meta-filesize">' + fileSize + "</span>" : "") + "</div></div>" + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? " checked" : "") + ">" + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"><i class="bi bi-grip-vertical"></i></span>' + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + "</span>" : "") + '<div class="card-preview-tooltip">' + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : "") + '<div class="fw-semibold">' + Ui.escapeHtml(card.name || I18n.t("gen.unnamed")) + "</div>" + (card.creator ? '<div class="text-muted" style="font-size:0.7rem;">' + I18n.t("gen.byCreator", { name: Ui.escapeHtml(card.creator) }) + "</div>" : "") + (desc ? '<div class="preview-desc">' + Ui.escapeHtml(desc) + "</div>" : "") + "</div></div>";
+      container.innerHTML = this._groupCards(filtered).map((group) => {
+        const rows = group.items.map((card) => this._rowHtml(card, activeCard)).join("");
+        return '<div class="card-list-group" data-letter="' + Ui.escapeAttr(group.letter) + '">' + (group.letter ? '<button type="button" class="card-group-header" data-letter="' + Ui.escapeAttr(group.letter) + '" aria-expanded="true"><span class="card-group-letter">' + Ui.escapeHtml(group.letter) + '</span><span class="card-group-count">' + group.items.length + "</span></button>" : "") + '<div class="card-group-body">' + rows + "</div>" + "</div>";
       }).join("");
       Anims.staggerFadeIn(container.querySelectorAll(".card-list-item"), { stagger: 25, duration: 200 });
       if (!reducedMotion) {
@@ -3024,6 +3206,15 @@ ${value}`).join(`
       if (!this._cardListBound && container) {
         this._cardListBound = true;
         container.addEventListener("click", (e) => {
+          const groupHeader = e.target.closest(".card-group-header");
+          if (groupHeader) {
+            const body = groupHeader.parentElement && groupHeader.parentElement.querySelector(".card-group-body");
+            if (body) {
+              const collapsed = body.classList.toggle("collapsed");
+              groupHeader.setAttribute("aria-expanded", collapsed ? "false" : "true");
+            }
+            return;
+          }
           const checkbox = e.target.closest(".card-batch-check");
           if (checkbox) {
             e.stopPropagation();
@@ -3732,6 +3923,23 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       CardStorage.saveSessionMessages(cardId, this._currentSessionId, window.AppState.chatHistory);
       const streamingEl = this.createStreamingMessage();
       let shimmerGone = false;
+      const startedAt = Date.now();
+      let lastOut = "";
+      const statusEl = streamingEl.querySelector(".ai-stream-status");
+      const liveTimer = setInterval(() => {
+        if (!streamingEl.isConnected)
+          return;
+        const secs = Math.floor((Date.now() - startedAt) / 1000) + "s";
+        let liveCount = 0;
+        if (lastOut) {
+          try {
+            liveCount = window.Tokenizer && typeof window.Tokenizer.quickCount === "function" ? window.Tokenizer.quickCount(lastOut) : Math.ceil(lastOut.length / 3);
+          } catch (_) {
+            liveCount = Math.ceil(lastOut.length / 3);
+          }
+        }
+        statusEl.textContent = lastOut ? I18n.t ? I18n.t("ai.streamLive", { tokens: liveCount, secs }) : liveCount + " tokens · " + secs : I18n.t ? I18n.t("ai.thinkingLive", { secs }) : "Thinking… " + secs;
+      }, 500);
       const cardJson = activeCard ? CardEngine.toJSON(activeCard) : "";
       const systemPrompt = [
         CardStorage.getPrompt("fullCard") || `You are an AI assistant helping edit SillyTavern character cards.
@@ -3748,6 +3956,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       const controller = new AbortController;
       this._abortControllers.push(controller);
       AIService.chatStream(prompt, systemPrompt, modelId, (fullText) => {
+        lastOut = fullText;
         if (!shimmerGone && fullText) {
           shimmerGone = true;
           const sk = streamingEl.querySelector(".ai-shimmer");
@@ -3758,6 +3967,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         const container = document.querySelector("#aiChatMessages");
         container.scrollTop = container.scrollHeight;
       }, controller.signal, true, this._getRecentHistory(10)).then((result) => {
+        clearInterval(liveTimer);
         if (gen !== this._gen) {
           streamingEl.remove();
           return;
@@ -3772,6 +3982,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         this.tryApplyAIResponse(result.content, applyTarget);
         Settings.refreshCredits();
       }).catch((err) => {
+        clearInterval(liveTimer);
         if (gen !== this._gen) {
           streamingEl.remove();
           return;
@@ -4130,7 +4341,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       }
       return null;
     },
-    handleQuickAction(action) {
+    async handleQuickAction(action) {
       const $ = (sel) => document.querySelector(sel);
       const { activeCard } = window.AppState;
       if (action === "newcard") {
@@ -4174,13 +4385,31 @@ Current:
         tags: promptFor("tags")
       };
       if (action === "translate") {
-        const lang = window.prompt(I18n.t ? I18n.t("ai.translatePrompt") : "Translate to which language?", I18n.t ? I18n.t("ai.translateDefaultLang") : "French");
+        const LANG_CODES = ["en", "fr", "es", "de", "pt", "ja", "zh", "ko", "el", "ru", "it", "pl", "tr", "nl", "uk", "vi", "id", "hi", "ar", "he", "fa"];
+        const options = LANG_CODES.map((code) => {
+          const label = I18n.t && I18n.t("wizard.language." + code) !== "wizard.language." + code ? I18n.t("wizard.language." + code) : code;
+          return { value: label, label };
+        });
+        const lang = await Ui.prompt({
+          title: I18n.t ? I18n.t("ai.translateTitle") : "Translate card",
+          message: I18n.t ? I18n.t("ai.translateMessage") : "Which language should the card be translated to?",
+          select: options,
+          value: I18n.t ? I18n.t("wizard.language.fr") !== "wizard.language.fr" ? I18n.t("wizard.language.fr") : "French" : "French",
+          buttonLabel: I18n.t ? I18n.t("dialog.ok") : "OK"
+        });
         if (!lang)
           return;
         prompts.translate = prompts.translate.split("{lang}").join(lang).split("{card}").join(CardEngine.toJSON(activeCard));
       }
       if (action === "tone") {
-        const tone = window.prompt(I18n.t ? I18n.t("ai.tonePrompt") : "Which tone? (e.g., formal, casual, dark, humorous, poetic)", I18n.t ? I18n.t("ai.toneDefault") : "formal");
+        const tone = await Ui.prompt({
+          title: I18n.t ? I18n.t("ai.toneTitle") : "Change tone",
+          message: I18n.t ? I18n.t("ai.toneMessage") : "Which tone should the description be rewritten in?",
+          text: "",
+          value: I18n.t ? I18n.t("ai.toneDefault") !== "ai.toneDefault" ? I18n.t("ai.toneDefault") : "formal" : "formal",
+          placeholder: I18n.t ? I18n.t("ai.toneMessage") : "formal, casual, dark, humorous, poetic…",
+          buttonLabel: I18n.t ? I18n.t("dialog.ok") : "OK"
+        });
         if (!tone)
           return;
         prompts.tone = prompts.tone.split("{tone}").join(tone) + `
@@ -4354,7 +4583,7 @@ Current:
         welcome.remove();
       const el = document.createElement("div");
       el.className = "ai-message assistant";
-      el.innerHTML = '<div class="ai-message-content"></div>' + '<div class="ai-shimmer" aria-hidden="true"><div class="shimmer-line"></div><div class="shimmer-line"></div><div class="shimmer-line short"></div></div>';
+      el.innerHTML = '<div class="ai-message-content"></div>' + '<div class="ai-stream-status" aria-live="polite" aria-atomic="true"></div>' + '<div class="ai-shimmer" aria-hidden="true"><div class="shimmer-line"></div><div class="shimmer-line"></div><div class="shimmer-line short"></div></div>';
       container.appendChild(el);
       Anims.staggerFadeIn(el, { duration: 200, from: 10 });
       container.scrollTop = container.scrollHeight;
@@ -5721,7 +5950,16 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
           const blob = await imgResp.blob();
           const objUrl = URL.createObjectURL(blob);
           const name = c.name && c.name.full || "";
-          const genderLabel = (c.gender || "").toLowerCase() === "female" ? "Female" : "Male";
+          const g = (c.gender || "").toLowerCase();
+          let genderLabel = "?";
+          if (g === "female")
+            genderLabel = "Female";
+          else if (g === "male")
+            genderLabel = "Male";
+          else if (genderWanted === "female")
+            genderLabel = "Female";
+          else if (genderWanted === "male")
+            genderLabel = "Male";
           results.push({ blob, url: c.image.large, objUrl, tags: (name + " · " + genderLabel).trim() });
         } catch (e) {}
       }
@@ -5788,6 +6026,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       }
     },
     _fetch() {
+      this._mode = "source";
       this._runFetch(this._currentIntent(), document.querySelector("#waifuBtnFetch"));
     },
     _regenerate() {
@@ -6314,7 +6553,11 @@ Each greeting should be an in-character opening message that could start a conve
     },
     async confirmClearStorage() {
       const $ = (sel) => document.querySelector(sel);
-      if (!confirm(I18n.t("settings.clearConfirm")))
+      if (!await Ui.confirm({
+        title: I18n.t ? I18n.t("settings.clearTitle") : "Clear all data?",
+        message: I18n.t ? I18n.t("settings.clearConfirm") : "Delete ALL cards, settings, and chat history? This cannot be undone.",
+        buttonLabel: I18n.t ? I18n.t("settings.clearAll") : "Clear All Data"
+      }))
         return;
       await CardStorage.clearAll();
       window.AppState.cards = [];
@@ -7107,6 +7350,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Thinking… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancel",
+    "dialog.delete": "Delete",
+    "ai.translateTitle": "Translate card",
+    "ai.translateMessage": "Which language should the card be translated to?",
+    "ai.toneTitle": "Change tone",
+    "ai.toneMessage": "Which tone should the description be rewritten in?",
+    "batch.deleteTitle": "Delete {{count}} cards?",
+    "settings.clearTitle": "Clear all data?",
     "editor.greetingMoveUp": "Move up",
     "editor.greetingMoveDown": "Move down",
     "editor.greetingIsDefault": "This is the current first message",
@@ -7696,6 +7954,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Nom du champ en cours d'édition.",
     "settings.varChar": "Nom du personnage, substitué par le moteur de discussion (SillyTavern).",
     "settings.varUser": "Nom de l'utilisateur, substitué par le moteur de discussion (SillyTavern).",
+    "ai.thinkingLive": "Réflexion… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Annuler",
+    "dialog.delete": "Supprimer",
+    "ai.translateTitle": "Traduire la carte",
+    "ai.translateMessage": "Vers quelle langue traduire la carte ?",
+    "ai.toneTitle": "Changer le ton",
+    "ai.toneMessage": "Dans quel ton réécrire la description ?",
+    "batch.deleteTitle": "Supprimer {{count}} carte(s) ?",
+    "settings.clearTitle": "Effacer toutes les données ?",
     "editor.greetingMoveUp": "Move up",
     "editor.greetingMoveDown": "Move down",
     "editor.greetingIsDefault": "This is the current first message",
@@ -8300,6 +8573,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Pensando… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancelar",
+    "dialog.delete": "Eliminar",
+    "ai.translateTitle": "Traducir tarjeta",
+    "ai.translateMessage": "¿A qué idioma se debe traducir la tarjeta?",
+    "ai.toneTitle": "Cambiar tono",
+    "ai.toneMessage": "¿En qué tono reescribir la descripción?",
+    "batch.deleteTitle": "¿Eliminar {{count}} tarjeta(s)?",
+    "settings.clearTitle": "¿Borrar todos los datos?",
     "editor.greetingMoveUp": "Move up",
     "editor.greetingMoveDown": "Move down",
     "editor.greetingIsDefault": "This is the current first message",
@@ -8903,6 +9191,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Denke… {{secs}}",
+    "ai.streamLive": "{{tokens}} Tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Abbrechen",
+    "dialog.delete": "Löschen",
+    "ai.translateTitle": "Karte übersetzen",
+    "ai.translateMessage": "In welche Sprache soll die Karte übersetzt werden?",
+    "ai.toneTitle": "Ton ändern",
+    "ai.toneMessage": "In welchem Ton soll die Beschreibung umgeschrieben werden?",
+    "batch.deleteTitle": "{{count}} Karte(n) löschen?",
+    "settings.clearTitle": "Alle Daten löschen?",
     "editor.greetingMoveUp": "Move up",
     "editor.greetingMoveDown": "Move down",
     "editor.greetingIsDefault": "This is the current first message",
@@ -9506,6 +9809,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Pensando… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancelar",
+    "dialog.delete": "Excluir",
+    "ai.translateTitle": "Traduzir cartão",
+    "ai.translateMessage": "Para qual idioma o cartão deve ser traduzido?",
+    "ai.toneTitle": "Mudar tom",
+    "ai.toneMessage": "Em que tom reescrever a descrição?",
+    "batch.deleteTitle": "Excluir {{count}} cartão(ões)?",
+    "settings.clearTitle": "Limpar todos os dados?",
     "editor.greetingMoveUp": "Move up",
     "editor.greetingMoveDown": "Move down",
     "editor.greetingIsDefault": "This is the current first message",
@@ -10109,6 +10427,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Thinking… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancel",
+    "dialog.delete": "Delete",
+    "ai.translateTitle": "Translate card",
+    "ai.translateMessage": "Which language should the card be translated to?",
+    "ai.toneTitle": "Change tone",
+    "ai.toneMessage": "Which tone should the description be rewritten in?",
+    "batch.deleteTitle": "Delete {{count}} cards?",
+    "settings.clearTitle": "Clear all data?",
     "editor.greetingMoveUp": "Move up",
     "editor.greetingMoveDown": "Move down",
     "editor.greetingIsDefault": "This is the current first message",
@@ -10712,6 +11045,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Thinking… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancel",
+    "dialog.delete": "Delete",
+    "ai.translateTitle": "Translate card",
+    "ai.translateMessage": "Which language should the card be translated to?",
+    "ai.toneTitle": "Change tone",
+    "ai.toneMessage": "Which tone should the description be rewritten in?",
+    "batch.deleteTitle": "Delete {{count}} cards?",
+    "settings.clearTitle": "Clear all data?",
     "editor.greetingMoveUp": "Move up",
     "editor.greetingMoveDown": "Move down",
     "editor.greetingIsDefault": "This is the current first message",
@@ -11315,6 +11663,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Thinking… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancel",
+    "dialog.delete": "Delete",
+    "ai.translateTitle": "Translate card",
+    "ai.translateMessage": "Which language should the card be translated to?",
+    "ai.toneTitle": "Change tone",
+    "ai.toneMessage": "Which tone should the description be rewritten in?",
+    "batch.deleteTitle": "Delete {{count}} cards?",
+    "settings.clearTitle": "Clear all data?",
     "editor.greetingMoveUp": "Move up",
     "editor.greetingMoveDown": "Move down",
     "editor.greetingIsDefault": "This is the current first message",
@@ -11918,6 +12281,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Thinking… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancel",
+    "dialog.delete": "Delete",
+    "ai.translateTitle": "Translate card",
+    "ai.translateMessage": "Which language should the card be translated to?",
+    "ai.toneTitle": "Change tone",
+    "ai.toneMessage": "Which tone should the description be rewritten in?",
+    "batch.deleteTitle": "Delete {{count}} cards?",
+    "settings.clearTitle": "Clear all data?",
     "editor.greetingMoveUp": "Move up",
     "editor.greetingMoveDown": "Move down",
     "editor.greetingIsDefault": "This is the current first message",
@@ -12521,6 +12899,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Думаю… {{secs}}",
+    "ai.streamLive": "{{tokens}} токенов · {{secs}}",
+    "dialog.ok": "ОК",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Отмена",
+    "dialog.delete": "Удалить",
+    "ai.translateTitle": "Перевести карту",
+    "ai.translateMessage": "На какой язык перевести карту?",
+    "ai.toneTitle": "Изменить тон",
+    "ai.toneMessage": "В каком тоне переписать описание?",
+    "batch.deleteTitle": "Удалить {{count}} карт(ы)?",
+    "settings.clearTitle": "Очистить все данные?",
     "editor.greetingMoveUp": "Move up",
     "editor.greetingMoveDown": "Move down",
     "editor.greetingIsDefault": "This is the current first message",
@@ -13136,6 +13529,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Pensando… {{secs}}",
+    "ai.streamLive": "{{tokens}} token · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Annulla",
+    "dialog.delete": "Elimina",
+    "ai.translateTitle": "Traduci scheda",
+    "ai.translateMessage": "In quale lingua deve essere tradotta la scheda?",
+    "ai.toneTitle": "Cambia tono",
+    "ai.toneMessage": "In quale tono riscrivere la descrizione?",
+    "batch.deleteTitle": "Eliminare {{count}} scheda/e?",
+    "settings.clearTitle": "Cancellare tutti i dati?",
     "editor.greetingMoveUp": "Sposta su",
     "editor.greetingMoveDown": "Sposta giù",
     "editor.greetingIsDefault": "Questo è il primo messaggio corrente",
@@ -13740,6 +14148,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Myślenie… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokenów · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Anuluj",
+    "dialog.delete": "Usuń",
+    "ai.translateTitle": "Przetłumacz kartę",
+    "ai.translateMessage": "Na jaki język przetłumaczyć kartę?",
+    "ai.toneTitle": "Zmień ton",
+    "ai.toneMessage": "W jakim tonie przepisać opis?",
+    "batch.deleteTitle": "Usunąć {{count}} karty?",
+    "settings.clearTitle": "Wyczyścić wszystkie dane?",
     "editor.greetingMoveUp": "Przenieś w górę",
     "editor.greetingMoveDown": "Przenieś w dół",
     "editor.greetingIsDefault": "To jest obecna pierwsza wiadomość",
@@ -14342,6 +14765,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Düşünüyor… {{secs}}",
+    "ai.streamLive": "{{tokens}} token · {{secs}}",
+    "dialog.ok": "Tamam",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "İptal",
+    "dialog.delete": "Sil",
+    "ai.translateTitle": "Kartı çevir",
+    "ai.translateMessage": "Kart hangi dile çevrilsin?",
+    "ai.toneTitle": "Tonu değiştir",
+    "ai.toneMessage": "Açıklama hangi tonda yeniden yazılsın?",
+    "batch.deleteTitle": "{{count}} kart silinsin mi?",
+    "settings.clearTitle": "Tüm veriler silinsin mi?",
     "editor.greetingMoveUp": "Yukarı taşı",
     "editor.greetingMoveDown": "Aşağı taşı",
     "editor.greetingIsDefault": "Bu, mevcut ilk mesajdır",
@@ -14946,6 +15384,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Denken… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Annuleren",
+    "dialog.delete": "Verwijderen",
+    "ai.translateTitle": "Kaart vertalen",
+    "ai.translateMessage": "Naar welke taal moet de kaart worden vertaald?",
+    "ai.toneTitle": "Toon wijzigen",
+    "ai.toneMessage": "In welke toon moet de beschrijving worden herschreven?",
+    "batch.deleteTitle": "{{count}} kaart(en) verwijderen?",
+    "settings.clearTitle": "Alle gegevens wissen?",
     "editor.greetingMoveUp": "Omhoog verplaatsen",
     "editor.greetingMoveDown": "Omlaag verplaatsen",
     "editor.greetingIsDefault": "Dit is het huidige eerste bericht",
@@ -15549,6 +16002,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Думаю… {{secs}}",
+    "ai.streamLive": "{{tokens}} токенів · {{secs}}",
+    "dialog.ok": "ОК",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Скасувати",
+    "dialog.delete": "Видалити",
+    "ai.translateTitle": "Перекласти картку",
+    "ai.translateMessage": "Якою мовою перекласти картку?",
+    "ai.toneTitle": "Змінити тон",
+    "ai.toneMessage": "У якому тоні переписати опис?",
+    "batch.deleteTitle": "Видалити {{count}} картку(и)?",
+    "settings.clearTitle": "Очистити всі дані?",
     "editor.greetingMoveUp": "Вгору",
     "editor.greetingMoveDown": "Вниз",
     "editor.greetingIsDefault": "Це поточне перше повідомлення",
@@ -16152,6 +16620,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Thinking… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancel",
+    "dialog.delete": "Delete",
+    "ai.translateTitle": "Translate card",
+    "ai.translateMessage": "Which language should the card be translated to?",
+    "ai.toneTitle": "Change tone",
+    "ai.toneMessage": "Which tone should the description be rewritten in?",
+    "batch.deleteTitle": "Delete {{count}} cards?",
+    "settings.clearTitle": "Clear all data?",
     "editor.greetingMoveUp": "Di chuyển lên",
     "editor.greetingMoveDown": "Di chuyển xuống",
     "editor.greetingIsDefault": "Đây là tin nhắn đầu tiên hiện tại",
@@ -16755,6 +17238,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Thinking… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancel",
+    "dialog.delete": "Delete",
+    "ai.translateTitle": "Translate card",
+    "ai.translateMessage": "Which language should the card be translated to?",
+    "ai.toneTitle": "Change tone",
+    "ai.toneMessage": "Which tone should the description be rewritten in?",
+    "batch.deleteTitle": "Delete {{count}} cards?",
+    "settings.clearTitle": "Clear all data?",
     "editor.greetingMoveUp": "Pindah ke atas",
     "editor.greetingMoveDown": "Pindah ke bawah",
     "editor.greetingIsDefault": "Ini adalah pesan pertama saat ini",
@@ -17358,6 +17856,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Thinking… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancel",
+    "dialog.delete": "Delete",
+    "ai.translateTitle": "Translate card",
+    "ai.translateMessage": "Which language should the card be translated to?",
+    "ai.toneTitle": "Change tone",
+    "ai.toneMessage": "Which tone should the description be rewritten in?",
+    "batch.deleteTitle": "Delete {{count}} cards?",
+    "settings.clearTitle": "Clear all data?",
     "editor.greetingMoveUp": "ऊपर ले जाएं",
     "editor.greetingMoveDown": "नीचे ले जाएं",
     "editor.greetingIsDefault": "यह वर्तमान पहला संदेश है",
@@ -17961,6 +18474,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Thinking… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancel",
+    "dialog.delete": "Delete",
+    "ai.translateTitle": "Translate card",
+    "ai.translateMessage": "Which language should the card be translated to?",
+    "ai.toneTitle": "Change tone",
+    "ai.toneMessage": "Which tone should the description be rewritten in?",
+    "batch.deleteTitle": "Delete {{count}} cards?",
+    "settings.clearTitle": "Clear all data?",
     "editor.greetingMoveUp": "تحريك لأعلى",
     "editor.greetingMoveDown": "تحريك لأسفل",
     "editor.greetingIsDefault": "هذه هي الرسالة الأولى الحالية",
@@ -18564,6 +19092,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Thinking… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancel",
+    "dialog.delete": "Delete",
+    "ai.translateTitle": "Translate card",
+    "ai.translateMessage": "Which language should the card be translated to?",
+    "ai.toneTitle": "Change tone",
+    "ai.toneMessage": "Which tone should the description be rewritten in?",
+    "batch.deleteTitle": "Delete {{count}} cards?",
+    "settings.clearTitle": "Clear all data?",
     "editor.greetingMoveUp": "הזזה למעלה",
     "editor.greetingMoveDown": "הזזה למטה",
     "editor.greetingIsDefault": "זוהי ההודעה הראשונה הנוכחית",
@@ -19167,6 +19710,21 @@ Each greeting should be an in-character opening message that could start a conve
     "settings.varField": "Name of the field being edited.",
     "settings.varChar": "Character name, substituted by the chat engine (SillyTavern).",
     "settings.varUser": "User name, substituted by the chat engine (SillyTavern).",
+    "ai.thinkingLive": "Thinking… {{secs}}",
+    "ai.streamLive": "{{tokens}} tokens · {{secs}}",
+    "dialog.ok": "OK",
+    "editor.extensions": "Extensions (JSON)",
+    "editor.extensionsHint": "Raw card `extensions` object — JSON. Editing this may break SillyTavern features.",
+    "editor.extensionsParseError": "Invalid JSON — keeping the last valid extensions.",
+    "editor.cardTokenTotal": "~{{tokens}} tokens · {{chars}} chars",
+    "dialog.cancel": "Cancel",
+    "dialog.delete": "Delete",
+    "ai.translateTitle": "Translate card",
+    "ai.translateMessage": "Which language should the card be translated to?",
+    "ai.toneTitle": "Change tone",
+    "ai.toneMessage": "Which tone should the description be rewritten in?",
+    "batch.deleteTitle": "Delete {{count}} cards?",
+    "settings.clearTitle": "Clear all data?",
     "editor.greetingMoveUp": "انتقال به بالا",
     "editor.greetingMoveDown": "انتقال به پایین",
     "editor.greetingIsDefault": "این اولین پیام فعلی است",
@@ -19416,6 +19974,75 @@ Each greeting should be an in-character opening message that could start a conve
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+    },
+    _openDialog(cfg) {
+      const $ = (sel2) => document.querySelector(sel2);
+      const modal = this._dialogInstance || (this._dialogInstance = new bootstrap.Modal("#dialogModal"));
+      $("#dialogTitle").textContent = cfg.title || "";
+      const msg = $("#dialogMsg");
+      if (cfg.message) {
+        msg.textContent = cfg.message;
+        msg.style.display = "";
+      } else
+        msg.style.display = "none";
+      const sel = $("#dialogSelect");
+      const inp = $("#dialogInput");
+      if (cfg.select) {
+        sel.style.display = "";
+        inp.style.display = "none";
+        sel.innerHTML = "";
+        for (const { value, label } of cfg.select) {
+          const o = document.createElement("option");
+          o.value = value;
+          o.textContent = label;
+          sel.appendChild(o);
+        }
+        if (cfg.value != null)
+          sel.value = cfg.value;
+      } else if (cfg.text !== undefined) {
+        sel.style.display = "none";
+        inp.style.display = "";
+        inp.value = cfg.value || "";
+        if (cfg.placeholder != null)
+          inp.placeholder = cfg.placeholder;
+      } else {
+        sel.style.display = "none";
+        inp.style.display = "none";
+      }
+      const ok = $("#dialogOk");
+      const cancel = $("#dialogCancel");
+      ok.textContent = cfg.buttonLabel || (I18n.t ? I18n.t("dialog.ok") : "OK");
+      cancel.textContent = I18n.t ? I18n.t("dialog.cancel") : "Cancel";
+      ok.className = cfg.danger ? "btn btn-danger" : "btn btn-accent";
+      return new Promise((resolve) => {
+        const finish = () => {
+          ok.onclick = null;
+          cancel.onclick = null;
+          modal._element.removeEventListener("hidden.bs.modal", onHidden);
+          modal.hide();
+        };
+        const onHidden = () => {
+          finish();
+          resolve(null);
+        };
+        ok.onclick = () => {
+          const v = cfg.select ? sel.value : cfg.text !== undefined ? inp.value : true;
+          finish();
+          resolve(v);
+        };
+        cancel.onclick = () => {
+          finish();
+          resolve(null);
+        };
+        modal._element.addEventListener("hidden.bs.modal", onHidden);
+        modal.show();
+      });
+    },
+    prompt(cfg) {
+      return this._openDialog(cfg);
+    },
+    confirm(cfg) {
+      return this._openDialog(Object.assign({}, cfg, { danger: cfg.danger !== false })).then((v) => !!v);
     },
     escapeHtml(str) {
       if (!str)
@@ -19761,6 +20388,15 @@ Each greeting should be an in-character opening message that could start a conve
     I18n.init();
     const settingsModal = new bootstrap.Modal("#settingsModal");
     setupModalFocusTraps();
+    if (CardStorage.getSortMode) {
+      const savedSort = CardStorage.getSortMode();
+      if (savedSort) {
+        CardManager._sortMode = savedSort;
+        const ss = document.querySelector("#cardSortSelect");
+        if (ss)
+          ss.value = savedSort;
+      }
+    }
     CardManager.renderCardList();
     AiChat.renderChatHistory();
     const activeId = CardStorage.getActiveCardId();
@@ -20042,10 +20678,13 @@ Each greeting should be an in-character opening message that could start a conve
     });
     $("#btnExportJson").addEventListener("click", () => ExportUtils.exportAsJSON());
     $("#btnExportPng").addEventListener("click", () => ExportUtils.exportAsPNG());
-    $("#btnDeleteCard").addEventListener("click", () => {
-      if (confirm(I18n.t ? I18n.t("batch.deleteConfirm", { count: 1 }) : "Delete this card? This cannot be undone.")) {
+    $("#btnDeleteCard").addEventListener("click", async () => {
+      if (await Ui2.confirm({
+        title: I18n.t ? I18n.t("batch.deleteTitle", { count: 1 }) : "Delete this card?",
+        message: I18n.t ? I18n.t("batch.deleteConfirm", { count: 1 }) : "Delete this card? This cannot be undone.",
+        buttonLabel: I18n.t ? I18n.t("dialog.delete") : "Delete"
+      }))
         CardManager.deleteActiveCard();
-      }
     });
     $("#btnDuplicateCard").addEventListener("click", () => CardManager.duplicateCard());
     $("#btnBatchDelete").addEventListener("click", () => CardManager.batchDelete());
@@ -20174,10 +20813,42 @@ Each greeting should be an in-character opening message that could start a conve
     $("#modelSearch").addEventListener("input", Ui2.debounce(() => Settings.filterModels(), DEBOUNCE_SEARCH_MS2));
     $("#btnAddLoreEntry").addEventListener("click", () => Editor.addLorebookEntry());
     $("#btnAddGreeting").addEventListener("click", () => Editor.addGreeting());
+    const extensionsTa = $("#editExtensions");
+    if (extensionsTa) {
+      extensionsTa.addEventListener("focus", () => {
+        Editor._lastSnapField = null;
+      });
+      extensionsTa.addEventListener("beforeinput", () => {
+        if (Editor._lastSnapField !== "extensions") {
+          Editor._snapshotSub("extensions");
+          Editor._lastSnapField = "extensions";
+        }
+      });
+      extensionsTa.addEventListener("input", Ui2.debounce(() => {
+        Editor._applyExtensionsFromDom().catch(() => {});
+        Editor.autoResizeTextareas();
+      }, 600));
+    }
+    const insertTokenAtCursor = (ta, text) => {
+      const start = typeof ta.selectionStart === "number" ? ta.selectionStart : (ta.value || "").length;
+      const end = typeof ta.selectionEnd === "number" ? ta.selectionEnd : start;
+      ta.setRangeText(text, start, end, "end");
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      ta.focus();
+    };
+    document.querySelectorAll(".token-insert-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const ta = document.getElementById(btn.dataset.target);
+        if (ta && btn.dataset.token)
+          insertTokenAtCursor(ta, btn.dataset.token);
+      });
+    });
     const sortSelect = $("#cardSortSelect");
     if (sortSelect) {
       sortSelect.addEventListener("change", () => {
         CardManager._sortMode = sortSelect.value;
+        if (CardStorage.setSortMode)
+          CardStorage.setSortMode(sortSelect.value);
         CardManager.renderCardList();
       });
     }

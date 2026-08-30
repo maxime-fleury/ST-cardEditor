@@ -6,7 +6,7 @@
    ============================================================ */
 
 const BASE_PATH = new URL('.', self.location.href).pathname;
-const CACHE_PREFIX = 'stce-v2.5.0';
+const CACHE_PREFIX = 'stce-v2.5.1';
 const CACHE_NAME = `${CACHE_PREFIX}:${BASE_PATH}`;
 const DEV_PATH = BASE_PATH.endsWith('/dev/')
   ? BASE_PATH
@@ -35,6 +35,13 @@ const SHELL_FILES = [
 
 const shellUrl = (file) => new URL(file || './', self.location.href).toString();
 const shellPaths = new Set(SHELL_FILES.map(file => new URL(file || './', self.location.href).pathname));
+
+// Third-party CDN origins the UI depends on (Bootstrap CSS/JS, bootstrap-icons
+// font, Google Fonts, anime.js, jsdiff, and the lazy-loaded markdown/tokenizer
+// libs). They're cross-origin, so the shell list above cannot precache them;
+// cache them at runtime (stale-while-revalidate) so the app truly works offline.
+const CDN_HOSTS = new Set(['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com']);
+const CDN_CACHE = 'stce-cdn-v2.5.1';
 
 // Install: cache the app shell. Precaching is done per-file so one missing
 // asset (404) degrades offline coverage instead of aborting the whole install.
@@ -74,9 +81,32 @@ self.addEventListener('activate', (event) => {
 // Fetch: network-first for everything, cache as fallback (and offline cache).
 // Network-first means a freshly deployed index.html (with its new ?v= busters)
 // is always served online; the cache only matters when offline.
+const staleWhileRevalidate = (request) =>
+  caches.open(CDN_CACHE).then((cache) =>
+    cache.match(request, { ignoreVary: true }).then((cached) => {
+      // Revalidate in the background (and prewarm the cache on first hit).
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CDN_CACHE).then((c) => c.put(request, copy));
+          }
+        })
+        .catch(() => {});
+      return cached || fetch(request);
+    })
+  );
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
+
+  // Third-party CDN assets: serve stale-from-cache first, refresh in background.
+  if (CDN_HOSTS.has(url.hostname)) {
+    event.respondWith(staleWhileRevalidate(event.request));
+    return;
+  }
+
   // The stable worker's scope includes /dev/, but it must not serve or cache
   // development requests. The /dev/ worker owns those requests instead.
   if (url.origin !== self.location.origin || url.pathname.startsWith(`${BASE_PATH}api/`)

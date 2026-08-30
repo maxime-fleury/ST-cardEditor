@@ -378,6 +378,20 @@ const CardStorage = {
     localStorage.setItem(this.PREFIX + this._keys.cardRadius, String(radius));
   },
 
+  // ─── Library sort mode ────────────────────────────────
+
+  // Stored so the card library re-opens in the user's chosen sort order
+  // instead of silently snapping back to the dropdown's default (which must
+  // match CardManager._sortMode's default, 'manual').
+  getSortMode() {
+    const val = localStorage.getItem(this.PREFIX + 'sortMode');
+    return val || '';
+  },
+
+  setSortMode(mode) {
+    localStorage.setItem(this.PREFIX + 'sortMode', String(mode));
+  },
+
   // ─── Provider ───────────────────────────────────────
 
   getProvider() {

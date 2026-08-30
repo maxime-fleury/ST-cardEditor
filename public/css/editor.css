@@ -206,6 +206,41 @@
   margin-inline-start: auto;
 }
 
+/* One-click {{char}} / {{user}} token inserter next to a field label. */
+.token-insert-group {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin-inline-end: 0.25rem;
+}
+.token-insert-btn {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  line-height: 1;
+  padding: 0.22rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--accent-400);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+}
+.token-insert-btn:hover {
+  border-color: var(--border-accent);
+  color: var(--accent-text);
+  background: var(--bg-surface-hover);
+}
+
+/* Whole-card token budget badge in the editor header meta row. */
+#metaTokens { color: var(--text-muted); }
+#metaTokens.is-warn { color: var(--accent-500); }
+
+/* Extensions raw-JSON field states. */
+#editExtensions.is-invalid-json {
+  border-color: var(--danger, #f87171) !important;
+  box-shadow: 0 0 0 0.15rem rgba(248, 113, 113, 0.2) !important;
+}
+#extensionsStatus.is-danger { color: var(--danger, #f87171); }
+
 .editor-textarea {
   background: var(--bg-surface) !important;
   border: 1px solid var(--border-subtle) !important;

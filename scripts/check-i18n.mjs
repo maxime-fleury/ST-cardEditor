@@ -62,4 +62,20 @@ if (ph) {
   process.exit(1);
 }
 
+// Translation-coverage report: keys whose value still equals English are
+// copyovers (untranslated). Informational (parity + braces are the hard gates)
+// but surfaces by locale so incomplete translations never ship silently.
+let copyoverTotal = 0;
+let withCopyover = 0;
+for (const lang of langs) {
+  if (lang === 'en') continue;
+  const n = Object.entries(translations[lang]).filter(([k, v]) => v === translations.en[k]).length;
+  copyoverTotal += n;
+  if (n) { withCopyover++; console.log(`· ${lang}: ${n} untranslated (English copyover)`); }
+  else console.log(`✓ ${lang}: fully translated`);
+}
+if (copyoverTotal) {
+  console.warn(`\ncheck-i18n: ${copyoverTotal} untranslated keys across ${withCopyover}/20 non-English locales (English copyover).`);
+}
+
 console.log(`\ncheck-i18n: all ${langs.length} languages in sync with English (${enKeys.length} keys, no single-brace placeholders).`);

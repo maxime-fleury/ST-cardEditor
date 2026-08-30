@@ -71,6 +71,63 @@ const Ui = {
     URL.revokeObjectURL(url);
   },
 
+  // ─── Reusable in-app dialogs (replace window.prompt/confirm). These work in
+  // sandboxed iframes / PWAs where native dialogs can be silently blocked, and
+  // match the app's styling. Ui.prompt({select|text}) -> Promise<value|null>,
+  // Ui.confirm({...}) -> Promise<boolean>.
+  _openDialog(cfg) {
+    const $ = (sel) => document.querySelector(sel);
+    const modal = this._dialogInstance || (this._dialogInstance = new bootstrap.Modal('#dialogModal'));
+    $('#dialogTitle').textContent = cfg.title || '';
+    const msg = $('#dialogMsg');
+    if (cfg.message) { msg.textContent = cfg.message; msg.style.display = ''; }
+    else msg.style.display = 'none';
+
+    const sel = $('#dialogSelect'); const inp = $('#dialogInput');
+    if (cfg.select) {
+      sel.style.display = ''; inp.style.display = 'none';
+      sel.innerHTML = '';
+      for (const { value, label } of cfg.select) {
+        const o = document.createElement('option');
+        o.value = value; o.textContent = label; sel.appendChild(o);
+      }
+      if (cfg.value != null) sel.value = cfg.value;
+    } else if (cfg.text !== undefined) {
+      sel.style.display = 'none'; inp.style.display = '';
+      inp.value = cfg.value || '';
+      if (cfg.placeholder != null) inp.placeholder = cfg.placeholder;
+    } else {
+      sel.style.display = 'none'; inp.style.display = 'none';
+    }
+
+    const ok = $('#dialogOk'); const cancel = $('#dialogCancel');
+    ok.textContent = cfg.buttonLabel || (I18n.t ? I18n.t('dialog.ok') : 'OK');
+    cancel.textContent = (I18n.t ? I18n.t('dialog.cancel') : 'Cancel');
+    ok.className = cfg.danger ? 'btn btn-danger' : 'btn btn-accent';
+
+    return new Promise((resolve) => {
+      const finish = () => {
+        ok.onclick = null; cancel.onclick = null;
+        modal._element.removeEventListener('hidden.bs.modal', onHidden);
+        modal.hide();
+      };
+      const onHidden = () => { finish(); resolve(null); };
+      ok.onclick = () => {
+        const v = cfg.select ? sel.value : (cfg.text !== undefined ? inp.value : true);
+        finish(); resolve(v);
+      };
+      cancel.onclick = () => { finish(); resolve(null); };
+      modal._element.addEventListener('hidden.bs.modal', onHidden);
+      modal.show();
+    });
+  },
+
+  prompt(cfg) { return this._openDialog(cfg); },
+
+  confirm(cfg) {
+    return this._openDialog(Object.assign({}, cfg, { danger: cfg.danger !== false })).then((v) => !!v);
+  },
+
   escapeHtml(str) {
     if (!str) return '';
     const div = document.createElement('div'); div.textContent = str; return div.innerHTML;
@@ -462,6 +519,17 @@ async function init() {
   // Focus-trap all modals for keyboard accessibility
   setupModalFocusTraps();
 
+  // Restore the persisted sort mode (Manual by default) before the first
+  // render so the dropdown and the applied order agree from the start.
+  if (CardStorage.getSortMode) {
+    const savedSort = CardStorage.getSortMode();
+    if (savedSort) {
+      CardManager._sortMode = savedSort;
+      const ss = document.querySelector('#cardSortSelect');
+      if (ss) ss.value = savedSort;
+    }
+  }
+
   CardManager.renderCardList();
   AiChat.renderChatHistory();
 
@@ -749,10 +817,12 @@ function bindEvents(settingsModal) {
   });
   $('#btnExportJson').addEventListener('click', () => ExportUtils.exportAsJSON());
   $('#btnExportPng').addEventListener('click', () => ExportUtils.exportAsPNG());
-  $('#btnDeleteCard').addEventListener('click', () => {
-    if (confirm(I18n.t ? I18n.t('batch.deleteConfirm', { count: 1 }) : 'Delete this card? This cannot be undone.')) {
-      CardManager.deleteActiveCard();
-    }
+  $('#btnDeleteCard').addEventListener('click', async () => {
+    if (await Ui.confirm({
+      title: I18n.t ? I18n.t('batch.deleteTitle', { count: 1 }) : 'Delete this card?',
+      message: I18n.t ? I18n.t('batch.deleteConfirm', { count: 1 }) : 'Delete this card? This cannot be undone.',
+      buttonLabel: I18n.t ? I18n.t('dialog.delete') : 'Delete',
+    })) CardManager.deleteActiveCard();
   });
   $('#btnDuplicateCard').addEventListener('click', () => CardManager.duplicateCard());
   $('#btnBatchDelete').addEventListener('click', () => CardManager.batchDelete());
@@ -873,11 +943,46 @@ function bindEvents(settingsModal) {
   $('#btnAddLoreEntry').addEventListener('click', () => Editor.addLorebookEntry());
   $('#btnAddGreeting').addEventListener('click', () => Editor.addGreeting());
 
-  // Library sort control
+  // Raw JSON Extensions editor (Advanced tab). Parse-on-debounce writes only
+  // valid objects to the card; invalid JSON is surfaced inline and kept out.
+  const extensionsTa = $('#editExtensions');
+  if (extensionsTa) {
+    extensionsTa.addEventListener('focus', () => { Editor._lastSnapField = null; });
+    extensionsTa.addEventListener('beforeinput', () => {
+      if (Editor._lastSnapField !== 'extensions') {
+        Editor._snapshotSub('extensions');
+        Editor._lastSnapField = 'extensions';
+      }
+    });
+    extensionsTa.addEventListener('input', Ui.debounce(() => {
+      Editor._applyExtensionsFromDom().catch(() => {});
+      Editor.autoResizeTextareas();
+    }, 600));
+  }
+
+  // {{char}} / {{user}} one-click insert chips next to textarea fields.
+  const insertTokenAtCursor = (ta, text) => {
+    const start = (typeof ta.selectionStart === 'number') ? ta.selectionStart : (ta.value || '').length;
+    const end = (typeof ta.selectionEnd === 'number') ? ta.selectionEnd : start;
+    ta.setRangeText(text, start, end, 'end');
+    // Trigger the field's normal debounced sync + char/token update.
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.focus();
+  };
+  document.querySelectorAll('.token-insert-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ta = document.getElementById(btn.dataset.target);
+      if (ta && btn.dataset.token) insertTokenAtCursor(ta, btn.dataset.token);
+    });
+  });
+
+  // Library sort control — persist the chosen mode and keep the dropdown in
+  // sync with the actual sort (their defaults must match; see cardManager.js).
   const sortSelect = $('#cardSortSelect');
   if (sortSelect) {
     sortSelect.addEventListener('change', () => {
       CardManager._sortMode = sortSelect.value;
+      if (CardStorage.setSortMode) CardStorage.setSortMode(sortSelect.value);
       CardManager.renderCardList();
     });
   }

@@ -123,3 +123,55 @@ test('getTextContent joins non-empty labeled fields', () => {
   expect(text).toContain('Desc');
   expect(text).not.toContain('[Personality]');
 });
+
+test('normalize preserves the raw extensions object (nested + arrays)', () => {
+  const extensions = {
+    nsfw: false,
+    example: { nested: [1, 2, 3], ok: true },
+    tags: ['a', 'b'],
+    nullable: null,
+  };
+  const card = CardEngine.normalize({
+    spec: 'chara_card_v2',
+    spec_version: '2.0',
+    data: { name: 'Ext', extensions },
+  }, 'ext.json');
+  expect(card.extensions).toEqual(extensions);
+  // Deep-cloned, not a shared reference.
+  extensions.example.nested.push(99);
+  expect(card.extensions.example.nested).not.toContain(99);
+});
+
+test('extensions default to an empty object when absent', () => {
+  const card = CardEngine.normalize({
+    spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'NoExt' },
+  }, 'noext.json');
+  expect(card.extensions).toEqual({});
+});
+
+test('extensions survive a toJSON -> parseJSON round-trip (V2 and V3)', () => {
+  const extensions = { deep: { arr: ['x', 'y'], n: 3 }, flag: true };
+  for (const version of ['2.0', '3.0']) {
+    const spec = version === '3.0' ? 'chara_card_v3' : 'chara_card_v2';
+    const card = CardEngine.normalize({ spec, spec_version: version, data: { name: 'RT', extensions } }, 'rt.json');
+    const back = CardEngine.parseJSON(CardEngine.toJSON(card), 'rt.json');
+    expect(back.spec).toBe(spec);
+    expect(back.spec_version).toBe(version);
+    expect(back.extensions).toEqual(extensions);
+  }
+});
+
+test('character_book is deep-copied so the source object is not mutated', () => {
+  const source = { entries: [{ key: 'k', content: 'c' }] };
+  const card = CardEngine.normalize({
+    spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'CB', character_book: source },
+  }, 'cb.json');
+  card.character_book.entries.push({ key: 'extra' });
+  expect(source.entries).toHaveLength(1);
+});
+
+test('normalize maps V3 spec directly to 3.0 when spec_version is omitted', () => {
+  const card = CardEngine.normalize({ spec: 'chara_card_v3', data: { name: 'V3' } }, 'v3.json');
+  expect(card.spec).toBe('chara_card_v3');
+  expect(card.spec_version).toBe('3.0');
+});

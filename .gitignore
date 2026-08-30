@@ -5,6 +5,8 @@ node_modules/
 .DS_Store
 Thumbs.db
 nul
+opencode.json
+agent_bug_hunt_report*.txt
 .freebuff/
 tmp/
 test-results/

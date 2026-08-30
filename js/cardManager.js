@@ -121,7 +121,10 @@ const CardManager = {
 
   _searchQuery: '',
   _selectedIds: new Set(),
-  _sortMode: 'name-asc',
+  // Default matches the default <option> (Manual) in the sort dropdown, so the
+  // displayed selection and the applied order agree on first load and
+  // drag-to-reorder works immediately. Persisted across reloads (see ui.js).
+  _sortMode: 'manual',
   _activeTagFilters: new Set(),
 
   _toggleBatchSelect(cardId) {
@@ -147,7 +150,11 @@ const CardManager = {
 
   async batchDelete() {
     if (this._selectedIds.size === 0) { Ui.showToast(I18n.t('toast.noSelected'), 'info'); return; }
-    if (!confirm(I18n.t('batch.deleteConfirm', { count: this._selectedIds.size }))) return;
+    if (!await Ui.confirm({
+      title: I18n.t('batch.deleteTitle', { count: this._selectedIds.size }),
+      message: I18n.t('batch.deleteConfirm', { count: this._selectedIds.size }),
+      buttonLabel: I18n.t('dialog.delete'),
+    })) return;
     for (const id of this._selectedIds) await CardStorage.deleteCard(id);
     this._selectedIds.clear();
     this._updateBatchToolbar();
@@ -303,6 +310,80 @@ const CardManager = {
     });
   },
 
+  // One row of the library list (shared by flat and grouped rendering).
+  _rowHtml(card, activeCard) {
+    const isActive = activeCard && activeCard._id === card._id;
+    const isBatch = this._selectedIds.has(card._id);
+    const tags = (card.tags || []).slice(0, 2);
+    const thumb = card._thumbnail || card._imageBase64;
+    const desc = (card.description || '').slice(0, 300);
+    const fileSize = card._fileSize ? Ui.formatFileSize(card._fileSize) : '';
+    return '<div class="card-list-item' + (isActive ? ' active' : '') + (isBatch ? ' batch-selected' : '') + '" data-card-id="' + card._id + '" role="option" aria-selected="' + isActive + '">'
+      + '<div class="card-list-avatar">'
+      + (thumb ? '<img src="' + Ui.escapeAttr(thumb) + '" alt="">' : '<i class="bi bi-person-fill"></i>')
+      + '</div>'
+      + '<div class="card-list-info">'
+      + '<div class="card-list-name">' + Ui.escapeHtml(card.name || I18n.t('gen.unnamed')) + '</div>'
+      + '<div class="card-list-meta">'
+      + (card.creator ? Ui.escapeHtml(card.creator) : '')
+      + (card.creator && tags.length ? ' · ' : '')
+      + tags.map(t => Ui.escapeHtml(t)).join(', ')
+      + (fileSize ? ' <span class="meta-filesize">' + fileSize + '</span>' : '')
+      + '</div></div>'
+      + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? ' checked' : '') + '>'
+      + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"><i class="bi bi-grip-vertical"></i></span>'
+      + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + '</span>' : '')
+      + '<div class="card-preview-tooltip">'
+      + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : '')
+      + '<div class="fw-semibold">' + Ui.escapeHtml(card.name || I18n.t('gen.unnamed')) + '</div>'
+      + (card.creator ? '<div class="text-muted" style="font-size:0.7rem;">' + I18n.t('gen.byCreator', { name: Ui.escapeHtml(card.creator) }) + '</div>' : '')
+      + (desc ? '<div class="preview-desc">' + Ui.escapeHtml(desc) + '</div>' : '')
+      + '</div></div>';
+  },
+
+  // Glued first-letter group headers when sorted by name; flat otherwise.
+  _groupCards(list) {
+    if (this._sortMode !== 'name-asc' && this._sortMode !== 'name-desc') {
+      return [{ letter: '', items: list }];
+    }
+    const groups = []; const byLetter = new Map();
+    for (const card of list) {
+      const name = (card.name || '').trim();
+      let letter = '#', ch = name ? name[0] : '';
+      if (/[A-Za-z0-9]/.test(ch)) letter = ch.toUpperCase();
+      let g = byLetter.get(letter);
+      if (!g) { g = { letter, items: [] }; byLetter.set(letter, g); groups.push(g); }
+      g.items.push(card);
+    }
+    if (this._sortMode === 'name-desc') {
+      groups.sort((a, b) => (a.letter < b.letter ? 1 : a.letter > b.letter ? -1 : 0));
+    }
+    return groups;
+  },
+
+  // Compact `#tag` quick-filter chips above the tag cloud (handles big libraries).
+  _renderTagChipStrip() {
+    const el = document.querySelector('#tagChipStrip');
+    if (!el) return;
+    const counts = {};
+    (window.AppState.cards || []).forEach(c => (c.tags || []).forEach(t => counts[t] = (counts[t] || 0) + 1));
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 12);
+    if (sorted.length === 0) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = '';
+    el.innerHTML = sorted.map(([tag]) => {
+      const active = this._activeTagFilters.has(tag);
+      return '<button type="button" class="tag-chip-strip-chip' + (active ? ' active' : '') + '" data-tag="' + Ui.escapeAttr(tag) + '">#' + Ui.escapeHtml(tag) + '</button>';
+    }).join('')
+      + (this._activeTagFilters.size ? '<button type="button" class="tag-chip-strip-clear" data-clear="1" aria-label="Clear filters">×</button>' : '');
+    el.querySelectorAll('.tag-chip-strip-chip, .tag-chip-strip-clear').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.clear) this._activeTagFilters.clear();
+        else { const t = btn.dataset.tag; this._activeTagFilters.has(t) ? this._activeTagFilters.delete(t) : this._activeTagFilters.add(t); }
+        this.renderCardList();
+      });
+    });
+  },
+
   renderCardList() {
     const $ = (sel) => document.querySelector(sel);
     const { cards, activeCard } = window.AppState;
@@ -316,6 +397,7 @@ const CardManager = {
     if (controlsWrap) controlsWrap.style.display = cards.length > 3 ? '' : 'none';
 
     this._renderTagCloud();
+    this._renderTagChipStrip();
 
     let filtered = cards;
 
@@ -351,35 +433,12 @@ const CardManager = {
 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    container.innerHTML = filtered.map(card => {
-      const isActive = activeCard && activeCard._id === card._id;
-      const isBatch = this._selectedIds.has(card._id);
-      const tags = (card.tags || []).slice(0, 2);
-      const thumb = card._thumbnail || card._imageBase64;
-      const desc = (card.description || '').slice(0, 300);
-      const fileSize = card._fileSize ? Ui.formatFileSize(card._fileSize) : '';
-
-      return '<div class="card-list-item' + (isActive ? ' active' : '') + (isBatch ? ' batch-selected' : '') + '" data-card-id="' + card._id + '" role="option" aria-selected="' + isActive + '">'
-        + '<div class="card-list-avatar">'
-        + (thumb ? '<img src="' + Ui.escapeAttr(thumb) + '" alt="">' : '<i class="bi bi-person-fill"></i>')
-        + '</div>'
-        + '<div class="card-list-info">'
-        + '<div class="card-list-name">' + Ui.escapeHtml(card.name || I18n.t('gen.unnamed')) + '</div>'
-        + '<div class="card-list-meta">'
-        + (card.creator ? Ui.escapeHtml(card.creator) : '')
-        + (card.creator && tags.length ? ' · ' : '')
-        + tags.map(t => Ui.escapeHtml(t)).join(', ')
-        + (fileSize ? ' <span class="meta-filesize">' + fileSize + '</span>' : '')
-        + '</div></div>'
-        + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? ' checked' : '') + '>'
-        + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"><i class="bi bi-grip-vertical"></i></span>'
-        + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + '</span>' : '')
-        + '<div class="card-preview-tooltip">'
-        + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : '')
-        + '<div class="fw-semibold">' + Ui.escapeHtml(card.name || I18n.t('gen.unnamed')) + '</div>'
-        + (card.creator ? '<div class="text-muted" style="font-size:0.7rem;">' + I18n.t('gen.byCreator', { name: Ui.escapeHtml(card.creator) }) + '</div>' : '')
-        + (desc ? '<div class="preview-desc">' + Ui.escapeHtml(desc) + '</div>' : '')
-        + '</div></div>';
+    container.innerHTML = this._groupCards(filtered).map(group => {
+      const rows = group.items.map(card => this._rowHtml(card, activeCard)).join('');
+      return '<div class="card-list-group" data-letter="' + Ui.escapeAttr(group.letter) + '">'
+        + (group.letter ? '<button type="button" class="card-group-header" data-letter="' + Ui.escapeAttr(group.letter) + '" aria-expanded="true"><span class="card-group-letter">' + Ui.escapeHtml(group.letter) + '</span><span class="card-group-count">' + group.items.length + '</span></button>' : '')
+        + '<div class="card-group-body">' + rows + '</div>'
+        + '</div>';
     }).join('');
 
     Anims.staggerFadeIn(container.querySelectorAll('.card-list-item'), { stagger: 25, duration: 200 });
@@ -408,6 +467,12 @@ const CardManager = {
     if (!this._cardListBound && container) {
       this._cardListBound = true;
       container.addEventListener('click', (e) => {
+        const groupHeader = e.target.closest('.card-group-header');
+        if (groupHeader) {
+          const body = groupHeader.parentElement && groupHeader.parentElement.querySelector('.card-group-body');
+          if (body) { const collapsed = body.classList.toggle('collapsed'); groupHeader.setAttribute('aria-expanded', collapsed ? 'false' : 'true'); }
+          return;
+        }
         const checkbox = e.target.closest('.card-batch-check');
         if (checkbox) {
           e.stopPropagation();

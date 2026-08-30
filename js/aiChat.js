@@ -494,6 +494,28 @@ const AiChat = {
     const streamingEl = this.createStreamingMessage();
     let shimmerGone = false;
 
+    // Live “thinking…” presence: elapsed-time + (once tokens arrive) a live
+    // token count, so long generations never look hung. Cheap heuristic count;
+    // the real usage bar is still updated by updateContextBar().
+    const startedAt = Date.now();
+    let lastOut = '';
+    const statusEl = streamingEl.querySelector('.ai-stream-status');
+    const liveTimer = setInterval(() => {
+      if (!streamingEl.isConnected) return;
+      const secs = Math.floor((Date.now() - startedAt) / 1000) + 's';
+      let liveCount = 0;
+      if (lastOut) {
+        try {
+          liveCount = (window.Tokenizer && typeof window.Tokenizer.quickCount === 'function')
+            ? window.Tokenizer.quickCount(lastOut)
+            : Math.ceil(lastOut.length / 3);
+        } catch (_) { liveCount = Math.ceil(lastOut.length / 3); }
+      }
+      statusEl.textContent = lastOut
+        ? (I18n.t ? I18n.t('ai.streamLive', { tokens: liveCount, secs }) : liveCount + ' tokens · ' + secs)
+        : (I18n.t ? I18n.t('ai.thinkingLive', { secs }) : 'Thinking… ' + secs);
+    }, 500);
+
     const cardJson = activeCard ? CardEngine.toJSON(activeCard) : '';
     const systemPrompt = [
       CardStorage.getPrompt('fullCard') || 'You are an AI assistant helping edit SillyTavern character cards.\nSillyTavern is an AI roleplay frontend. Cards define character personalities.',
@@ -511,6 +533,7 @@ const AiChat = {
 
     AIService.chatStream(prompt, systemPrompt, modelId,
       (fullText) => {
+        lastOut = fullText; // for the live token counter
         // Replace the shimmer skeleton with live content on the first real
         // token, so users get a clear "model is thinking" cue while waiting.
         if (!shimmerGone && fullText) {
@@ -532,6 +555,7 @@ const AiChat = {
       this._getRecentHistory(10)
     )
       .then(result => {
+        clearInterval(liveTimer);
         if (gen !== this._gen) { streamingEl.remove(); return; }
         streamingEl.remove();
         const asstIdx = window.AppState.chatHistory.length;
@@ -544,6 +568,7 @@ const AiChat = {
         Settings.refreshCredits();
       })
       .catch(err => {
+        clearInterval(liveTimer);
         if (gen !== this._gen) { streamingEl.remove(); return; }
         streamingEl.remove();
         if (err && err.name === 'AbortError') {
@@ -905,7 +930,7 @@ const AiChat = {
 
   // ─── QUICK ACTIONS ──────────────────────────────────
 
-  handleQuickAction(action) {
+  async handleQuickAction(action) {
     const $ = (sel) => document.querySelector(sel);
     const { activeCard } = window.AppState;
     if (action === 'newcard') {
@@ -944,13 +969,33 @@ const AiChat = {
     };
 
     if (action === 'translate') {
-      const lang = window.prompt(I18n.t ? I18n.t('ai.translatePrompt') : 'Translate to which language?', I18n.t ? I18n.t('ai.translateDefaultLang') : 'French');
+      // Offer the app's 21 supported languages as a dropdown instead of a
+      // free-text prompt (native dialogs can be blocked in iframes/PWAs).
+      const LANG_CODES = ['en', 'fr', 'es', 'de', 'pt', 'ja', 'zh', 'ko', 'el', 'ru', 'it', 'pl', 'tr', 'nl', 'uk', 'vi', 'id', 'hi', 'ar', 'he', 'fa'];
+      const options = LANG_CODES.map((code) => {
+        const label = (I18n.t && I18n.t('wizard.language.' + code) !== 'wizard.language.' + code) ? I18n.t('wizard.language.' + code) : code;
+        return { value: label, label };
+      });
+      const lang = await Ui.prompt({
+        title: I18n.t ? I18n.t('ai.translateTitle') : 'Translate card',
+        message: I18n.t ? I18n.t('ai.translateMessage') : 'Which language should the card be translated to?',
+        select: options,
+        value: (I18n.t ? (I18n.t('wizard.language.fr') !== 'wizard.language.fr' ? I18n.t('wizard.language.fr') : 'French') : 'French'),
+        buttonLabel: I18n.t ? I18n.t('dialog.ok') : 'OK',
+      });
       if (!lang) return;
       prompts.translate = prompts.translate.split('{lang}').join(lang).split('{card}').join(CardEngine.toJSON(activeCard));
     }
 
     if (action === 'tone') {
-      const tone = window.prompt(I18n.t ? I18n.t('ai.tonePrompt') : 'Which tone? (e.g., formal, casual, dark, humorous, poetic)', I18n.t ? I18n.t('ai.toneDefault') : 'formal');
+      const tone = await Ui.prompt({
+        title: I18n.t ? I18n.t('ai.toneTitle') : 'Change tone',
+        message: I18n.t ? I18n.t('ai.toneMessage') : 'Which tone should the description be rewritten in?',
+        text: '',
+        value: I18n.t ? (I18n.t('ai.toneDefault') !== 'ai.toneDefault' ? I18n.t('ai.toneDefault') : 'formal') : 'formal',
+        placeholder: I18n.t ? I18n.t('ai.toneMessage') : 'formal, casual, dark, humorous, poetic…',
+        buttonLabel: I18n.t ? I18n.t('dialog.ok') : 'OK',
+      });
       if (!tone) return;
       prompts.tone = prompts.tone.split('{tone}').join(tone) + '\n\nCurrent:\n' + (currentOf.tone || '(empty)');
     }
@@ -1156,6 +1201,7 @@ const AiChat = {
     const el = document.createElement('div');
     el.className = 'ai-message assistant';
     el.innerHTML = '<div class="ai-message-content"></div>'
+      + '<div class="ai-stream-status" aria-live="polite" aria-atomic="true"></div>'
       + '<div class="ai-shimmer" aria-hidden="true"><div class="shimmer-line"></div><div class="shimmer-line"></div><div class="shimmer-line short"></div></div>';
     container.appendChild(el);
     Anims.staggerFadeIn(el, { duration: 200, from: 10 });

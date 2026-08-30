@@ -461,7 +461,11 @@ const Settings = {
 
   async confirmClearStorage() {
     const $ = (sel) => document.querySelector(sel);
-    if (!confirm(I18n.t('settings.clearConfirm'))) return;
+    if (!await Ui.confirm({
+      title: I18n.t ? I18n.t('settings.clearTitle') : 'Clear all data?',
+      message: I18n.t ? I18n.t('settings.clearConfirm') : 'Delete ALL cards, settings, and chat history? This cannot be undone.',
+      buttonLabel: I18n.t ? I18n.t('settings.clearAll') : 'Clear All Data',
+    })) return;
     await CardStorage.clearAll();
     window.AppState.cards = [];
     window.AppState.activeCard = null;

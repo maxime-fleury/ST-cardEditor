@@ -265,3 +265,68 @@ test('PWA manifest and icons are served', async ({ page, request }) => {
   expect(icon.status()).toBe(200);
   expect(icon.headers()['content-type']).toBe('image/png');
 });
+
+test('server sends CSP headers and gates the proxy by Origin', async ({ request }) => {
+  // Security postures that would silently regress (dropped CSP, open relay).
+  const page = await request.get('/');
+  const csp = page.headers()['content-security-policy'] || '';
+  expect(csp).toContain("default-src 'self'");
+  expect(csp).toContain('script-src');
+  expect(csp).toContain('connect-src');
+
+  // A cross-origin Origin must be rejected without proxying upstream.
+  const evil = await request.get('/api/models', { headers: { origin: 'https://evil.example' } });
+  expect(evil.status()).toBe(403);
+});
+
+test('cards persist across reload (IndexedDB)', async ({ page }) => {
+  await page.goto('/');
+  await importCards(page, ['Persist']);
+  // Await the debounced IndexedDB write completes.
+  await page.waitForTimeout(800);
+  await page.reload();
+  await expect(page.locator('.card-list-item')).toHaveCount(1);
+  await expect(page.locator('.card-list-name')).toHaveText(/Persist/);
+});
+
+test('service worker serves the app shell offline with cached CDN', async ({ page, context }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  // Wait until the SW controls the page and has had time to runtime-cache the
+  // CDN assets (Bootstrap CSS/JS). Growing the list hides controls; this page
+  // is the default empty state but the navbar + sheets still load CDN.
+  await page.evaluate(() =>
+    navigator.serviceWorker.ready.then(() =>
+      navigator.serviceWorker.controller
+        ? true
+        : new Promise((res) => navigator.serviceWorker.addEventListener('controllerchange', () => res(true), { once: true }))
+    ));
+  await page.waitForTimeout(2000);
+
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator('#appContainer')).toBeVisible();
+
+  // Bootstrap CSS was cached by the SW, so the navbar is still sticky offline.
+  const sticky = await page.evaluate(() => getComputedStyle(document.querySelector('#topNav')).position);
+  expect(sticky).toBe('sticky');
+  // No JS errors; ignore cosmetic resource-load logs from uncached extras.
+  expect(errors.filter((e) => !/Failed to load resource|ERR_|favicon/i.test(e))).toEqual([]);
+});
+
+test('translate quick action opens the in-app language dialog', async ({ page }) => {
+  // Regression: the Translate flow used window.prompt (native dialog), which
+  // is blocked in sandboxed iframes/PWAs. Now it opens the app's own modal
+  // with a <select> of all supported languages.
+  await page.goto('/');
+  await importCards(page, [v2Card('Ling')]);
+  await page.locator('.card-list-item').first().click();
+  await stubAI(page);
+  await configureCustomProvider(page, 'http://127.0.0.1:9/v1', 'test-model');
+
+  await page.locator('.quick-action[data-action="translate"]').click();
+  await expect(page.locator('#dialogModal')).toBeVisible();
+  await expect(page.locator('#dialogSelect option')).toHaveCount(21);
+  await page.locator('#dialogCancel').click();
+  await expect(page.locator('#dialogModal')).not.toBeVisible();
+});

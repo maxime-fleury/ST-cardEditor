@@ -8,6 +8,30 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [2.5.1] - 2026-08-30
+
+### Added
+- **Raw JSON Extensions editor** (Advanced tab) — edit the V2/V3 `extensions`
+  object directly with inline JSON validation. Invalid JSON is surfaced and
+  never written to the card, and changes participate in per-field undo/redo.
+- **`{{char}}` / `{{user}}` token auto-fill** — one-click chips next to the
+  First Message and Scenario fields insert the token at the cursor.
+- **Whole-card token budget** — a badge in the editor header shows estimated
+  tokens and characters across every field, alternate greetings, lorebook
+  entries, and the extensions JSON (warns when it exceeds the output-token
+  limit).
+
+### Fixed
+- Card library defaulted to a mismatch: the sort dropdown showed **Manual**
+  while cards were actually sorted alphabetically, so **drag-to-reorder snapped
+  back** on first use. Manual is now the true default, and the chosen sort mode
+  is remembered between sessions.
+- Waifu tab: **Fetch** could keep re-running the last “Girls + Boys” mixed pack
+  instead of the selected source/gender search; it now always performs a
+  normal source fetch.
+- Waifu tab: AniList characters with an unknown (null) gender were labelled
+  “Male”; they now show the requested filter or `?` instead of a wrong label.
+
 ## [2.5.0] - 2026-08-30
 
 ### Added — Appearance design system (Settings → Appearance)
@@ -79,5 +103,6 @@ Nothing yet.
   with a white popup in dark mode — fixed via `color-scheme` plus dark
   `form-select`/`option` styling across all browsers.
 
-[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.5.1...HEAD
+[2.5.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.1
 [2.5.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.0

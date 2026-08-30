@@ -141,6 +141,9 @@
         </button>
       </div>
 
+      <!-- Tag quick-filter chip strip (compact; for large libraries) -->
+      <div class="tag-chip-strip" id="tagChipStrip"></div>
+
       <!-- Tag Cloud -->
       <div class="tag-cloud-wrap" id="tagCloudWrap">
         <div class="tag-cloud" id="tagCloud"></div>
@@ -204,6 +207,7 @@
                 <span class="meta-badge" id="metaCreator"></span>
                 <span class="meta-badge" id="metaVersion"></span>
                 <span class="meta-badge" id="metaTags"></span>
+                <span class="meta-badge" id="metaTokens" style="font-family:var(--font-mono);"></span>
               </div>
             </div>
           </div>
@@ -273,6 +277,10 @@
               <div class="col-md-6">
                 <label class="form-label field-label editor-field-label">
                   <span data-i18n="editor.firstMes">First Message</span>
+                  <span class="token-insert-group">
+                    <button type="button" class="token-insert-btn" data-target="editFirstMes" data-token="{{char}}" title="Insert {{char}} token" aria-label="Insert {{char}} token">{{char}}</button>
+                    <button type="button" class="token-insert-btn" data-target="editFirstMes" data-token="{{user}}" title="Insert {{user}} token" aria-label="Insert {{user}} token">{{user}}</button>
+                  </span>
                   <span class="field-toggle-group" data-target="editFirstMes">
                     <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
                     <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
@@ -286,6 +294,10 @@
               <div class="col-md-6">
                 <label class="form-label field-label editor-field-label">
                   <span data-i18n="editor.scenario">Scenario</span>
+                  <span class="token-insert-group">
+                    <button type="button" class="token-insert-btn" data-target="editScenario" data-token="{{char}}" title="Insert {{char}} token" aria-label="Insert {{char}} token">{{char}}</button>
+                    <button type="button" class="token-insert-btn" data-target="editScenario" data-token="{{user}}" title="Insert {{user}} token" aria-label="Insert {{user}} token">{{user}}</button>
+                  </span>
                   <span class="field-toggle-group" data-target="editScenario">
                     <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
                     <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
@@ -375,6 +387,15 @@
                 <button class="btn btn-outline-accent btn-sm mt-2" id="btnAddGreeting">
                   <i class="bi bi-plus-lg me-1"></i> <span data-i18n="editor.addGreeting">Add Greeting</span>
                 </button>
+              </div>
+              <div class="col-12 mt-2">
+                <label class="form-label fw-semibold" style="font-size:0.85rem;color:var(--text-accent);">
+                  <i class="bi bi-braces me-1"></i><span data-i18n="editor.extensions">Extensions (JSON)</span>
+                </label>
+                <textarea class="form-control editor-textarea font-mono" id="editExtensions" rows="6" spellcheck="false"
+                          data-i18n-placeholder="editor.extensionsHint"
+                          placeholder="Raw card `extensions` object — JSON. Editing this may break SillyTavern features."></textarea>
+                <small class="text-secondary" id="extensionsStatus" style="font-size:0.7rem;"></small>
               </div>
             </div>
           </div>
@@ -1404,6 +1425,29 @@
 
   <div class="toast-container position-fixed top-0 start-50 translate-middle-x p-3" id="toastContainer" role="status" aria-live="polite" aria-label="Notifications" data-i18n-aria="nav.notificationsAria" style="z-index:9999;"></div>
 
+  <!-- Reusable in-app dialog — replaces window.prompt/confirm so it works in
+       iframes / PWAs (where native dialogs can be silently blocked) and keeps
+       the app's styling. Driven by Ui.prompt() / Ui.confirm(). -->
+  <div class="modal fade" id="dialogModal" tabindex="-1" aria-hidden="true" aria-labelledby="dialogTitle">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h6 class="modal-title" id="dialogTitle"></h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p id="dialogMsg" class="mb-2" style="white-space:pre-line;"></p>
+          <select class="form-select" id="dialogSelect" style="display:none;"></select>
+          <input type="text" class="form-control" id="dialogInput" style="display:none;">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="dialogCancel" data-bs-dismiss="modal"></button>
+          <button type="button" class="btn btn-accent" id="dialogOk"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
   <!-- CDN Libraries -->
@@ -1414,6 +1458,6 @@
   <!-- App bundle -- one entry module built by `bun run build` (scripts/build.mjs).
        Replaces the 13 individual <script type="module"> tags; a single ?v= buster
        (derived from package.json version by check-assets) invalidates the cache.) -->
-  <script type="module" src="js/app.js?v=250"></script>
+  <script type="module" src="js/app.js?v=251"></script>
 </body>
 </html>

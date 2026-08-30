@@ -93,6 +93,29 @@
 }
 .shimmer-line.short { width: 55%; }
 
+/* Live streaming presence: elapsed time + token count under the reply. */
+.ai-stream-status {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 6px;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.ai-stream-status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent, var(--text-accent));
+  animation: stream-pulse 1s ease-in-out infinite;
+}
+@keyframes stream-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
 @keyframes shimmer-slide {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
@@ -100,6 +123,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ai-shimmer { display: none; }
+  .ai-stream-status::before { animation: none; }
   .quick-action:hover,
   .field-toggle-btn:hover,
   .greeting-item:hover,

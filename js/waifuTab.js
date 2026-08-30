@@ -253,7 +253,15 @@ const WaifuTab = {
         const blob = await imgResp.blob();
         const objUrl = URL.createObjectURL(blob);
         const name = (c.name && c.name.full) || '';
-        const genderLabel = (c.gender || '').toLowerCase() === 'female' ? 'Female' : 'Male';
+        // AniList reports null for many characters' gender; label only when we
+        // actually know it, otherwise reflect the requested filter (or '?' from
+        // a general browse) instead of assuming Male.
+        const g = (c.gender || '').toLowerCase();
+        let genderLabel = '?';
+        if (g === 'female') genderLabel = 'Female';
+        else if (g === 'male') genderLabel = 'Male';
+        else if (genderWanted === 'female') genderLabel = 'Female';
+        else if (genderWanted === 'male') genderLabel = 'Male';
         results.push({ blob, url: c.image.large, objUrl, tags: (name + ' · ' + genderLabel).trim() });
       } catch (e) {
         // skip individual image-fetch failures
@@ -320,7 +328,12 @@ const WaifuTab = {
     }
   },
 
+  // “Fetch” always runs the active source/gender selection. If the user last
+  // used the Girls+Boys mixed pack, its intent lingers in _mode — forcing this
+  // back to 'source' means the Fetch button behaves predictably instead of
+  // re-running the mixed pack while the chips show a normal search.
   _fetch() {
+    this._mode = 'source';
     this._runFetch(this._currentIntent(), document.querySelector('#waifuBtnFetch'));
   },
 

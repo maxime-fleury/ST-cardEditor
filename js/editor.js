@@ -48,14 +48,27 @@ const Editor = {
   // Greetings + lorebook are rendered sub-sections, not top-level #edit* fields,
   // so their undo entries snapshot the whole container value and restore by
   // re-rendering (#37). `kind` is 'greetings' | 'lorebook'.
+  _SUB_MAP: { greetings: 'alternate_greetings', lorebook: 'character_book', extensions: 'extensions' },
+
+  _subDefault(activeCard, prop) {
+    if (prop === 'alternate_greetings') return activeCard[prop] || [];
+    if (prop === 'character_book') return activeCard[prop] || { entries: [] };
+    if (prop === 'extensions') return activeCard[prop] || {};
+    return activeCard[prop] || '';
+  },
+
   _snapshotSub(kind) {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
-    const prop = kind === 'greetings' ? 'alternate_greetings' : 'character_book';
+    const prop = this._SUB_MAP[kind];
+    if (!prop) return;
+    let def = [];
+    if (prop === 'character_book') def = { entries: [] };
+    else if (prop === 'extensions') def = {};
     this._undoStack.push({
       field: kind,
       prop,
-      oldValue: JSON.parse(JSON.stringify(activeCard[prop] || (kind === 'greetings' ? [] : { entries: [] }))),
+      oldValue: JSON.parse(JSON.stringify(activeCard[prop] || def)),
     });
     if (this._undoStack.length > this._maxUndo) this._undoStack.shift();
     this._redoStack = [];
@@ -70,6 +83,9 @@ const Editor = {
     } else if (entry.prop === 'character_book') {
       activeCard.character_book = newValue;
       this.renderLorebook(activeCard);
+    } else if (entry.prop === 'extensions') {
+      activeCard.extensions = newValue;
+      this.renderExtensions(activeCard);
     }
   },
 
@@ -82,9 +98,9 @@ const Editor = {
     this._redoStack.push({
       ...entry,
       oldValue: entry.oldValue,
-      newValue: JSON.parse(JSON.stringify(activeCard[entry.prop] || (entry.prop === 'alternate_greetings' ? [] : (entry.prop === 'character_book' ? { entries: [] } : '')))),
+      newValue: JSON.parse(JSON.stringify(this._subDefault(activeCard, entry.prop))),
     });
-    if (entry.prop === 'alternate_greetings' || entry.prop === 'character_book') {
+    if (entry.prop === 'alternate_greetings' || entry.prop === 'character_book' || entry.prop === 'extensions') {
       this._applySubEntry(entry, entry.oldValue);
       await this.syncEditorToCard();
       AiChat.updateContextBar();
@@ -109,10 +125,10 @@ const Editor = {
     const entry = this._redoStack.pop();
     this._undoStack.push({
       ...entry,
-      oldValue: JSON.parse(JSON.stringify(activeCard[entry.prop] || (entry.prop === 'alternate_greetings' ? [] : (entry.prop === 'character_book' ? { entries: [] } : '')))),
+      oldValue: JSON.parse(JSON.stringify(this._subDefault(activeCard, entry.prop))),
       newValue: entry.newValue,
     });
-    if (entry.prop === 'alternate_greetings' || entry.prop === 'character_book') {
+    if (entry.prop === 'alternate_greetings' || entry.prop === 'character_book' || entry.prop === 'extensions') {
       this._applySubEntry(entry, entry.newValue);
       await this.syncEditorToCard();
       AiChat.updateContextBar();
@@ -200,6 +216,7 @@ const Editor = {
     }
 
     this.renderLorebook(card);
+    this.renderExtensions(card);
     this.showEditor();
     this.updateCharCounts();
     this.autoResizeTextareas();
@@ -379,6 +396,8 @@ const Editor = {
         }
       }
     }
+    // Whole-card budget badge (chars + tokens across all fields).
+    this._updateCardTokenTotal();
   },
 
   renderGreetings(card) {
@@ -520,6 +539,88 @@ const Editor = {
     const allTas = $('#greetingsList').querySelectorAll('.greeting-textarea');
     const last = allTas[allTas.length - 1];
     if (last) last.focus();
+  },
+
+  // ─── EXTENSIONS (raw JSON) ───────────────────────
+  renderExtensions(card) {
+    if (!card) return;
+    const el = document.querySelector('#editExtensions');
+    const st = document.querySelector('#extensionsStatus');
+    if (!el) return;
+    el.value = (card.extensions && typeof card.extensions === 'object')
+      ? JSON.stringify(card.extensions, null, 2)
+      : '{}';
+    el.classList.remove('is-invalid-json');
+    if (st) { st.textContent = ''; st.classList.remove('is-danger'); }
+  },
+
+  // Parse the raw JSON in the Extensions textarea into card.extensions. Invalid
+  // JSON is surfaced inline and left unsaved (the last valid value is kept), so
+  // a broken object can never be written to the card or exported.
+  async _applyExtensionsFromDom() {
+    const { activeCard } = window.AppState;
+    const el = document.querySelector('#editExtensions');
+    const st = document.querySelector('#extensionsStatus');
+    if (!activeCard || !el) return false;
+    const val = el.value.trim();
+    let parsed = {};
+    if (val) {
+      try { parsed = JSON.parse(val); }
+      catch (_) {
+        el.classList.add('is-invalid-json');
+        if (st) { st.textContent = I18n.t ? I18n.t('editor.extensionsParseError') : 'Invalid JSON — keeping the last valid extensions.'; st.classList.add('is-danger'); }
+        return false;
+      }
+      if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
+        el.classList.add('is-invalid-json');
+        if (st) { st.textContent = I18n.t ? I18n.t('editor.extensionsParseError') : 'Invalid JSON — expected an object.'; st.classList.add('is-danger'); }
+        return false;
+      }
+    }
+    el.classList.remove('is-invalid-json');
+    if (st) { st.textContent = ''; st.classList.remove('is-danger'); }
+    activeCard.extensions = parsed;
+    await this.syncEditorToCard();
+    this.updateCharCounts();
+    return true;
+  },
+
+  // Whole-card token budget across every editable field (12 core fields +
+  // extensions JSON + greetings + lorebook content). Uses the same estimator as
+  // the per-field counters so the two always agree.
+  _cardTotals() {
+    let chars = 0; let tokens = 0;
+    for (const id of this._fieldIds) {
+      const el = document.querySelector('#' + id);
+      if (!el) continue;
+      const v = el.value || '';
+      chars += v.length;
+      tokens += (typeof Tokenizer !== 'undefined' && Tokenizer.quickCount) ? Tokenizer.quickCount(v) : Math.ceil(v.length / 3);
+    }
+    const extra = [];
+    const extEl = document.querySelector('#editExtensions');
+    if (extEl && extEl.value) extra.push(extEl.value);
+    const gr = document.querySelector('#greetingsList');
+    if (gr) gr.querySelectorAll('.greeting-textarea').forEach(ta => extra.push(ta.value || ''));
+    const lb = document.querySelector('#lorebookEntries');
+    if (lb) lb.querySelectorAll('textarea[data-lore-idx]').forEach(ta => extra.push(ta.value || ''));
+    for (const v of extra) {
+      chars += v.length;
+      tokens += (typeof Tokenizer !== 'undefined' && Tokenizer.quickCount) ? Tokenizer.quickCount(v) : Math.ceil(v.length / 3);
+    }
+    return { chars, tokens };
+  },
+
+  _updateCardTokenTotal() {
+    const el = document.querySelector('#metaTokens');
+    if (!el) return;
+    const { chars, tokens } = this._cardTotals();
+    const fmt = (n) => n >= 1000 ? ((n / 1000).toFixed(1).replace(/\.0$/, '')) + 'k' : String(n);
+    const label = I18n.t ? I18n.t('editor.cardTokenTotal', { tokens: fmt(tokens), chars: fmt(chars) }) : ('~' + tokens + ' tokens · ' + chars + ' chars');
+    el.textContent = label;
+    const maxTokens = CardStorage.getMaxTokens ? CardStorage.getMaxTokens() : 0;
+    el.classList.toggle('is-warn', maxTokens > 0 && tokens > maxTokens);
+    el.title = '';
   },
 
   // ─── LOREBOOK — Accordion with Search ──────────────

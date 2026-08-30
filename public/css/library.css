@@ -327,3 +327,58 @@
   margin-bottom: 1rem;
 }
 
+/* ── Large-library UX: glued first-letter group headers + #tag chip strip ── */
+.card-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.25rem 0.6rem;
+  background-color: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+  border: none;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  border-block-end: 1px solid var(--border-subtle);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-accent);
+}
+.card-group-letter { font-weight: 800; }
+.card-group-count { margin-left: auto; font-size: 0.62rem; opacity: 0.7; }
+.card-group-body.collapsed { display: none; }
+@media (prefers-reduced-motion: reduce) { .card-group-header { backdrop-filter: none; } }
+
+.tag-chip-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.35rem 0.75rem;
+}
+.tag-chip-strip-chip {
+  border: 1px solid var(--border-default);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-radius: 12px;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+.tag-chip-strip-chip.active {
+  border-color: var(--border-accent);
+  background: var(--purple-glow);
+  color: var(--text-primary);
+}
+.tag-chip-strip-clear {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.1rem;
+}
+
