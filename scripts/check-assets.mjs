@@ -104,14 +104,14 @@ if (shellMisses.length) {
   ok(`all ${seen.size} js/css assets are present in the service-worker shell.`);
 }
 
-// 4a. Navbar version badge (e.g. "v2.5").
-const badgeMatch = />v(\d+\.\d+)</.exec(indexHtml);
+// 4a. Navbar version badge (full version, e.g. "v2.5.5").
+const badgeMatch = />v(\d+\.\d+(?:\.\d+)?)</.exec(indexHtml);
 if (!badgeMatch) {
-  fail("navbar version badge (e.g. v2.5) not found in index.html.");
-} else if (badgeMatch[1] !== shortVersion) {
-  fail(`navbar badge v${badgeMatch[1]} != v${shortVersion} (package version ${fullVersion}).`);
+  fail("navbar version badge (e.g. v2.5.5) not found in index.html.");
+} else if (badgeMatch[1] !== fullVersion) {
+  fail(`navbar badge v${badgeMatch[1]} != v${fullVersion} (package version ${fullVersion}).`);
 } else {
-  ok(`navbar badge v${shortVersion} matches package version.`);
+  ok(`navbar badge v${fullVersion} matches package version.`);
 }
 
 // 4b. README version badge.
