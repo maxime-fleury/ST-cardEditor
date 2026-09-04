@@ -1,0 +1,1330 @@
+/* ============================================================
+   ui.js — Main Controller: Utilities, Init, Event Binding
+   ============================================================ */
+
+// ─── Shared State ───────────────────────────────────────
+window.AppState = { cards: [], activeCard: null, models: [], chatHistory: [], isAiLoading: false, _dirty: false };
+
+// ─── Utilities ──────────────────────────────────────────
+const Ui = {
+  $(sel) { return document.querySelector(sel); },
+  $$(sel) { return document.querySelectorAll(sel); },
+
+  showToast(msg, type) {
+    type = type || 'info';
+    const icons = { success: 'bi-check-circle-fill text-success', danger: 'bi-exclamation-triangle-fill text-danger', warning: 'bi-exclamation-circle-fill text-warning', info: 'bi-info-circle-fill text-info' };
+    const container = document.querySelector('#toastContainer');
+    if (!container) return;
+    while (container.children.length >= 3) {
+      const oldest = container.firstChild;
+      if (!oldest) break;
+      // Fire hidden so the app's countdown cleanup listener runs (clears the
+      // interval and removes the element), then drop the node. Do NOT call
+      // inst.dispose() here: Bootstrap's dispose() nulls the instance's
+      // `_element` while its deferred show-transition callback is still
+      // pending, so the fallback timer later throws "Cannot read properties
+      // of null (reading 'classList')" — one spurious error per eviction (v2 #2).
+      oldest.dispatchEvent(new Event('hidden.bs.toast'));
+      oldest.remove();
+    }
+    const el = document.createElement('div');
+    el.className = 'toast align-items-center border-0';
+    el.setAttribute('role', 'alert');
+    const DURATION = 10000;
+    const initialSecs = Math.ceil(DURATION / 1000);
+    const toastLabel = (I18n && I18n.t) ? I18n.t('gen.toastAutoHide', { s: initialSecs }) : 'Auto-hides in ' + initialSecs + 's';
+    el.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2 w-100"><div class="flex-grow-1 d-flex align-items-center gap-2"><i class="bi ' + (icons[type] || icons.info) + '"></i>' + this.escapeHtml(msg) + '</div><div class="toast-timer" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">' + toastLabel + '</div><button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
+    document.querySelector('#toastContainer').appendChild(el);
+    const toast = new bootstrap.Toast(el, { delay: DURATION });
+    toast.show();
+    // Live countdown timer
+    const timerEl = el.querySelector('.toast-timer');
+    if (timerEl) {
+      const interval = 200;
+      let remaining = DURATION;
+      const tick = () => {
+        remaining -= interval;
+        if (remaining <= 0) { timerEl.textContent = ''; return; }
+        const secs = Math.ceil(remaining / 1000);
+        timerEl.textContent = (I18n && I18n.t)
+          ? I18n.t('gen.toastAutoHide', { s: secs })
+          : 'Auto-hides in ' + secs + 's';
+      };
+      const timer = setInterval(tick, interval);
+      el.addEventListener('hidden.bs.toast', () => {
+        clearInterval(timer);
+        el.remove();
+      });
+    } else {
+      el.addEventListener('hidden.bs.toast', () => el.remove());
+    }
+  },
+
+  downloadFile(filename, content, mimeType) {
+    this.downloadBlob(new Blob([content], { type: mimeType }), filename);
+  },
+
+  downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  // ─── Reusable in-app dialogs (replace window.prompt/confirm). These work in
+  // sandboxed iframes / PWAs where native dialogs can be silently blocked, and
+  // match the app's styling. Ui.prompt({select|text}) -> Promise<value|null>,
+  // Ui.confirm({...}) -> Promise<boolean>.
+  _openDialog(cfg) {
+    const $ = (sel) => document.querySelector(sel);
+    const modal = this._dialogInstance || (this._dialogInstance = new bootstrap.Modal('#dialogModal'));
+    $('#dialogTitle').textContent = cfg.title || '';
+    const msg = $('#dialogMsg');
+    if (cfg.message) { msg.textContent = cfg.message; msg.style.display = ''; }
+    else msg.style.display = 'none';
+
+    const sel = $('#dialogSelect'); const inp = $('#dialogInput');
+    if (cfg.select) {
+      sel.style.display = ''; inp.style.display = 'none';
+      sel.innerHTML = '';
+      for (const { value, label } of cfg.select) {
+        const o = document.createElement('option');
+        o.value = value; o.textContent = label; sel.appendChild(o);
+      }
+      if (cfg.value != null) sel.value = cfg.value;
+    } else if (cfg.text !== undefined) {
+      sel.style.display = 'none'; inp.style.display = '';
+      inp.value = cfg.value || '';
+      if (cfg.placeholder != null) inp.placeholder = cfg.placeholder;
+    } else {
+      sel.style.display = 'none'; inp.style.display = 'none';
+    }
+
+    const ok = $('#dialogOk'); const cancel = $('#dialogCancel');
+    ok.textContent = cfg.buttonLabel || (I18n.t ? I18n.t('dialog.ok') : 'OK');
+    cancel.textContent = (I18n.t ? I18n.t('dialog.cancel') : 'Cancel');
+    ok.className = cfg.danger ? 'btn btn-danger' : 'btn btn-accent';
+
+    return new Promise((resolve) => {
+      const finish = () => {
+        ok.onclick = null; cancel.onclick = null;
+        modal._element.removeEventListener('hidden.bs.modal', onHidden);
+        modal.hide();
+      };
+      const onHidden = () => { finish(); resolve(null); };
+      ok.onclick = () => {
+        const v = cfg.select ? sel.value : (cfg.text !== undefined ? inp.value : true);
+        finish(); resolve(v);
+      };
+      cancel.onclick = () => { finish(); resolve(null); };
+      modal._element.addEventListener('hidden.bs.modal', onHidden);
+      modal.show();
+    });
+  },
+
+  prompt(cfg) { return this._openDialog(cfg); },
+
+  confirm(cfg) {
+    return this._openDialog(Object.assign({}, cfg, { danger: cfg.danger !== false })).then((v) => !!v);
+  },
+
+  escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div'); div.textContent = str; return div.innerHTML;
+  },
+
+  escapeAttr(str) {
+    // Coerce to string first: callers pass raw card data (e.g. a numeric
+    // lorebook `order`), and .replace() on a number throws. String() keeps
+    // falsy-but-valid values like 0 intact instead of dropping them.
+    if (str === null || str === undefined) return '';
+    str = String(str);
+    return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  },
+
+  debounce(fn, delay) {
+    let timer;
+    return function (...args) { clearTimeout(timer); timer = setTimeout(() => fn.apply(this, args), delay); };
+  },
+
+  updateUIState() {
+    const h = !!window.AppState.activeCard;
+    document.querySelector('#btnSaveCard').disabled = !h;
+    document.querySelector('#btnExportJson').disabled = !h;
+    document.querySelector('#btnExportPng').disabled = !h;
+    document.querySelector('#btnDeleteCard').disabled = !h;
+    this.setDirty(window.AppState._dirty);
+  },
+
+  setDirty(dirty) {
+    window.AppState._dirty = dirty;
+    // Once the local save completes (dirty cleared), re-load a remote update
+    // that arrived while we were editing, so cross-tab changes aren't lost.
+    if (dirty === false && this._pendingRemoteReload) {
+      this._pendingRemoteReload = false;
+      const cardId = this._pendingRemoteCardId;
+      this._pendingRemoteCardId = null;
+      this._mergePendingRemote(cardId);
+    }
+    // Active-card row indicator: a small amber dot while there are unsaved
+    // edits, so the library mirror the Save button's dirty state.
+    const item = document.querySelector('.card-list-item.active');
+    if (item) {
+      if (dirty) {
+        if (!item.querySelector('.card-modified-dot')) {
+          const dot = document.createElement('span');
+          dot.className = 'card-modified-dot';
+          dot.title = I18n.t ? I18n.t('ui.cardModified') : 'Unsaved edits';
+          item.appendChild(dot);
+        }
+      } else {
+        item.querySelectorAll('.card-modified-dot').forEach((x) => x.remove());
+      }
+    }
+    const btn = document.querySelector('#btnSaveCard');
+    if (!btn) return;
+    btn.classList.toggle('is-dirty', !!dirty);
+    let dot = btn.querySelector('.dirty-dot');
+    if (dirty && !dot) {
+      dot = document.createElement('span');
+      dot.className = 'dirty-dot';
+      btn.appendChild(dot);
+    } else if (!dirty && dot) {
+      dot.remove();
+    }
+  },
+
+  // Reload the currently-active card from IndexedDB (used to surface a card
+  // updated from another tab without clobbering unsaved local edits).
+  async _reloadActiveCard(expectedCardId) {
+    const ac = window.AppState.activeCard;
+    if (!ac) return;
+    if (expectedCardId && ac._id !== expectedCardId) return; // user switched cards
+    try {
+      const updated = await CardStorage.getCard(ac._id);
+      if (updated) {
+        window.AppState.activeCard = updated;
+        try {
+          const b64 = await CardStorage.getImage(updated._id);
+          if (b64) window.AppState.activeCard._imageBase64 = b64;
+        } catch (err) {
+          console.error('Failed to load image from IndexedDB:', err);
+        }
+        Editor.populateEditor(window.AppState.activeCard);
+      }
+    } catch (err) {
+      console.error('Failed to reload active card:', err);
+    }
+  },
+
+  // Merge a remote tab's edits into the active card once the local save settles.
+  // Fields the user actually touched locally keep the local value; all other
+  // fields adopt the remote snapshot so cross-tab changes are preserved (#103).
+  async _mergePendingRemote(expectedCardId) {
+    this._pendingRemoteReload = false;
+    this._pendingRemoteCardId = null;
+    const snapshot = this._pendingRemoteSnapshot;
+    const touched = this._pendingRemoteTouched;
+    this._pendingRemoteSnapshot = null;
+    this._pendingRemoteTouched = null;
+    const ac = window.AppState.activeCard;
+    if (!ac) return;
+    if (expectedCardId && ac._id !== expectedCardId) return; // user switched cards
+    if (!snapshot) return; // no remote version captured; nothing to merge
+    const id = ac._id;
+    const localB64 = ac._imageBase64;
+    const merged = JSON.parse(JSON.stringify(ac));
+    let changed = false;
+    for (const key of Object.keys(snapshot)) {
+      if (key.startsWith('_')) continue; // skip metadata, avatar, id, timestamps
+      if (touched && touched.has(key)) continue; // local edits win for this field
+      if (JSON.stringify(snapshot[key]) !== JSON.stringify(ac[key])) {
+        merged[key] = JSON.parse(JSON.stringify(snapshot[key]));
+        changed = true;
+      }
+    }
+    if (!changed) { this._reloadActiveCard(id); return; }
+    window.AppState.activeCard = merged;
+    try {
+      const b64 = await CardStorage.getImage(merged._id);
+      if (b64) window.AppState.activeCard._imageBase64 = b64;
+    } catch (err) {
+      console.error('Failed to load image from IndexedDB:', err);
+    }
+    try {
+      await CardStorage.upsertCard(window.AppState.activeCard);
+      window.AppState.cards = CardStorage.getCards();
+      CardManager.renderCardList();
+    } catch (err) {
+      console.error('Failed to persist merged card:', err);
+    }
+    Editor.populateEditor(window.AppState.activeCard);
+    if (localB64) window.AppState.activeCard._imageBase64 = localB64; // keep local avatar
+  },
+
+  // ─── Markdown Renderer (lazy-loads marked + DOMPurify) ───
+  _markdownReady: false,
+  _markdownLoading: null,
+  _markdownRetryAfter: 0,
+  _markdownPending: [],        // [{target, text}] re-rendered once libs arrive
+  _pendingRemoteReload: false,
+  _pendingRemoteCardId: null,
+  _pendingRemoteSnapshot: null, // last remote card data (for the cross-tab merge)
+  _pendingRemoteTouched: null,  // field names edited locally since the remote write
+
+  // Record that the user edited `field` on the active card. Used to decide which
+  // fields keep the local value when a cross-tab change is merged in.
+  _markTouchedField(field) {
+    if (this._pendingRemoteTouched) this._pendingRemoteTouched.add(field);
+  },
+
+  _ensureMarkdownLibs() {
+    if (this._markdownReady) return;
+    if (this._markdownLoading) return;
+    // Back-off after a failed CDN load instead of re-injecting <script> tags
+    // on every subsequent render call forever while offline (#31).
+    if (Date.now() < this._markdownRetryAfter) return;
+    this._markdownLoading = true;
+    let pending = 2;
+    let failed = false;
+    const checkReady = () => {
+      pending--;
+      if (pending <= 0) {
+        this._markdownLoading = null;
+        // Only mark ready if nothing failed AND the globals are actually present
+        if (!failed && typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+          this._markdownReady = true;
+          this._markdownRetryAfter = 0;
+          // Re-render any content that fell back to escaped plaintext while
+          // the CDN libs were loading (e.g. a Preview toggle triggered during
+          // a cold load) (#78).
+          const pending = this._markdownPending;
+          this._markdownPending = [];
+          pending.forEach(item => {
+            if (item.target && item.target.isConnected) {
+              item.target.innerHTML = this.renderMarkdown(item.text);
+            }
+          });
+        } else {
+          // Wait 30s before trying the CDN again.
+          this._markdownRetryAfter = Date.now() + 30000;
+        }
+      }
+    };
+    if (typeof marked === 'undefined') {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+      s.onload = checkReady;
+      s.onerror = () => { failed = true; checkReady(); };
+      document.head.appendChild(s);
+    } else {
+      checkReady();
+    }
+    if (typeof DOMPurify === 'undefined') {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js';
+      s.onload = checkReady;
+      s.onerror = () => { failed = true; checkReady(); };
+      document.head.appendChild(s);
+    } else {
+      checkReady();
+    }
+  },
+
+  renderMarkdown(text, target) {
+    if (!text) return '';
+    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+      this._ensureMarkdownLibs();
+      // Queue a re-render for the target element once the libs arrive, so a
+      // Preview panel opened during a cold load isn't stuck on escaped text.
+      if (target) this._markdownPending.push({ target, text });
+      // Fall back to escaped text while libraries load
+      return this.escapeHtml(text).replace(/\n/g, '<br>');
+    }
+
+    // Configure marked
+    if (marked.setOptions) {
+      marked.setOptions({ breaks: true, gfm: true });
+    }
+
+    let html = typeof marked.parse === 'function' ? marked.parse(text) : marked(text);
+
+    // Color dialogue lines: {{char}}: and {{user}}: — done BEFORE sanitizing
+    // so DOMPurify re-checks the injected <span> markup. Mutating HTML after
+    // sanitization (the old order) is a classic XSS-bypass pattern: the tags
+    // could land inside attribute values that already survived sanitization
+    // (e.g. href="{{char}}:x") where they change parsing (#63).
+    html = html.replace(/({{char}})\s*:/g,
+      '<span class="dlg-char-name">$1</span><span class="dlg-char">:</span>');
+    html = html.replace(/({{user}})\s*:/g,
+      '<span class="dlg-user-name">$1</span><span class="dlg-user">:</span>');
+
+    // Sanitize last so the dialogue markup above is validated too.
+    html = DOMPurify.sanitize(html, { ADD_TAGS: ['span', 'strong', 'em'] });
+
+    return html;
+  },
+
+  // ─── Format File Size ──────────────────────────────────
+  formatFileSize(bytes) {
+    if (!bytes || bytes <= 0) return '';
+    if (bytes < 1024) return bytes + (I18n.t ? I18n.t('gen.bytes') : ' B');
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + (I18n.t ? I18n.t('gen.kilobytes') : ' KB');
+    return (bytes / 1048576).toFixed(1) + (I18n.t ? I18n.t('gen.megabytes') : ' MB');
+  },
+
+  // ─── Saved Indicator ──────────────────────────────────
+  _savedTimer: null,
+  _savedOrigHTML: null,
+  flashSaved() {
+    const btn = document.querySelector('#btnSaveCard');
+    if (!btn) return;
+    // Capture the true original HTML only once so rapid successive calls
+    // never capture the transient "Saved" state as the restore target.
+    if (this._savedOrigHTML === null) this._savedOrigHTML = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check2-all me-1"></i>' + (I18n.t ? I18n.t('ui.saved') : ' Saved');
+    btn.classList.add('btn-saved-flash');
+    if (this._savedTimer) clearTimeout(this._savedTimer);
+    this._savedTimer = setTimeout(() => {
+      btn.innerHTML = this._savedOrigHTML;
+      btn.classList.remove('btn-saved-flash');
+      this._savedTimer = null;
+      this._savedOrigHTML = null;
+      // Re-apply the dirty state: if the user typed during the flash, the
+      // innerHTML restore above wiped the .dirty-dot again (#76).
+      if (window.AppState._dirty) this.setDirty(true);
+    }, 1500);
+  },
+};
+
+export { Ui };
+if (typeof window !== 'undefined') window.Ui = Ui;
+
+// ─── Constants ──────────────────────────────────────────
+const DEBOUNCE_INPUT_MS = 800;
+const DEBOUNCE_SEARCH_MS = 300;
+
+// ─── FLOATING LABELS ──────────────────────────────────────
+function initFloatingLabels() {
+  const SEL = '.floating-label input, .floating-label select, .floating-label textarea';
+  function syncFloatLabels() {
+    document.querySelectorAll('.floating-label').forEach(group => {
+      const label = group.querySelector('label');
+      const input = group.querySelector('input, select, textarea');
+      if (!label || !input) return;
+      const hasVal = input.value && input.value.trim().length > 0;
+      label.classList.toggle('floated', hasVal || document.activeElement === input);
+    });
+  }
+  document.addEventListener('focusin', (e) => {
+    if (e.target.matches(SEL)) {
+      const label = e.target.closest('.floating-label')?.querySelector('label');
+      if (label) label.classList.add('floated');
+    }
+  });
+  document.addEventListener('focusout', (e) => {
+    if (e.target.matches(SEL)) {
+      const label = e.target.closest('.floating-label')?.querySelector('label');
+      if (label && !(e.target.value && e.target.value.trim().length > 0)) {
+        label.classList.remove('floated');
+      }
+    }
+  });
+  document.addEventListener('input', (e) => {
+    if (e.target.matches(SEL)) {
+      const label = e.target.closest('.floating-label')?.querySelector('label');
+      if (label) {
+        const hasVal = e.target.value && e.target.value.trim().length > 0;
+        label.classList.toggle('floated', hasVal || document.activeElement === e.target);
+      }
+    }
+  });
+  document.addEventListener('change', (e) => {
+    if (e.target.matches('.floating-label select')) {
+      const label = e.target.closest('.floating-label')?.querySelector('label');
+      if (label) {
+        const hasVal = e.target.value && e.target.value.trim().length > 0;
+        label.classList.toggle('floated', hasVal || document.activeElement === e.target);
+      }
+    }
+  });
+  window.syncFloatingLabels = syncFloatLabels;
+  window.syncFloatLabels = syncFloatLabels; // legacy alias (older callers used the misspelled name)
+  syncFloatLabels();
+}
+
+// ─── INIT ───────────────────────────────────────────────
+async function init() {
+  const $ = Ui.$;
+
+  await CardStorage._checkMigration();
+  await CardStorage.migrateCardsToIndexedDB();
+  await CardManager.migrateImagesToIndexedDB();
+
+  // Decrypt (and auto-migrate) any stored API keys before the UI reads them.
+  await CardStorage._unlockKeys();
+
+  window.AppState.cards = CardStorage.getCards();
+  window.AppState.chatHistory = [];
+  const apiKey = CardStorage.getApiKey();
+  const defaultModel = CardStorage.getDefaultModel();
+
+  // If a stored key could not be decrypted (e.g. the server moved to a new
+  // port/host), tell the user we need it re-entered.
+  const unreadableOpenrouter = CardStorage._secretWarn.apiKey;
+  const unreadableCustom = CardStorage._secretWarn.customApiKey;
+  if (unreadableOpenrouter || unreadableCustom) {
+    Ui.showToast(I18n.t ? I18n.t('settings.secretUnreadable') : 'Due to security, a saved API key could not be unlocked on this address — please re-enter it in Settings.', 'warning');
+  }
+
+  if (apiKey) {
+    $('#apiKeyInput').value = apiKey;
+  }
+  if (defaultModel) {
+    $('#aiModelSelect').value = defaultModel;
+    $('#defaultModelSelect').value = defaultModel;
+  }
+
+  // Restore provider before any model requests. Custom providers do not need
+  // an API key, so model discovery must be based on the saved endpoint.
+  const provider = CardStorage.getProvider();
+  const customKey = CardStorage.getCustomApiKey();
+  // Seed the in-memory key per provider: named providers own a per-provider
+  // key slot, so handing them the Custom provider's key would send the wrong
+  // credential on every request (v2 #3).
+  AIService.setProvider(provider, provider === 'openrouter'
+    ? apiKey
+    : (provider === 'custom' ? customKey : CardStorage.getProviderKey(provider)));
+  if (provider === 'custom') {
+    const customModel = CardStorage.getCustomModelId();
+    if (customModel) {
+      CardStorage.setDefaultModel(customModel);
+      $('#aiModelSelect').value = customModel;
+    }
+  }
+  // Populate the model selects with the saved default model (if any) before
+  // any fetch attempt, so the dropdowns are usable even when models can't
+  // be loaded (e.g. no API key yet).
+  Settings.populateModelSelects();
+
+  const maxTokens = CardStorage.getMaxTokens();
+  if (maxTokens > 0) $('#maxTokensInput').value = maxTokens;
+  $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
+
+  // ─── I18n ────────────────────────────────────────────
+  I18n.init();
+
+  const settingsModal = new bootstrap.Modal('#settingsModal');
+
+  // Focus-trap all modals for keyboard accessibility
+  setupModalFocusTraps();
+
+  // Restore the persisted sort mode (Manual by default) before the first
+  // render so the dropdown and the applied order agree from the start.
+  if (CardStorage.getSortMode) {
+    const savedSort = CardStorage.getSortMode();
+    if (savedSort) {
+      CardManager._sortMode = savedSort;
+      const ss = document.querySelector('#cardSortSelect');
+      if (ss) ss.value = savedSort;
+    }
+  }
+
+  CardManager.renderCardList();
+  AiChat.renderChatHistory();
+
+  const activeId = CardStorage.getActiveCardId();
+  if (activeId) {
+    const card = await CardStorage.getCard(activeId);
+    if (card) await CardManager.selectCard(card);
+  }
+
+  if (provider === 'openrouter' && apiKey) Settings.refreshCredits();
+  // Custom endpoints have no API key, but should still be refreshed on reload.
+  if (provider === 'custom' || apiKey) Settings.refreshModelsList();
+  Ui.updateUIState();
+  bindEvents(settingsModal);
+  AiChat.updateContextBar();
+Wizard.init();
+  WaifuTab.init();
+    AiChat._renderFieldChips();
+    initFloatingLabels();
+    // Re-run textarea autosize when switching editor tabs: fields in an
+    // inactive pane skipped the resizer (they had offsetParent === null),
+    // so they'd stay clamped unless we refresh once their pane is shown (#73).
+    document.querySelectorAll('#editorTabs .nav-link').forEach(trigger => {
+      trigger.addEventListener('shown.bs.tab', () => {
+        Editor.updateCharCounts();
+        Editor.autoResizeTextareas();
+      });
+    });
+  window.addEventListener('beforeunload', (e) => {
+    if (window.AppState.activeCard) {
+      // Data is already persisted on every debounced keystroke (_doSync writes
+      // to IndexedDB then sets _dirty), so this is just a best-effort flush.
+      // Prompting here would nag on every close despite the data being safe (#14).
+      try { Editor.syncGreetings(); Editor.syncEditorToCardSync(); } catch (_) {}
+    }
+  });
+  window.addEventListener('storage', handleStorageChange);
+
+  // Register service worker for offline support
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+
+  // ─── Global error boundary ─────────────────────────
+  setupErrorBoundary();
+}
+
+// ─── MODAL FOCUS TRAP ────────────────────────────────
+function setupModalFocusTraps() {
+  // Only elements actually on screen and enabled can take focus. Skipping this
+  // filter makes the trap look at hidden <input type=file> pickers and d-none
+  // provider sections, so Tab would never wrap inside the modal (#71).
+  const focusableSelector = [
+    'button:not([hidden]):not(.d-none):not([disabled])',
+    '[href]:not([hidden]):not(.d-none):not([tabindex="-1"])',
+    'input:not([hidden]):not(.d-none):not([disabled])',
+    'select:not([hidden]):not(.d-none):not([disabled])',
+    'textarea:not([hidden]):not(.d-none):not([disabled])',
+    '[tabindex]:not([tabindex="-1"]):not([hidden]):not(.d-none):not([disabled])',
+  ].join(', ');
+  document.querySelectorAll('.modal').forEach(modalEl => {
+    modalEl.addEventListener('shown.bs.modal', () => {
+      const firstFocusable = modalEl.querySelector(focusableSelector);
+      if (firstFocusable) firstFocusable.focus();
+    });
+    modalEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') return; // let Bootstrap handle Escape
+      if (e.key !== 'Tab') return;
+      const focusable = modalEl.querySelectorAll(focusableSelector);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+  });
+}
+
+// ─── GLOBAL ERROR BOUNDARY ────────────────────────────
+function setupErrorBoundary() {
+  window.addEventListener('error', (e) => {
+    const msg = e.error?.message || e.message || (I18n.t ? I18n.t('error.unknown') : 'Unknown error');
+    console.error('Global error:', e.error || e);
+    // Avoid flooding toasts for cascading errors
+    if (!window._errorThrottled) {
+      window._errorThrottled = true;
+      Ui.showToast(I18n.t ? I18n.t('error.unexpected', { message: msg }) : ('Unexpected error: ' + msg), 'danger');
+      setTimeout(() => { window._errorThrottled = false; }, 5000);
+    }
+    // Reset AI loading state on error to prevent UI lockup
+    if (window.AppState.isAiLoading) {
+      window.AppState.isAiLoading = false;
+      AiChat.updateSendButton();
+    }
+  });
+
+  window.addEventListener('unhandledrejection', (e) => {
+    const msg = e.reason?.message || String(e.reason);
+    console.error('Unhandled rejection:', e.reason);
+    if (!window._errorThrottled) {
+      window._errorThrottled = true;
+      Ui.showToast(I18n.t ? I18n.t('error.requestFailed', { message: msg }) : ('Request failed: ' + msg), 'danger');
+      setTimeout(() => { window._errorThrottled = false; }, 5000);
+    }
+    if (window.AppState.isAiLoading) {
+      window.AppState.isAiLoading = false;
+      AiChat.updateSendButton();
+    }
+  });
+}
+
+// ─── EVENT BINDINGS ────────────────────────────────────
+
+function bindEvents(settingsModal) {
+  const $ = Ui.$;
+  const $$ = Ui.$$;
+  const dropZone = $('#dropZone');
+  if (!dropZone) return;
+
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', (e) => { e.stopPropagation(); dropZone.classList.remove('drag-over'); });
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    dropZone.classList.remove('drag-over');
+    const files = e.dataTransfer?.files;
+    if (files?.length) CardManager.processFiles(files);
+  });
+  dropZone.addEventListener('click', () => $('#fileInput').click());
+
+  $('#btnBrowse').addEventListener('click', (e) => { e.stopPropagation(); $('#fileInput').click(); });
+  $('#fileInput').addEventListener('change', (e) => CardManager.handleFileSelect(e));
+
+  document.addEventListener('dragover', (e) => {
+    if (e.dataTransfer?.types?.includes('Files')) {
+      e.preventDefault();
+      if (!dropZone.contains(e.target)) dropZone.classList.add('drag-over');
+    }
+  });
+  document.addEventListener('dragleave', (e) => {
+    if (!e.relatedTarget || e.relatedTarget === document.documentElement)
+      dropZone.classList.remove('drag-over');
+  });
+  document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (!dropZone.contains(e.target)) {
+      const files = e.dataTransfer?.files;
+      if (files?.length) CardManager.processFiles(files);
+    }
+  });
+
+  $('#btnNewCardCenter').addEventListener('click', () => CardManager.createNewCard());
+  $('#btnSaveCard').addEventListener('click', () => CardManager.saveCurrentCard());
+  $('#btnSettings').addEventListener('click', () => settingsModal.show());
+  $('#btnHelp').addEventListener('click', () => { Ui._shortcutsModal = Ui._shortcutsModal || new bootstrap.Modal('#shortcutsModal'); Ui._shortcutsModal.show(); });
+  $('#btnToggleApiKey').addEventListener('click', () => Settings.toggleApiKeyVisibility());
+  $('#btnToggleNamedApiKey').addEventListener('click', () => Settings.toggleNamedApiKeyVisibility());
+  $('#btnSaveSettings').addEventListener('click', () => Settings.saveSettings(settingsModal));
+  $('#btnResetPrompts').addEventListener('click', () => Settings.resetPrompts());
+  $('#btnExportPrompts').addEventListener('click', () => Settings.exportPrompts());
+  $('#btnImportPrompts').addEventListener('click', () => Settings.importPrompts());
+  $('#btnRefreshModels').addEventListener('click', () => Settings.refreshModelsList());
+  $('#btnClearStorage').addEventListener('click', () => Settings.confirmClearStorage());
+  $('#btnExportSettings').addEventListener('click', () => Settings.exportSettings());
+  $('#btnImportSettings').addEventListener('click', () => Settings.importSettings());
+  $('#btnExportWorkspace').addEventListener('click', () => Settings.exportWorkspace());
+  $('#btnImportWorkspace').addEventListener('click', () => Settings.importWorkspace());
+  $('#providerSelect').addEventListener('change', () => Settings.toggleProvider());
+  $('#languageSelect').addEventListener('change', (e) => {
+    I18n.setLanguage(e.target.value);
+    I18n.translateDOM();
+    Ui.showToast(I18n.t('settings.languageChanged'), 'success');
+  });
+
+  // Theme accent — apply in realtime and keep picker/hex in sync. The picker
+  // never fired anything before, so picking a color had no effect even on save
+  // (saveSettings only reads the hex field).
+  const themeColorPicker = $('#themeColorPicker');
+  const themeColorHex = $('#themeColorHex');
+  const applyAccentFromControls = () => {
+    const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+    const hex = themeColorHex ? themeColorHex.value.trim() : '';
+    if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+      Settings.applyAccent(theme, hex);
+      if (themeColorPicker) themeColorPicker.value = hex;
+    }
+  };
+  if (themeColorPicker) {
+    themeColorPicker.addEventListener('input', () => {
+      const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+      const color = themeColorPicker.value;
+      Settings.applyAccent(theme, color);
+      if (themeColorHex) themeColorHex.value = color;
+    });
+  }
+  if (themeColorHex) themeColorHex.addEventListener('input', applyAccentFromControls);
+  const btnResetThemeColor = $('#btnResetThemeColor');
+  if (btnResetThemeColor) {
+    btnResetThemeColor.addEventListener('click', () => {
+      const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+      Settings.resetAccent(theme);
+    });
+  }
+
+  // Accent preset gallery — render a swatch per curated preset. Clicking a
+  // swatch applies that color to the current light/dark theme in realtime and
+  // syncs the picker/hex controls.
+  function buildAppearancePresets() {
+    const wrap = $('#appearancePresets');
+    if (!wrap) return;
+    const selected = CardStorage.getAccent(document.documentElement.getAttribute('data-theme') || 'dark');
+    const fragment = document.createDocumentFragment();
+    (Settings.APPEARANCE_PRESETS || []).forEach((preset) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'accent-swatch' + (selected === preset.color ? ' active' : '');
+      btn.dataset.color = preset.color;
+      btn.title = preset.name;
+      btn.setAttribute('aria-label', 'Accent: ' + preset.name);
+      btn.style.setProperty('--swatch', preset.color);
+      btn.appendChild(document.createTextNode(''));
+      fragment.appendChild(btn);
+    });
+    wrap.innerHTML = '';
+    wrap.appendChild(fragment);
+    wrap.addEventListener('click', (e) => {
+      const swatch = e.target.closest('.accent-swatch');
+      if (!swatch) return;
+      const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+      Settings.applyAccent(theme, swatch.dataset.color);
+      Settings.syncAccentControls();
+      wrap.querySelectorAll('.accent-swatch').forEach((s) => s.classList.toggle('active', s === swatch));
+    });
+  }
+  buildAppearancePresets();
+
+  // Live appearance prefs: density / radius apply immediately while the modal
+  // is open; they're persisted (along with the vignette) on Save.
+  const glassDensitySelect = $('#glassDensitySelect');
+  if (glassDensitySelect) {
+    glassDensitySelect.addEventListener('change', () => {
+      CardStorage.setGlassDensity(glassDensitySelect.value);
+      Settings.applyAppearance();
+    });
+  }
+  const cardRadiusSelect = $('#cardRadiusSelect');
+  if (cardRadiusSelect) {
+    cardRadiusSelect.addEventListener('change', () => {
+      CardStorage.setCardRadius(cardRadiusSelect.value);
+      Settings.applyAppearance();
+    });
+  }
+  const vignetteToggle = $('#vignetteToggle');
+  if (vignetteToggle) {
+    vignetteToggle.addEventListener('change', () => {
+      CardStorage.setVignette(vignetteToggle.checked);
+      Settings.applyAppearance();
+    });
+  }
+  settingsModal._element.addEventListener('shown.bs.modal', () => {
+    Settings.openSettings();
+    // Re-mark the active swatch whenever the modal opens (theme or accent may
+    // have changed since it was first rendered).
+    const wrap = $('#appearancePresets');
+    if (wrap) {
+      const current = CardStorage.getAccent(document.documentElement.getAttribute('data-theme') || 'dark');
+      wrap.querySelectorAll('.accent-swatch').forEach((s) => s.classList.toggle('active', s.dataset.color === current));
+    }
+  });
+
+  // Closing settings without saving must not leave AIService pointing at a
+  // provider that was only picked in the (unsaved) dropdown.
+  settingsModal._element.addEventListener('hidden.bs.modal', () => {
+    const savedProvider = CardStorage.getProvider() || 'openrouter';
+    AIService.setProvider(savedProvider, savedProvider === 'openrouter'
+      ? CardStorage.getApiKey() : (savedProvider === 'custom'
+        ? CardStorage.getCustomApiKey() : CardStorage.getProviderKey(savedProvider)));
+  });
+  $('#aiModelSelect').addEventListener('change', () => {
+    const val = $('#aiModelSelect').value;
+    if (val) {
+      $('#defaultModelSelect').value = val;
+      CardStorage.setDefaultModel(val);
+    }
+  });
+  $('#btnExportJson').addEventListener('click', () => ExportUtils.exportAsJSON());
+  $('#btnExportPng').addEventListener('click', () => ExportUtils.exportAsPNG());
+  $('#btnDeleteCard').addEventListener('click', async () => {
+    if (await Ui.confirm({
+      title: I18n.t ? I18n.t('batch.deleteTitle', { count: 1 }) : 'Delete this card?',
+      message: I18n.t ? I18n.t('batch.deleteConfirm', { count: 1 }) : 'Delete this card? This cannot be undone.',
+      buttonLabel: I18n.t ? I18n.t('dialog.delete') : 'Delete',
+    })) CardManager.deleteActiveCard();
+  });
+  $('#btnDuplicateCard').addEventListener('click', () => CardManager.duplicateCard());
+  $('#btnBatchDelete').addEventListener('click', () => CardManager.batchDelete());
+  $('#btnBatchExport').addEventListener('click', () => CardManager.batchExportJSON());
+  $('#btnBatchCompare').addEventListener('click', () => CardManager.batchCompare());
+
+  // Avatar upload (click + drag/drop)
+  const avatar = $('#charAvatar');
+  const avatarInput = $('#avatarInput');
+  if (avatar) {
+    avatar.addEventListener('click', () => avatarInput.click());
+    avatar.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); avatarInput.click(); }
+    });
+    avatar.addEventListener('dragover', (e) => { e.preventDefault(); avatar.classList.add('drag-over'); });
+    avatar.addEventListener('dragleave', () => avatar.classList.remove('drag-over'));
+    avatar.addEventListener('drop', (e) => {
+      e.preventDefault(); e.stopPropagation(); avatar.classList.remove('drag-over');
+      const f = e.dataTransfer?.files?.[0];
+      if (f && f.type.startsWith('image/')) Editor.setAvatar(f);
+    });
+  }
+  if (avatarInput) avatarInput.addEventListener('change', (e) => {
+    const f = e.target.files?.[0];
+    if (f) Editor.setAvatar(f);
+    e.target.value = '';
+  });
+
+  // Editor field input bindings
+  ['editName','editDescription','editPersonality','editScenario','editFirstMes',
+   'editMesExample','editCreatorNotes','editSystemPrompt','editPostHistory',
+   'editCreator','editVersion','editTags'].forEach(id => {
+    const el = $('#' + id);
+    if (el) {
+      const field = id.replace('edit', '');
+      const camelField = field.charAt(0).toLowerCase() + field.slice(1);
+      // Per-edit undo: snapshot before each edit (including deletions), but
+      // coalesce continuous edits to the same field into a single undo step so
+      // Ctrl+Z reverts a whole edit burst rather than one keystroke. A focus
+      // change starts a new burst.
+      el.addEventListener('focus', () => { Editor._lastSnapField = null; });
+      el.addEventListener('beforeinput', () => {
+        if (Editor._lastSnapField !== camelField) {
+          Editor._snapshot(camelField);
+          Editor._lastSnapField = camelField;
+        }
+      });
+      el.addEventListener('input', Ui.debounce(() => {
+        Ui._markTouchedField(camelField);
+        Editor.syncEditorToCard().catch(() => {});
+        Editor.updateCharCounts();
+        Editor.autoResizeTextareas();
+        AiChat.updateContextBar();
+      }, DEBOUNCE_INPUT_MS));
+    }
+  });
+
+  // Edit / Preview toggle for textareas
+  document.querySelectorAll('.field-toggle-group').forEach(group => {
+    const targetId = group.dataset.target;
+    group.querySelectorAll('.field-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        group.querySelectorAll('.field-toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        const textarea = document.getElementById(targetId);
+        const previewId = 'preview' + targetId.replace('edit', '');
+        const preview = document.getElementById(previewId);
+
+        if (!textarea || !preview) return;
+
+        if (mode === 'preview') {
+          textarea.style.display = 'none';
+          preview.innerHTML = Ui.renderMarkdown(textarea.value, preview);
+          preview.classList.add('visible');
+        } else {
+          textarea.style.display = '';
+          preview.classList.remove('visible');
+          preview.innerHTML = '';
+        }
+        // The {{char}}/{{user}} insert chips target the (now hidden) textarea;
+        // hide them in Preview mode so a click can't silently edit a field the
+        // user is only previewing.
+        document.querySelectorAll('.token-insert-btn[data-target="' + targetId + '"]').forEach(btn => {
+          const grp = btn.closest('.token-insert-group');
+          if (grp) grp.style.display = (mode === 'preview') ? 'none' : '';
+        });
+      });
+    });
+  });
+
+  // AI chat
+  $('#btnAiSend').addEventListener('click', () => AiChat.send());
+  $('#btnApplyPrev').addEventListener('click', () => AiChat._applyNav(-1));
+  $('#btnApplyNext').addEventListener('click', () => AiChat._applyNav(1));
+  $('#aiInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); AiChat.send(); }
+  });
+  $('#btnClearChat').addEventListener('click', () => AiChat.clearChat());
+  $('#btnChatHistory').addEventListener('click', () => AiChat.toggleHistory());
+  $('#aiInput').addEventListener('input', Ui.debounce(() => AiChat.updateContextBar(), 400));
+
+  $('#aiModelSelect').addEventListener('change', () => AiChat.updateContextBar());
+  const stopBtn = $('#btnAiStop');
+  if (stopBtn) stopBtn.addEventListener('click', () => {
+    AiChat._abortAll();
+    window.AppState.isAiLoading = false;
+    AiChat.updateSendButton();
+  });
+
+  // Greeting count input
+  const greetingCountInput = $('#aiGreetingCountInput');
+  if (greetingCountInput) {
+    greetingCountInput.addEventListener('change', () => {
+      AiChat._greetingCount = parseInt(greetingCountInput.value) || 3;
+    });
+  }
+
+  $$('.quick-action').forEach(btn => {
+    btn.addEventListener('click', () => AiChat.handleQuickAction(btn.dataset.action));
+  });
+
+  $('#modelSearch').addEventListener('input', Ui.debounce(() => Settings.filterModels(), DEBOUNCE_SEARCH_MS));
+  $('#btnAddLoreEntry').addEventListener('click', () => Editor.addLorebookEntry());
+  $('#btnAddGreeting').addEventListener('click', () => Editor.addGreeting());
+
+  // Raw JSON Extensions editor (Advanced tab). Parse-on-debounce writes only
+  // valid objects to the card; invalid JSON is surfaced inline and kept out.
+  const extensionsTa = $('#editExtensions');
+  if (extensionsTa) {
+    extensionsTa.addEventListener('focus', () => { Editor._lastSnapField = null; });
+    extensionsTa.addEventListener('beforeinput', () => {
+      if (Editor._lastSnapField !== 'extensions') {
+        Editor._snapshotSub('extensions');
+        Editor._lastSnapField = 'extensions';
+      }
+    });
+    extensionsTa.addEventListener('input', Ui.debounce(() => {
+      Editor._applyExtensionsFromDom().catch(() => {});
+      Editor.autoResizeTextareas();
+    }, 600));
+  }
+
+  // {{char}} / {{user}} one-click insert chips next to textarea fields.
+  const insertTokenAtCursor = (ta, text) => {
+    const start = (typeof ta.selectionStart === 'number') ? ta.selectionStart : (ta.value || '').length;
+    const end = (typeof ta.selectionEnd === 'number') ? ta.selectionEnd : start;
+    if (typeof ta.selectionStart !== 'number') return;
+    ta.focus();
+    ta.setSelectionRange(start, end);
+    // Insert as a genuine native text edit (execCommand fires the field's
+    // normal input event), so in-field Ctrl+Z reverts exactly the inserted
+    // token — matching how typed edits behave. Synthetic setRangeText + a
+    // dispatched input event would bypass the browser's undo stack.
+    document.execCommand('insertText', false, text);
+  };
+  document.querySelectorAll('.token-insert-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ta = document.getElementById(btn.dataset.target);
+      if (ta && btn.dataset.token) insertTokenAtCursor(ta, btn.dataset.token);
+    });
+  });
+
+  // Library sort control — persist the chosen mode and keep the dropdown in
+  // sync with the actual sort (their defaults must match; see cardManager.js).
+  const sortSelect = $('#cardSortSelect');
+  if (sortSelect) {
+    sortSelect.addEventListener('change', () => {
+      CardManager._sortMode = sortSelect.value;
+      if (CardStorage.setSortMode) CardStorage.setSortMode(sortSelect.value);
+      CardManager.renderCardList();
+    });
+  }
+
+  // Tag cloud toggle
+  const tagToggle = $('#btnToggleTagCloud');
+  if (tagToggle) {
+    tagToggle.addEventListener('click', () => {
+      const wrap = $('#tagCloudWrap');
+      if (wrap) wrap.classList.toggle('open');
+    });
+  }
+
+  // Lorebook search
+  const loreSearch = $('#lorebookSearchInput');
+  if (loreSearch) {
+    loreSearch.addEventListener('input', Ui.debounce(() => {
+      if (window.AppState.activeCard) Editor.renderLorebook(window.AppState.activeCard);
+    }, DEBOUNCE_SEARCH_MS));
+  }
+
+  document.addEventListener('keydown', handleKeyboardShortcuts);
+
+  const toggleAI = $('#btnToggleAI');
+  if (toggleAI) {
+    toggleAI.addEventListener('click', () => {
+      document.querySelector('#panelRight').classList.toggle('mobile-open');
+    });
+  }
+
+  const themeToggle = $('#btnThemeToggle');
+  const savedTheme = localStorage.getItem(CardStorage.PREFIX + 'theme') || 'dark';
+  // Set the theme before applying its accent so the cascade resolves the
+  // custom variables against the correct light/dark token set.
+  if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); }
+  const initialAccent = CardStorage.getAccent(savedTheme);
+  if (initialAccent) Settings.applyAccent(savedTheme, initialAccent);
+  Settings.applyAppearance();
+  if (themeToggle) {
+    themeToggle.innerHTML = savedTheme === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
+    themeToggle.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', next);
+      const accent = CardStorage.getAccent(next);
+      if (accent) Settings.applyAccent(next, accent);
+      else {
+        // No saved accent for the target theme: clear the inline accent
+        // custom properties (they outrank stylesheet rules) and the flag.
+        ['--accent-300','--accent-400','--accent-500','--accent-600','--accent-700',
+         '--accent-glow','--accent-glow-strong','--accent-text'].forEach(name =>
+          document.documentElement.style.removeProperty(name));
+        document.documentElement.removeAttribute('data-accent-custom');
+      }
+      localStorage.setItem(CardStorage.PREFIX + 'theme', next);
+      // Re-apply appearance so the glass colors match the newly-selected theme.
+      Settings.applyAppearance();
+      Anims.iconSpin(themeToggle.querySelector('i'));
+      themeToggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
+    });
+  }
+
+  // Brand icon float
+  const brandIcon = $('.brand-icon');
+  if (brandIcon) brandIcon.classList.add('brand-float');
+
+  // Global button click feedback
+  document.addEventListener('mousedown', (e) => {
+    const btn = e.target.closest('.btn');
+    if (btn && !Anims._disabled()) Anims.scaleClick(btn);
+  });
+
+    setupPanelResizers();
+    setupPanelCollapse();
+  }
+
+  // ─── PANEL COLLAPSE + FOCUS MODE ──────────────────
+  // Collapse either side panel to a 0-width rail (an edge chevron lets the
+  // user expand it back). Focus mode is simply both panels collapsed.
+  function setupPanelCollapse() {
+    const app = document.querySelector('#appContainer');
+    const storageKey = (side) => CardStorage.PREFIX + 'panel' + (side === 'left' ? 'Left' : 'Right') + 'Collapsed';
+
+    const setCollapsed = (side, collapsed) => {
+      const cls = side === 'left' ? 'side-left-collapsed' : 'side-right-collapsed';
+      app.classList.toggle(cls, collapsed);
+      localStorage.setItem(storageKey(side), collapsed ? '1' : '0');
+      const btn = document.querySelector(side === 'left' ? '#btnCollapseLeft' : '#btnCollapseRight');
+      if (btn) {
+        btn.classList.toggle('active', collapsed);
+        const icon = btn.querySelector('i');
+        if (icon) {
+          const left = side === 'left';
+          icon.className = (left ? collapsed : !collapsed) ? 'bi bi-chevron-double-right' : 'bi bi-chevron-double-left';
+        }
+      }
+    };
+    const isCollapsed = (side) => app.classList.contains(side === 'left' ? 'side-left-collapsed' : 'side-right-collapsed');
+    const toggle = (side) => setCollapsed(side, !isCollapsed(side));
+
+    // Restore each side's persisted state.
+    setCollapsed('left', (localStorage.getItem(storageKey('left')) || '0') === '1');
+    setCollapsed('right', (localStorage.getItem(storageKey('right')) || '0') === '1');
+
+    // NOTE: top-level function — `$` (Ui.$) is scoped to init() only, so use
+    // document.querySelector directly.
+    const q = (sel) => document.querySelector(sel);
+    const collapseLeft = q('#btnCollapseLeft');
+    const collapseRight = q('#btnCollapseRight');
+    const expandLeft = q('#edgeExpandLeft');
+    const expandRight = q('#edgeExpandRight');
+    const focusBtn = q('#btnFocusMode');
+
+    if (collapseLeft) collapseLeft.addEventListener('click', () => toggle('left'));
+    if (collapseRight) collapseRight.addEventListener('click', () => toggle('right'));
+    if (expandLeft) expandLeft.addEventListener('click', () => setCollapsed('left', false));
+    if (expandRight) expandRight.addEventListener('click', () => setCollapsed('right', false));
+    if (focusBtn) {
+      focusBtn.addEventListener('click', () => {
+        const enterFocus = !(isCollapsed('left') && isCollapsed('right'));
+        setCollapsed('left', enterFocus);
+        setCollapsed('right', enterFocus);
+        Anims.pulseIcon(focusBtn.querySelector('i'));
+      });
+    }
+
+    // Share the collapse controls with the shortcut API.
+    Ui.togglePanelCollapse = (side) => toggle(side);
+    Ui.setFocusMode = (on) => { setCollapsed('left', on); setCollapsed('right', on); };
+  }
+
+  // ─── PANEL RESIZERS ───────────────────────────────
+  function setupPanelResizers() {
+    const CENTER_MIN = 320;
+    const LEFT_MIN = 220;
+    const LEFT_MAX = 480;
+    const RIGHT_MIN = 280;
+    const RIGHT_MAX = 560;
+    const root = document.documentElement;
+    const app = document.querySelector('#appContainer');
+
+    // Read a saved width as a bare number, tolerating legacy values that were
+    // stored with a "px" suffix ("300px" or even the corrupt "300pxpx").
+    function readSavedWidth(key, fallback) {
+      const raw = localStorage.getItem(CardStorage.PREFIX + key);
+      const n = raw ? parseFloat(raw) : NaN;
+      return Number.isFinite(n) && n > 0 ? Math.round(n) : fallback;
+    }
+
+    // Clamp both panels to their hard min/max while guaranteeing the center
+    // panel keeps at least CENTER_MIN. Always writes the corrected values back
+    // to localStorage so reloads are stable (self-healing).
+    function applyClampedWidths(persist) {
+      const containerWidth = app.getBoundingClientRect().width || window.innerWidth || 0;
+      let left = readSavedWidth('panelLeft', 300);
+      let right = readSavedWidth('panelRight', 360);
+
+      // Hard per-panel limits
+      left = Math.max(LEFT_MIN, Math.min(LEFT_MAX, left));
+      right = Math.max(RIGHT_MIN, Math.min(RIGHT_MAX, right));
+
+      // Make sure the center panel never collapses on small windows
+      const budget = Math.max(0, containerWidth - CENTER_MIN);
+      if (left + right > budget) {
+        const overflow = left + right - budget;
+        const headroom = (left - LEFT_MIN) + (right - RIGHT_MIN);
+        if (headroom > 0) {
+          const leftCut = Math.min(left - LEFT_MIN, Math.round(overflow * ((left - LEFT_MIN) / headroom)));
+          const rightCut = Math.min(right - RIGHT_MIN, Math.round(overflow * ((right - RIGHT_MIN) / headroom)));
+          left = Math.max(LEFT_MIN, left - leftCut);
+          right = Math.max(RIGHT_MIN, right - rightCut);
+          // Correct rounding leftovers so the center always fits
+          if (left + right > budget) {
+            if (left > LEFT_MIN) left = Math.max(LEFT_MIN, left - (left + right - budget));
+            else right = Math.max(RIGHT_MIN, right - (left + right - budget));
+          }
+        }
+      }
+
+      root.style.setProperty('--panel-left-width', left + 'px');
+      root.style.setProperty('--panel-right-width', right + 'px');
+      if (persist) {
+        localStorage.setItem(CardStorage.PREFIX + 'panelLeft', String(left));
+        localStorage.setItem(CardStorage.PREFIX + 'panelRight', String(right));
+      }
+    }
+
+    // Self-heal corrupt persisted widths on every load
+    applyClampedWidths(true);
+
+    // Re-clamp on window resize so panels shrink instead of breaking the layout
+    window.addEventListener('resize', () => {
+      requestAnimationFrame(() => applyClampedWidths(false));
+    });
+
+    const startDrag = (which) => (e) => {
+      e.preventDefault();
+      document.body.classList.add('resizing');
+      const rect = app.getBoundingClientRect();
+      const move = (ev) => {
+        const x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
+        if (which === 'left') {
+          let w = Math.round(x - rect.left);
+          w = Math.max(LEFT_MIN, Math.min(LEFT_MAX, w));
+          const rightW = parseFloat(root.style.getPropertyValue('--panel-right-width')) || 360;
+          w = Math.min(w, Math.max(LEFT_MIN, rect.width - rightW - CENTER_MIN));
+          root.style.setProperty('--panel-left-width', w + 'px');
+        } else {
+          let w = Math.round(rect.right - x);
+          w = Math.max(RIGHT_MIN, Math.min(RIGHT_MAX, w));
+          const leftW = parseFloat(root.style.getPropertyValue('--panel-left-width')) || 300;
+          w = Math.min(w, Math.max(RIGHT_MIN, rect.width - leftW - CENTER_MIN));
+          root.style.setProperty('--panel-right-width', w + 'px');
+        }
+      };
+      let safetyTimer = null;
+      const up = () => {
+        document.body.classList.remove('resizing');
+        // Persist bare numbers (never the "300px" CSS string)
+        const finalLeft = Math.round(parseFloat(root.style.getPropertyValue('--panel-left-width'))) || 300;
+        const finalRight = Math.round(parseFloat(root.style.getPropertyValue('--panel-right-width'))) || 360;
+        localStorage.setItem(CardStorage.PREFIX + 'panelLeft', String(finalLeft));
+        localStorage.setItem(CardStorage.PREFIX + 'panelRight', String(finalRight));
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+        window.removeEventListener('touchmove', move);
+        window.removeEventListener('touchend', up);
+        window.removeEventListener('blur', up);
+        if (safetyTimer) { clearTimeout(safetyTimer); safetyTimer = null; }
+      };
+      // Force-release listeners if the drag is interrupted (window loses focus
+      // or the pointer is released outside the page) so they cannot leak.
+      safetyTimer = setTimeout(up, 5000);
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+      window.addEventListener('touchmove', move, { passive: false });
+      window.addEventListener('touchend', up);
+      window.addEventListener('blur', up);
+    };
+    const rl = document.querySelector('#resizerLeft');
+    const rr = document.querySelector('#resizerRight');
+    if (rl) { rl.addEventListener('mousedown', startDrag('left')); rl.addEventListener('touchstart', startDrag('left'), { passive: false }); }
+    if (rr) { rr.addEventListener('mousedown', startDrag('right')); rr.addEventListener('touchstart', startDrag('right'), { passive: false }); }
+  }
+
+// ─── KEYBOARD SHORTCUTS ───────────────────────────────
+
+function handleKeyboardShortcuts(e) {
+  const inField = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable;
+
+  // Inside a text field: only intercept Save; let native undo/redo work.
+  if (inField) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      CardManager.saveCurrentCard();
+    }
+    return;
+  }
+
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault(); Editor.undo(); return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
+    e.preventDefault(); Editor.redo(); return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    CardManager.saveCurrentCard();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+    e.preventDefault();
+    CardManager.createNewCard();
+  }
+  if (e.altKey && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    const app = document.querySelector('#appContainer');
+    const focused = app && app.classList.contains('side-left-collapsed') && app.classList.contains('side-right-collapsed');
+    if (Ui.setFocusMode) Ui.setFocusMode(!focused);
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
+    e.preventDefault();
+    if (Ui.togglePanelCollapse) Ui.togglePanelCollapse('right');
+    return;
+  }
+  if (e.key === '?') {
+    Ui._shortcutsModal = Ui._shortcutsModal || new bootstrap.Modal('#shortcutsModal');
+    Ui._shortcutsModal.show();
+  }
+}
+
+async function handleStorageChange(e) {
+  if (!e.key || !e.key.startsWith(CardStorage.PREFIX)) return;
+  // Only card-data keys need the list/DOM refreshed. UI-only keys such as
+  // stce_theme or stce_panelLeft (written when another tab toggles the theme
+  // or drags a splitter) would otherwise re-render the whole card list and
+  // trigger needless card re-loads on every keystroke-driven save (#48).
+  const rel = e.key.slice(CardStorage.PREFIX.length);
+  const isCardData = rel === CardStorage._keys.cardIndex
+    || rel === CardStorage._keys.activeCardId
+    || rel.startsWith('card_')
+    || rel.startsWith(CardStorage._keys.aiChatHistory + '_')
+    || rel.startsWith('chatSessions_')
+    || rel.startsWith('sessionMsgs_');
+  if (!isCardData) return;
+  window.AppState.cards = CardStorage.getCards();
+  CardManager.renderCardList();
+  if (window.AppState.activeCard) {
+    const active = document.activeElement;
+    if (window.AppState._dirty) {
+      // We have unsaved local edits; don't clobber them now. Remember the card
+      // so it gets merged from the other tab once the local save completes.
+      if (Ui._pendingRemoteReload) return;
+      Ui._pendingRemoteReload = true;
+      Ui._pendingRemoteCardId = window.AppState.activeCard._id;
+      Ui._pendingRemoteTouched = new Set();
+      // Snapshot the other tab's version *now*: by the time the local autosave
+      // completes, IndexedDB holds our copy, not the remote one — so reloading
+      // from IDB at setDirty(false) would silently drop the remote change (#103).
+      CardStorage.getCard(window.AppState.activeCard._id)
+        .then((c) => {
+          if (c && Ui._pendingRemoteCardId === window.AppState.activeCard._id) Ui._pendingRemoteSnapshot = c;
+        })
+        .catch((err) => console.error('Failed to snapshot remote card:', err));
+      return;
+    }
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+    Ui._reloadActiveCard(window.AppState.activeCard._id);
+  }
+}
+
+// ─── BOOT ──────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', init);
