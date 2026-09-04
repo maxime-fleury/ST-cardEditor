@@ -14,7 +14,7 @@
  */
 
 import { build } from "bun";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -51,6 +51,18 @@ export async function bundleSourceText() {
 }
 
 async function main() {
+  // Fail fast when the local bun can't reproduce the committed artifact (see
+  // .bun-version): check-assets diffs a fresh build against the committed
+  // js/app.js, and bun's bundler output is only byte-stable for one version.
+  const pinPath = join(root, ".bun-version");
+  if (existsSync(pinPath)) {
+    const pinned = readFileSync(pinPath, "utf8").trim().replace(/^v/, "");
+    const actual = Bun.version.replace(/^v/, "");
+    if (actual !== pinned) {
+      console.error(`build: bun ${actual} does not match .bun-version (${pinned}). Install the pinned version (\`bun upgrade --to ${pinned}\`) to keep the bundle reproducible, or bump .bun-version when upgrading bun intentionally.`);
+      process.exit(1);
+    }
+  }
   const source = await bundleSourceText();
   const kb = (source.length / 1024).toFixed(1);
   writeFileSync(BUNDLE_PATH, source, "utf8");

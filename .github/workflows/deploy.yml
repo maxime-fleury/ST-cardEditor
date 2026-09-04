@@ -40,6 +40,12 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          # Pin the exact runtime that produced the committed js/app.js bundle
+          # (see .bun-version). The freshness check diffs a fresh build against
+          # the committed artifact, and bun's bundler output is only byte-stable
+          # for the same version — a floating setup-bun made every push fail.
+          bun-version-file: .bun-version
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

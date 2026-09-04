@@ -44,6 +44,21 @@ let failures = 0;
 const fail = (msg) => { failures++; console.error(`✗ ${msg}`); };
 const ok = (msg) => console.log(`✓ ${msg}`);
 
+// 0. The committed bundle is only byte-fresh when built with the exact bun
+//    version that produced it (see .bun-version). A floating setup-bun or a
+//    drifted local bun shows up here as a confusing "stale bundle" — fail with
+//    an actionable message instead.
+const bunPinPath = join(root, ".bun-version");
+if (existsSync(bunPinPath)) {
+  const pinned = readFileSync(bunPinPath, "utf8").trim().replace(/^v/, "");
+  const actual = (typeof Bun !== "undefined" ? Bun.version : "").replace(/^v/, "");
+  if (pinned && actual && actual !== pinned) {
+    fail(`bun ${actual} does not match .bun-version (${pinned}); the committed bundle was built with ${pinned}. Run \`bun upgrade --to ${pinned}\` (or install that version) and rebuild, or bump .bun-version when upgrading bun intentionally.`);
+  } else {
+    ok(`bun ${actual} matches .bun-version (${pinned}).`);
+  }
+}
+
 const indexHtml = read("public/index.html");
 const swJs = read("public/sw.js");
 
