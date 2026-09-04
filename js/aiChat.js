@@ -978,7 +978,7 @@ const AiChat = {
     };
 
     if (action === 'translate') {
-      // Offer the app's 21 supported languages as a dropdown instead of a
+      // Offer the app's 27 supported languages as a dropdown instead of a
       // free-text prompt (native dialogs can be blocked in iframes/PWAs).
       const LANG_CODES = ['en', 'fr', 'es', 'de', 'pt', 'ja', 'zh', 'ko', 'el', 'ru', 'it', 'pl', 'tr', 'nl', 'uk', 'vi', 'id', 'hi', 'ar', 'he', 'fa', 'ro', 'cs', 'sv', 'th', 'pt-pt', 'tl'];
       const options = LANG_CODES.map((code) => {

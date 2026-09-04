@@ -6,7 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+## [2.5.5] - 2026-09-04
+
+### Fixed
+- **i18n unicode corruption (2.5.4 regression):** the 6-new-languages commit
+  rewrote `js/i18n.js` through a wrong encoding, mangling every non-ASCII
+  character in all 27 locales — Latin accents became broken bytes, and
+  Cyrillic/CJK/Greek/Thai etc. were replaced with literal `?` (e.g. French
+  showed `d�finie`, Thai showed `?????????`). Translations are now split into
+  **one file per language** (`js/i18n/<lang>.js`), the 21 original locales
+  were restored from the last clean revision, and the 6 new locales
+  (ro/cs/sv/th/pt-pt/tl) were recovered/re-translated with correct diacritics
+  and full Thai text.
+
+## [2.5.4] - 2026-09-04
+
+### Added
+- **6 new languages** — Romanian, Czech, Swedish, Thai, Portuguese (PT),  and Filipino, selectable in the language dropdown and the translate dialog.
+  Note: this release shipped with the unicode corruption fixed in 2.5.5.
 
 ## [2.5.3] - 2026-08-30
 
@@ -112,6 +129,9 @@ Nothing yet.
   with a white popup in dark mode — fixed via `color-scheme` plus dark
   `form-select`/`option` styling across all browsers.
 
-[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.5.1...HEAD
+[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.5.5...HEAD
+[2.5.5]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.5
+[2.5.4]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.4
+[2.5.3]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.3
 [2.5.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.1
 [2.5.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.0

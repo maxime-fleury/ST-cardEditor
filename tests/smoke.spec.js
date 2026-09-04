@@ -384,7 +384,7 @@ test('translate quick action opens the in-app language dialog', async ({ page })
 
   await page.locator('.quick-action[data-action="translate"]').click();
   await expect(page.locator('#dialogModal')).toBeVisible();
-  await expect(page.locator('#dialogSelect option')).toHaveCount(21);
+  await expect(page.locator('#dialogSelect option')).toHaveCount(27);
   await page.locator('#dialogCancel').click();
   await expect(page.locator('#dialogModal')).not.toBeVisible();
 });

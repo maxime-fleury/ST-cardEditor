@@ -7,7 +7,7 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 - **[Stable demo](https://maxime-fleury.github.io/ST-cardEditor/)** — the recommended current version
 - **[Beta demo](https://maxime-fleury.github.io/ST-cardEditor/dev/)** — the latest development build; features may change or break
 
-![Version](https://img.shields.io/badge/version-2.5.4-purple)
+![Version](https://img.shields.io/badge/version-2.5.5-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-000?logo=bun)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![Stable Demo](https://img.shields.io/badge/stable-demo-9147ff?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/)
@@ -134,7 +134,7 @@ Powered by [anime.js](https://animejs.com/) with full `prefers-reduced-motion` s
 
 ### Localization (i18n)
 
-Full interface translation across **21 languages** with **585+** translation keys:
+Full interface translation across **27 languages** with **619** translation keys, one file per language in `js/i18n/`:
 
 | Language | Key | Status |
 |----------|-----|--------|
@@ -142,7 +142,7 @@ Full interface translation across **21 languages** with **585+** translation key
 | French | `fr` | Complete |
 | Spanish | `es` | Complete |
 | German | `de` | Complete |
-| Portuguese (Brazil) | `pt-BR` | Complete |
+| Portuguese (Brazil) | `pt` | Complete |
 | Japanese | `ja` | Complete |
 | Chinese (Simplified) | `zh` | Complete |
 | Korean | `ko` | Complete |
@@ -159,6 +159,12 @@ Full interface translation across **21 languages** with **585+** translation key
 | Arabic | `ar` | Complete |
 | Hebrew | `he` | Complete |
 | Persian | `fa` | Complete |
+| Romanian | `ro` | Complete |
+| Czech | `cs` | Complete |
+| Swedish | `sv` | Complete |
+| Thai | `th` | Complete |
+| Portuguese (Portugal) | `pt-pt` | Complete |
+| Filipino | `tl` | Complete |
 
 - **Auto-detection** from browser language (`navigator.language`)
 - **Manual switch** via Settings modal — changes apply instantly
@@ -340,7 +346,8 @@ st-card-editor/
 │   ├── settings.js         # Settings modal, model list, credits, provider config, workspace backup
 │   ├── tokenizer.js        # Token estimation (lazy-loaded BPE tokenizer)
 │   ├── animations.js       # anime.js animation utilities (stagger, slide, pulse, etc.)
-│   ├── i18n.js             # Internationalization: 585+ keys × 21 languages
+│   ├── i18n.js             # I18n entry: imports js/i18n/<lang>.js, exposes I18n engine
+│   ├── i18n/               # One translation file per language (619 keys × 27 languages)
 │   └── ui.js               # Main controller: utilities, init, event binding, error boundary
 ├── .github/
 │   ├── screenshots/        # README screenshots
@@ -375,7 +382,7 @@ The app is a **single-page application** built with vanilla JavaScript and **Boo
 - **`settings.js`** — Settings modal with provider selection (7 providers), API key management, model browsing/selection, credit tracking, storage usage display, language switching, and full workspace backup/restore.
 - **`tokenizer.js`** — Token estimation using lazy-loaded `gpt-tokenizer` BPE library with offline heuristic fallback.
 - **`animations.js`** — Reusable animation functions built on anime.js: stagger fade-in, slide transitions, pulse, shake, scale click, progress bounce, icon spin, skeleton reveal, toast entrance. All respect `prefers-reduced-motion`.
-- **`i18n.js`** — Internationalization module: `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings. 585+ keys across 21 languages, with automatic RTL layout for Arabic/Hebrew/Persian.
+- **`i18n.js`** — Internationalization entry: imports one translation file per language from `js/i18n/` (619 keys across 27 languages) and exposes the `I18n` engine — `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings, and automatic RTL layout for Arabic/Hebrew/Persian.
 - **`ui.js`** — Thin controller: shared state (`AppState`), utility functions (`escapeHtml`, `debounce`, `showToast`, `renderMarkdown`), initialization, I18n boot, global error boundary, markdown library lazy-loading, and all event binding.
 
 ---
