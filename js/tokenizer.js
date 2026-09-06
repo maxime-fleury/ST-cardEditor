@@ -22,10 +22,21 @@ const Tokenizer = {
           || (mod.default && mod.default.countTokens)
           || (mod.encode ? (t) => mod.encode(t).length : null)
           || (mod.default && mod.default.encode ? (t) => mod.default.encode(t).length : null);
-        return fn ? fn : null;
+        // A module that loaded but exposes no usable function is a failure, not
+        // a success: without this, `_loading` stays cached forever, the backoff
+        // never engages and the real tokenizer is never retried (only a reload
+        // would clear it).
+        if (!fn) throw new Error('tokenizer module has no countTokens/encode');
+        return fn;
       })
       .catch(() => { this._lastFail = Date.now(); this._loading = null; return null; });
     this._lib = await this._loading;
+    // The sync consumers (per-field char counters) must flip from the heuristic
+    // to the real BPE at the very moment the async path does, or their numbers
+    // would disagree with the context bar until the next re-render.
+    if (this._lib && typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      try { window.dispatchEvent(new CustomEvent('stce:tokenizer-ready')); } catch (_) { /* non-browser runtime */ }
+    }
     return this._lib;
   },
 
@@ -36,19 +47,39 @@ const Tokenizer = {
    */
   async count(text) {
     const fn = await this._load();
-    if (fn) {
-      try {
-        const n = fn(text);
-        if (typeof n === 'number' && isFinite(n)) return Math.max(0, Math.floor(n));
-      } catch (_) { /* fall through to heuristic */ }
-    }
-    return this._fallback(text);
+    return this._countWith(fn, text);
   },
 
   /**
    * Synchronous guess used before the lib finishes loading.
    */
   quickCount(text) {
+    return this._fallback(text);
+  },
+
+  /**
+   * Synchronous count that uses the real BPE tokenizer once it has loaded and
+   * the heuristic before then. Per-field char counters call this so they agree
+   * with the (async) context-bar budget instead of diverging once the CDN lib
+   * arrives.
+   */
+  syncCount(text) {
+    return this._countWith(this._lib, text);
+  },
+
+  /**
+   * Single estimator core shared by the async `count` and the sync `syncCount`:
+   * real BPE when the lib is available, heuristic otherwise. Routing both
+   * callers through here guarantees the editor char counters and the context
+   * bar can never compute different numbers for the same text.
+   */
+  _countWith(fn, text) {
+    if (fn) {
+      try {
+        const n = fn(text);
+        if (typeof n === 'number' && isFinite(n)) return Math.max(0, Math.floor(n));
+      } catch (_) { /* fall through to heuristic */ }
+    }
     return this._fallback(text);
   },
 

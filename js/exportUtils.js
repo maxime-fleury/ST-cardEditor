@@ -34,9 +34,12 @@ const ExportUtils = {
     try {
       let pngBytes = null;
       if (activeCard._imageBase64) {
-        pngBytes = await this.imageBase64ToPNGBytes(activeCard._imageBase64);
+        // Prefer the original bytes for PNG-sourced images: re-encoding via
+        // canvas strips metadata and bloats the file. The canvas path only
+        // handles JPEG/WebP sources (or PNGs the browser cannot decode).
+        pngBytes = this._dataUrlToBytes(activeCard._imageBase64);
         if (!pngBytes) {
-          pngBytes = this._dataUrlToBytes(activeCard._imageBase64);
+          pngBytes = await this.imageBase64ToPNGBytes(activeCard._imageBase64);
         }
       }
       if (!pngBytes) {

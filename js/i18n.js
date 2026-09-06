@@ -51,15 +51,20 @@ const I18n = {
     return this._lang;
   },
 
-  init() {
+  _detectLanguage() {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved && SUPPORTED.includes(saved)) {
-      this._lang = saved;
-    } else {
-      const browserLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
-      const short = browserLang.split('-')[0];
-      this._lang = SUPPORTED.includes(short) ? short : 'en';
-    }
+    if (saved && SUPPORTED.includes(saved)) return saved;
+    const browserLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
+    // Prefer the full regional code ("pt-pt") before falling back to the
+    // base language ("pt"), so e.g. a pt-PT browser gets the Portuguese
+    // (Portugal) translation instead of the Brazilian one.
+    if (SUPPORTED.includes(browserLang)) return browserLang;
+    const short = browserLang.split('-')[0];
+    return SUPPORTED.includes(short) ? short : 'en';
+  },
+
+  init() {
+    this._lang = this._detectLanguage();
     document.documentElement.lang = this._lang;
     document.documentElement.dir = RTL_LANGS.includes(this._lang) ? 'rtl' : 'ltr';
     this._applyBootstrapDir();
@@ -95,6 +100,11 @@ const I18n = {
     this._applyBootstrapDir();
     document.title = this.t('app.title');
     this.translateDOM();
+    // Let controllers re-render their dynamic (translated) content — e.g. the
+    // card counter and tag cloud — which plain data-i18n translation cannot touch.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('stce:language-changed', { detail: { lang } }));
+    }
   },
 
   _applyBootstrapDir() {

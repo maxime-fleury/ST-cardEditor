@@ -1,0 +1,48 @@
+# 🧪 CI — unit suite + bundle-freshness gate
+#
+# Fast, PR-visible feedback independent of the deploy pipeline (deploy.yml also
+# runs these inside its `check` job, but this workflow surfaces them on every
+# push/PR without tying the result to a deployment). Runs `bun test tests/unit`
+# (8 files) and the asset/version drift guard, which includes the
+# bundle-freshness diff of js/app.js against a fresh `bun run build`.
+
+name: CI
+
+on:
+  push:
+    branches: ["master", "dev"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "ci-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  unit-and-freshness:
+    name: Unit tests + bundle freshness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          # Pin the exact runtime that produced the committed js/app.js bundle
+          # (see .bun-version): bun's bundler output is only byte-stable for
+          # the same version, and check-assets diffs a fresh build against the
+          # committed artifact.
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Unit tests (8 files, incl. cardEngine/tokenizer/aiService/i18n/cardManager/editor/exportUtils/settings)
+        run: bun run test:unit
+
+      - name: Asset / SW-shell / version drift + bundle freshness check
+        run: bun scripts/check-assets.mjs

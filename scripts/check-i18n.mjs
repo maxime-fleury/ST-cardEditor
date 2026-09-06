@@ -62,20 +62,42 @@ if (ph) {
   process.exit(1);
 }
 
-// Translation-coverage report: keys whose value still equals English are
-// copyovers (untranslated). Informational (parity + braces are the hard gates)
-// but surfaces by locale so incomplete translations never ship silently.
+// Translation-coverage gate: keys whose value still equals English are
+// copyovers (untranslated). A locale below the coverage threshold FAILS the
+// check (unlike parity, this is about completeness, not key shape), so a
+// translation that regresses toward the English fallback can never ship
+// silently. The threshold defaults to 75% (all current locales pass) and is
+// overridable per environment.
+const coverageFloor = Number(process.env.I18N_COVERAGE_FLOOR || 75);
+if (!(coverageFloor >= 0 && coverageFloor <= 100)) {
+  console.error(`check-i18n: I18N_COVERAGE_FLOOR must be 0-100, got ${coverageFloor}.`);
+  process.exit(1);
+}
 let copyoverTotal = 0;
 let withCopyover = 0;
+let belowFloor = 0;
 for (const lang of langs) {
   if (lang === 'en') continue;
   const n = Object.entries(translations[lang]).filter(([k, v]) => v === translations.en[k]).length;
   copyoverTotal += n;
-  if (n) { withCopyover++; console.log(`· ${lang}: ${n} untranslated (English copyover)`); }
-  else console.log(`✓ ${lang}: fully translated`);
+  const pct = Math.round(((enKeys.length - n) / enKeys.length) * 100);
+  if (n) {
+    withCopyover++;
+    console.log(`· ${lang}: ${n} untranslated (English copyover) — ${pct}% translated${pct < coverageFloor ? ' ✗ below ' + coverageFloor + '% floor' : ''}`);
+  } else {
+    console.log(`✓ ${lang}: fully translated`);
+  }
+  if (pct < coverageFloor) { belowFloor++; failures++; }
 }
 if (copyoverTotal) {
-  console.warn(`\ncheck-i18n: ${copyoverTotal} untranslated keys across ${withCopyover}/20 non-English locales (English copyover).`);
+  console.warn(`\ncheck-i18n: ${copyoverTotal} untranslated keys across ${withCopyover}/${langs.length - 1} non-English locales (English copyover).`);
+}
+if (belowFloor) {
+  console.error(`\ncheck-i18n: ${belowFloor} locale(s) below the ${coverageFloor}% translation floor (set I18N_COVERAGE_FLOOR to adjust).`);
 }
 
-console.log(`\ncheck-i18n: all ${langs.length} languages in sync with English (${enKeys.length} keys, no single-brace placeholders).`);
+if (failures) {
+  console.error(`\ncheck-i18n: ${failures} language(s) failed (parity, placeholders, or coverage floor).`);
+  process.exit(1);
+}
+console.log(`\ncheck-i18n: all ${langs.length} languages in sync with English (${enKeys.length} keys, no single-brace placeholders, all above the ${coverageFloor}% coverage floor).`);

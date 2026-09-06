@@ -6,7 +6,7 @@
    ============================================================ */
 
 const BASE_PATH = new URL('.', self.location.href).pathname;
-const CACHE_PREFIX = 'stce-v2.5.5';
+const CACHE_PREFIX = 'stce-v2.6.0';
 const CACHE_NAME = `${CACHE_PREFIX}:${BASE_PATH}`;
 const DEV_PATH = BASE_PATH.endsWith('/dev/')
   ? BASE_PATH
@@ -41,7 +41,7 @@ const shellPaths = new Set(SHELL_FILES.map(file => new URL(file || './', self.lo
 // libs). They're cross-origin, so the shell list above cannot precache them;
 // cache them at runtime (stale-while-revalidate) so the app truly works offline.
 const CDN_HOSTS = new Set(['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com']);
-const CDN_CACHE = 'stce-cdn-v2.5.3';
+const CDN_CACHE = 'stce-cdn-v2.6.0';
 
 // Install: cache the app shell. Precaching is done per-file so one missing
 // asset (404) degrades offline coverage instead of aborting the whole install.
@@ -66,6 +66,11 @@ self.addEventListener('activate', (event) => {
       keys.filter((key) => {
         const separator = key.indexOf(':');
         const cachePath = separator >= 0 ? key.slice(separator + 1) : '';
+        // The CDN cache is deliberately global (cross-path) and must survive
+        // activation: its name contains no ':', so without this exemption it
+        // would be classified as a legacy cache and deleted on every update,
+        // leaving the app offline right after an upgrade.
+        if (key === CDN_CACHE || key.startsWith('stce-cdn-')) return false;
         // Keys without a ':' are legacy caches (pre-path-scoping, e.g.
         // "stce-v2.2"). They carry no path, so they can't be matched to any
         // deployment and must be removed rather than leaked forever.

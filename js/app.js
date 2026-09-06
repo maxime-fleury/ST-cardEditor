@@ -14,17 +14,33 @@
         return null;
       this._loading = import(this._cdnUrl).then((mod) => {
         const fn = mod.countTokens || mod.default && mod.default.countTokens || (mod.encode ? (t) => mod.encode(t).length : null) || (mod.default && mod.default.encode ? (t) => mod.default.encode(t).length : null);
-        return fn ? fn : null;
+        if (!fn)
+          throw new Error("tokenizer module has no countTokens/encode");
+        return fn;
       }).catch(() => {
         this._lastFail = Date.now();
         this._loading = null;
         return null;
       });
       this._lib = await this._loading;
+      if (this._lib && typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+        try {
+          window.dispatchEvent(new CustomEvent("stce:tokenizer-ready"));
+        } catch (_) {}
+      }
       return this._lib;
     },
     async count(text) {
       const fn = await this._load();
+      return this._countWith(fn, text);
+    },
+    quickCount(text) {
+      return this._fallback(text);
+    },
+    syncCount(text) {
+      return this._countWith(this._lib, text);
+    },
+    _countWith(fn, text) {
       if (fn) {
         try {
           const n = fn(text);
@@ -32,9 +48,6 @@
             return Math.max(0, Math.floor(n));
         } catch (_) {}
       }
-      return this._fallback(text);
-    },
-    quickCount(text) {
       return this._fallback(text);
     },
     _fallback(text) {
@@ -68,6 +81,7 @@
         }
         card._hasImage = true;
         card._thumbnail = await this._createThumbnail(card._imageBase64);
+        card._fileSize = this.computeFileSize(card);
         return card;
       }
       if (ext === "webp") {
@@ -77,6 +91,7 @@
         card._imageBase64 = await this._blobToBase64(blob);
         card._hasImage = true;
         card._thumbnail = await this._createThumbnail(card._imageBase64);
+        card._fileSize = this.computeFileSize(card);
         return card;
       }
       throw new Error(I18n.t ? I18n.t("error.unsupportedFile", { ext }) : "Unsupported file type: ." + ext);
@@ -188,7 +203,15 @@
       try {
         if (typeof DecompressionStream === "undefined")
           return null;
-        const ds = new DecompressionStream("zlib");
+        let ds;
+        try {
+          ds = new DecompressionStream("zlib");
+        } catch (e) {
+          if (bytes.length <= 6)
+            return null;
+          bytes = bytes.subarray(2, bytes.length - 4);
+          ds = new DecompressionStream("deflate");
+        }
         writer = ds.writable.getWriter();
         await writer.write(bytes);
         await writer.close();
@@ -240,7 +263,7 @@
       for (const f of fields)
         card[f] = source[f] || "";
       card.alternate_greetings = Array.isArray(source.alternate_greetings) ? [...source.alternate_greetings] : [];
-      card.tags = Array.isArray(source.tags) ? [...source.tags] : [];
+      card.tags = Array.isArray(source.tags) ? source.tags.filter((t) => t != null && t !== "").map((t) => String(t).trim()).filter(Boolean) : [];
       card.character_book = source.character_book ? JSON.parse(JSON.stringify(source.character_book)) : { entries: [] };
       card.extensions = source.extensions ? JSON.parse(JSON.stringify(source.extensions)) : {};
       if (!card.character_book || !Array.isArray(card.character_book.entries)) {
@@ -301,6 +324,17 @@
       };
       card._fileSize = JSON.stringify(card).length;
       return card;
+    },
+    computeFileSize(card) {
+      const jsonChars = JSON.stringify(this.toJSON(card || {})).length;
+      const b64 = card && card._imageBase64;
+      let imageBytes = 0;
+      if (typeof b64 === "string") {
+        const comma = b64.indexOf(",");
+        if (comma >= 0)
+          imageBytes = Math.round((b64.length - comma - 1) * 3 / 4);
+      }
+      return jsonChars + imageBytes;
     },
     toJSON(card) {
       return JSON.stringify({
@@ -398,10 +432,20 @@ ${value}`).join(`
             canvas.width = w;
             canvas.height = h;
             ctx.drawImage(img, 0, 0, w, h);
+            let needsAlpha = false;
+            try {
+              const pixels = ctx.getImageData(0, 0, w, h).data;
+              for (let i = 3;i < pixels.length; i += 4) {
+                if (pixels[i] < 255) {
+                  needsAlpha = true;
+                  break;
+                }
+              }
+            } catch (_) {}
             img.removeAttribute("src");
             img.onload = null;
             img.onerror = null;
-            resolve(canvas.toDataURL("image/jpeg", this.THUMBNAIL_JPEG_QUALITY));
+            resolve(needsAlpha ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", this.THUMBNAIL_JPEG_QUALITY));
           } catch (_) {
             img.removeAttribute("src");
             img.onload = null;
@@ -612,7 +656,11 @@ ${value}`).join(`
       return CardStorage.getProviderKey(this._provider);
     },
     _resolveModel(model) {
-      return model || CardStorage.getCustomModelId() || "";
+      if (model)
+        return model;
+      if (this._provider === "custom")
+        return CardStorage.getCustomModelId() || "";
+      return CardStorage.getProviderModelId(this._provider) || "";
     },
     async setApiKey(key) {
       this._apiKey = key;
@@ -712,7 +760,9 @@ ${value}`).join(`
         throw new Error(I18n.t ? I18n.t("error.customUnreachable", { url: apiBaseUrl }) : "Cannot reach " + apiBaseUrl + ". Check the URL and that the server is running.");
       }
       if (resp.status === 404) {
-        const alternateUrl = apiBaseUrl.slice(0, -3) + "/models";
+        const pathname = apiBaseUrl.split("?")[0].split("#")[0].replace(/\/+$/, "");
+        const alternateBase = pathname.endsWith("/v1") ? pathname.slice(0, -3) : pathname;
+        const alternateUrl = alternateBase + "/models";
         try {
           resp = await fetch(alternateUrl, {
             headers,
@@ -831,7 +881,12 @@ ${value}`).join(`
       return messages;
     },
     _v1BaseUrl(baseUrl) {
-      return baseUrl.endsWith("/v1") ? baseUrl : baseUrl + "/v1";
+      const url = String(baseUrl || "").trim();
+      const path = url.split("?")[0].split("#")[0].replace(/\/+$/, "");
+      const lastSegment = path.split("/").pop() || "";
+      if (/^v\d/.test(lastSegment))
+        return url.replace(/\/+$/, "");
+      return url.replace(/\/+$/, "") + "/v1";
     },
     _withTimeout(signal) {
       const timeout = AbortSignal.timeout(120000);
@@ -973,6 +1028,45 @@ ${value}`).join(`
       let usage = null;
       let eventType = "";
       let streamDone = false;
+      const handleLine = (line) => {
+        const trimmed = line.trim();
+        if (!trimmed)
+          return false;
+        if (trimmed.startsWith("event: ")) {
+          eventType = trimmed.slice(7).trim();
+          return false;
+        }
+        if (trimmed.startsWith(":"))
+          return false;
+        if (!trimmed.startsWith("data: "))
+          return false;
+        const data = trimmed.slice(6).trim();
+        if (data === "[DONE]") {
+          eventType = "";
+          return true;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) {
+            full += delta;
+            onChunk(full, delta);
+          }
+          if (parsed.usage)
+            usage = parsed.usage;
+          if (eventType === "error") {
+            const msg = parsed.error?.message || parsed.detail || data;
+            throw new Error(msg);
+          }
+        } catch (e) {
+          if (e instanceof SyntaxError) {
+            console.warn("aiService: dropped unparseable SSE chunk:", data);
+          } else {
+            throw e;
+          }
+        }
+        return false;
+      };
       try {
         let bufferStr = "";
         while (!streamDone) {
@@ -984,44 +1078,14 @@ ${value}`).join(`
 `);
           bufferStr = lines.pop();
           for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed)
-              continue;
-            if (trimmed.startsWith("event: ")) {
-              eventType = trimmed.slice(7).trim();
-              continue;
-            }
-            if (trimmed.startsWith(":"))
-              continue;
-            if (!trimmed.startsWith("data: "))
-              continue;
-            const data = trimmed.slice(6).trim();
-            if (data === "[DONE]") {
-              eventType = "";
+            if (handleLine(line)) {
               streamDone = true;
               break;
             }
-            try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta?.content;
-              if (delta) {
-                full += delta;
-                onChunk(full, delta);
-              }
-              if (parsed.usage)
-                usage = parsed.usage;
-              if (eventType === "error") {
-                const msg = parsed.error?.message || parsed.detail || data;
-                throw new Error(msg);
-              }
-            } catch (e) {
-              if (e instanceof SyntaxError) {
-                console.warn("aiService: dropped unparseable SSE chunk:", data);
-              } else {
-                throw e;
-              }
-            }
           }
+        }
+        if (!streamDone && bufferStr) {
+          handleLine(bufferStr);
         }
       } finally {
         reader.cancel().catch(() => {});
@@ -1050,8 +1114,7 @@ ${value}`).join(`
       }
       if (!inputTokens && messages?.length) {
         inputTokens = (messages || []).reduce((sum, m) => {
-          const quick = window.Tokenizer && typeof window.Tokenizer.quickCount === "function" ? window.Tokenizer.quickCount(m.content || "") : Math.ceil((m.content || "").length / 3);
-          return sum + quick;
+          return sum + Tokenizer.syncCount(m.content || "");
         }, 0);
       }
       const safetyMargin = Math.max(512, Math.floor(ctxLength * 0.05));
@@ -1173,6 +1236,7 @@ ${value}`).join(`
       customApiUrl: "customApiUrl",
       customApiKey: "customApiKey",
       customModelId: "customModelId",
+      providerModelIds: "providerModelIds",
       providerApiKeys: "providerApiKeys",
       darkAccent: "darkAccent",
       lightAccent: "lightAccent",
@@ -1457,6 +1521,48 @@ ${value}`).join(`
     setCustomModelId(id) {
       localStorage.setItem(this.PREFIX + this._keys.customModelId, id);
     },
+    getProviderModelId(provider) {
+      if (!provider)
+        return "";
+      try {
+        const raw = localStorage.getItem(this.PREFIX + this._keys.providerModelIds);
+        const map = raw ? JSON.parse(raw) : {};
+        return map && typeof map === "object" && map[provider] || "";
+      } catch {
+        return "";
+      }
+    },
+    setProviderModelId(provider, id) {
+      if (!provider)
+        return;
+      try {
+        const raw = localStorage.getItem(this.PREFIX + this._keys.providerModelIds);
+        const map = raw ? JSON.parse(raw) : {};
+        if (map && typeof map === "object") {
+          if (id)
+            map[provider] = id;
+          else
+            delete map[provider];
+          localStorage.setItem(this.PREFIX + this._keys.providerModelIds, JSON.stringify(map));
+        }
+      } catch (_) {}
+    },
+    getAllProviderModelIds() {
+      try {
+        const raw = localStorage.getItem(this.PREFIX + this._keys.providerModelIds);
+        const map = raw ? JSON.parse(raw) : {};
+        if (!map || typeof map !== "object")
+          return {};
+        const out = {};
+        for (const [prov, id] of Object.entries(map)) {
+          if (prov && id)
+            out[prov] = id;
+        }
+        return out;
+      } catch {
+        return {};
+      }
+    },
     setInjectCopyright(val) {
       localStorage.setItem(this.PREFIX + this._keys.injectCopyright, String(val));
     },
@@ -1486,8 +1592,7 @@ ${value}`).join(`
         localStorage.removeItem(this.PREFIX + "cards");
         this._migrationDone = true;
       } catch (e) {
-        console.error("Migration failed:", e);
-        this._migrationDone = true;
+        console.error("Migration failed (will retry on next load):", e);
       }
     },
     async migrateCardsToIndexedDB() {
@@ -1799,9 +1904,9 @@ ${value}`).join(`
       try {
         let pngBytes = null;
         if (activeCard._imageBase64) {
-          pngBytes = await this.imageBase64ToPNGBytes(activeCard._imageBase64);
+          pngBytes = this._dataUrlToBytes(activeCard._imageBase64);
           if (!pngBytes) {
-            pngBytes = this._dataUrlToBytes(activeCard._imageBase64);
+            pngBytes = await this.imageBase64ToPNGBytes(activeCard._imageBase64);
           }
         }
         if (!pngBytes) {
@@ -2147,7 +2252,7 @@ ${value}`).join(`
       Ui.showToast(I18n.t("toast.redo") + ": " + entry.field, "info");
     },
     populateEditor(card) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       function safeStyle(id, displayVal) {
         const el = $(id);
         if (el)
@@ -2231,7 +2336,7 @@ ${value}`).join(`
       window.Ui.updateUIState();
     },
     _captureFields(activeCard) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       activeCard.name = $("#editName").value.trim();
       activeCard.description = $("#editDescription").value;
       activeCard.personality = $("#editPersonality").value;
@@ -2245,27 +2350,7 @@ ${value}`).join(`
       activeCard.creator = $("#editCreator").value.trim();
       activeCard.character_version = $("#editVersion").value.trim();
       activeCard.tags = $("#editTags").value.split(/[,，\n]/).map((s) => s.trim()).filter(Boolean);
-      activeCard._fileSize = JSON.stringify({
-        spec: activeCard.spec || "chara_card_v2",
-        spec_version: activeCard.spec_version || "2.0",
-        data: {
-          name: activeCard.name || "",
-          description: activeCard.description || "",
-          personality: activeCard.personality || "",
-          scenario: activeCard.scenario || "",
-          first_mes: activeCard.first_mes || "",
-          mes_example: activeCard.mes_example || "",
-          creator_notes: activeCard.creator_notes || "",
-          system_prompt: activeCard.system_prompt || "",
-          post_history_instructions: activeCard.post_history_instructions || "",
-          alternate_greetings: activeCard.alternate_greetings || [],
-          tags: activeCard.tags || [],
-          creator: activeCard.creator || "",
-          character_version: activeCard.character_version || "",
-          character_book: activeCard.character_book || { entries: [] },
-          extensions: activeCard.extensions || {}
-        }
-      }).length;
+      activeCard._fileSize = CardEngine.computeFileSize(activeCard);
     },
     async syncEditorToCard() {
       const { activeCard } = window.AppState;
@@ -2315,12 +2400,12 @@ ${value}`).join(`
       window.AppState._dirty = true;
     },
     showEditor() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       $("#noCardSelected").classList.add("d-none");
       $("#editorContainer").classList.remove("d-none");
     },
     async setAvatar(file) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const { activeCard } = window.AppState;
       if (!activeCard) {
         Ui.showToast(I18n.t("toast.selectCard"), "warning");
@@ -2348,7 +2433,7 @@ ${value}`).join(`
       }
     },
     hideEditor() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       $("#noCardSelected").classList.remove("d-none");
       $("#editorContainer").classList.add("d-none");
     },
@@ -2390,7 +2475,7 @@ ${value}`).join(`
         countEl.classList.add("field-counter");
         countEl.classList.remove("is-warn", "is-danger");
         const len = (el.value || "").length;
-        const tokens = typeof Tokenizer !== "undefined" && Tokenizer.quickCount ? Tokenizer.quickCount(el.value || "") : Math.ceil(len / 3);
+        const tokens = Tokenizer.syncCount(el.value || "");
         countEl.textContent = I18n.t ? I18n.t("editor.charCount", { chars: len, tokens }) : len + " chars ~" + tokens + " tokens";
         if (maxTokens > 0) {
           if (tokens > maxTokens) {
@@ -2405,7 +2490,7 @@ ${value}`).join(`
       this._updateCardTokenTotal();
     },
     renderGreetings(card) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const container = $("#greetingsList");
       const count = $("#greetingCount");
       const greetings = card.alternate_greetings || [];
@@ -2495,7 +2580,7 @@ ${value}`).join(`
       const { activeCard } = window.AppState;
       if (!activeCard)
         return;
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const greetings = [];
       const list = $("#greetingsList");
       if (list) {
@@ -2509,7 +2594,7 @@ ${value}`).join(`
       const { activeCard } = window.AppState;
       if (!activeCard)
         return;
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       if (!activeCard.alternate_greetings)
         activeCard.alternate_greetings = [];
       activeCard.alternate_greetings.push("");
@@ -2581,7 +2666,7 @@ ${value}`).join(`
           continue;
         const v = el.value || "";
         chars += v.length;
-        tokens += typeof Tokenizer !== "undefined" && Tokenizer.quickCount ? Tokenizer.quickCount(v) : Math.ceil(v.length / 3);
+        tokens += Tokenizer.syncCount(v);
       }
       const extra = [];
       const extEl = document.querySelector("#editExtensions");
@@ -2595,7 +2680,7 @@ ${value}`).join(`
         lb.querySelectorAll("textarea[data-lore-idx]").forEach((ta) => extra.push(ta.value || ""));
       for (const v of extra) {
         chars += v.length;
-        tokens += typeof Tokenizer !== "undefined" && Tokenizer.quickCount ? Tokenizer.quickCount(v) : Math.ceil(v.length / 3);
+        tokens += Tokenizer.syncCount(v);
       }
       return { chars, tokens };
     },
@@ -2611,8 +2696,13 @@ ${value}`).join(`
       el.classList.toggle("is-warn", maxTokens > 0 && tokens > maxTokens);
       el.title = "";
     },
+    _lorebookEntryMatches(entry, query) {
+      const toStr = (v) => Array.isArray(v) ? v.join(" ") : v == null ? "" : String(v);
+      const q = query.toLowerCase();
+      return toStr(entry && entry.key).toLowerCase().includes(q) || toStr(entry && entry.keysecondary).toLowerCase().includes(q) || toStr(entry && entry.content).toLowerCase().includes(q) || toStr(entry && entry.comment).toLowerCase().includes(q);
+    },
     renderLorebook(card) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const container = $("#lorebookEntries");
       const entries = (card.character_book?.entries || []).map((e) => {
         if (!e || typeof e !== "object") {
@@ -2635,13 +2725,7 @@ ${value}`).join(`
       }
       let filteredEntries = entries.map((entry, idx) => ({ entry, idx }));
       if (searchQuery) {
-        filteredEntries = filteredEntries.filter(({ entry }) => {
-          const keyStr = (entry.key || "").toLowerCase();
-          const secStr = (entry.keysecondary || []).join(" ").toLowerCase();
-          const contentStr = (entry.content || "").toLowerCase();
-          const commentStr = (entry.comment || "").toLowerCase();
-          return keyStr.includes(searchQuery) || secStr.includes(searchQuery) || contentStr.includes(searchQuery) || commentStr.includes(searchQuery);
-        });
+        filteredEntries = filteredEntries.filter(({ entry }) => this._lorebookEntryMatches(entry, searchQuery));
       }
       if (filteredEntries.length === 0) {
         container.innerHTML = '<div class="text-muted text-center py-3">' + (I18n.t ? I18n.t("editor.noEntriesMatch", { query: Ui.escapeHtml(searchQuery) }) : 'No entries match "' + Ui.escapeHtml(searchQuery) + '"') + "</div>";
@@ -2887,6 +2971,7 @@ ${value}`).join(`
     },
     _cardListBound: false,
     _cardSignature(card) {
+      const tags = (card.tags || []).map((t) => String(t == null ? "" : t).trim().toLowerCase()).filter(Boolean);
       return JSON.stringify([
         card.spec_version || "",
         (card.description || "").trim(),
@@ -2898,8 +2983,11 @@ ${value}`).join(`
         (card.system_prompt || "").trim(),
         (card.post_history_instructions || "").trim(),
         (card.character_version || "").trim(),
-        (card.tags || []).join("|").toLowerCase()
+        tags.join("|")
       ]);
+    },
+    _tagSet(card) {
+      return new Set((card.tags || []).map((t) => String(t == null ? "" : t).trim().toLowerCase()).filter(Boolean));
     },
     _searchQuery: "",
     _selectedIds: new Set,
@@ -3143,7 +3231,7 @@ ${value}`).join(`
       });
     },
     renderCardList() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const { cards, activeCard } = window.AppState;
       const container = $("#cardList");
       const emptyState = $("#emptyState");
@@ -3159,11 +3247,11 @@ ${value}`).join(`
       let filtered = cards;
       if (this._searchQuery) {
         const q = this._searchQuery.toLowerCase();
-        filtered = cards.filter((c) => (c.name || "").toLowerCase().includes(q) || (c.creator || "").toLowerCase().includes(q) || (c.tags || []).some((t) => t.toLowerCase().includes(q)));
+        filtered = cards.filter((c) => (c.name || "").toLowerCase().includes(q) || (c.creator || "").toLowerCase().includes(q) || [...this._tagSet(c)].some((t) => t.includes(q)));
       }
       if (this._activeTagFilters.size > 0) {
         filtered = filtered.filter((c) => {
-          const cardTags = new Set((c.tags || []).map((t) => t.toLowerCase()));
+          const cardTags = this._tagSet(c);
           for (const filter of this._activeTagFilters) {
             if (!cardTags.has(filter.toLowerCase()))
               return false;
@@ -3338,6 +3426,8 @@ ${value}`).join(`
         return;
       window.AppState.activeCard = fullCard;
       CardStorage.setActiveCardId(fullCard._id);
+      AiChat._resetApplyQueue();
+      AiChat._currentSessionId = null;
       try {
         const b64 = await CardStorage.getImage(fullCard._id);
         if (b64)
@@ -3345,7 +3435,8 @@ ${value}`).join(`
       } catch (e) {
         console.error("Failed to load image from IndexedDB:", e);
       }
-      window.AppState.chatHistory = CardStorage.getChatHistory(fullCard._id);
+      const cardHistory = CardStorage.getChatHistory(fullCard._id);
+      window.AppState.chatHistory = cardHistory;
       const sessions = CardStorage.getChatSessions(fullCard._id);
       if (sessions.length > 0) {
         const latestSession = sessions[0];
@@ -3355,10 +3446,8 @@ ${value}`).join(`
           AiChat._currentSessionId = latestSession.id;
         } else {
           AiChat._currentSessionId = latestSession.id;
-          CardStorage.saveSessionMessages(fullCard._id, latestSession.id, window.AppState.chatHistory);
+          CardStorage.saveSessionMessages(fullCard._id, latestSession.id, cardHistory);
         }
-      } else {
-        AiChat._currentSessionId = null;
       }
       AiChat._historyRendered = false;
       AiChat.renderChatHistory();
@@ -3522,6 +3611,7 @@ ${value}`).join(`
     _applyIndex: 0,
     _currentSessionId: null,
     _gen: 0,
+    _contextBarGen: 0,
     MAX_PARALLEL_FIELDS: 20,
     FIELD_DEFS: [
       { id: "description", labelKey: "ai.target.description", icon: "bi-card-text" },
@@ -3535,7 +3625,7 @@ ${value}`).join(`
       { id: "creator_notes", labelKey: "ai.target.creator_notes", icon: "bi-pencil" }
     ],
     _renderFieldChips() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const container = $("#aiFieldChips");
       if (!container)
         return;
@@ -3585,7 +3675,7 @@ ${value}`).join(`
       return [...this._selectedFields];
     },
     send(retryPrompt) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const input = $("#aiInput");
       const prompt = retryPrompt || input.value.trim();
       const { activeCard } = window.AppState;
@@ -3746,7 +3836,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
 `);
     },
     _createGroupedCard(fields) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const container = $("#aiChatMessages");
       const welcome = container.querySelector(".ai-welcome");
       if (welcome)
@@ -3819,7 +3909,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       }
     },
     _showResultModal(field, content) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const fieldLabel = I18n.t ? I18n.t(this.FIELD_DEFS.find((d) => d.id === field)?.labelKey || field) : field;
       const modalEl = $("#aiResultModal");
       if (!modalEl)
@@ -3880,6 +3970,12 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       this._abortControllers.forEach((c) => c.abort());
       this._abortControllers = [];
     },
+    _resetApplyQueue() {
+      this._applyQueue = [];
+      this._applyIndex = 0;
+      this._applyElMap = new WeakMap;
+      this._applyStore.clear();
+    },
     _releaseController(controller) {
       const idx = this._abortControllers.indexOf(controller);
       if (idx >= 0)
@@ -3893,7 +3989,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
     },
     _sendFullCard(prompt, opts) {
       opts = opts || {};
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const { activeCard } = window.AppState;
       if (window.AppState.isAiLoading)
         return;
@@ -3952,7 +4048,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         let liveCount = 0;
         if (lastOut) {
           try {
-            liveCount = window.Tokenizer && typeof window.Tokenizer.quickCount === "function" ? window.Tokenizer.quickCount(lastOut) : Math.ceil(lastOut.length / 3);
+            liveCount = Tokenizer.syncCount(lastOut);
           } catch (_) {
             liveCount = Math.ceil(lastOut.length / 3);
           }
@@ -4076,7 +4172,15 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
             oldVal: CardEngine.toJSON(activeCard),
             newVal: CardEngine.toJSON(parsed),
             applyFn: () => {
-              const internal = { _id: activeCard._id, _filename: activeCard._filename, _hasImage: activeCard._hasImage, _imageBase64: activeCard._imageBase64, _thumbnail: activeCard._thumbnail };
+              const internal = {
+                _id: activeCard._id,
+                _filename: activeCard._filename,
+                _hasImage: activeCard._hasImage,
+                _imageBase64: activeCard._imageBase64,
+                _thumbnail: activeCard._thumbnail,
+                _createdAt: activeCard._createdAt,
+                _fileSize: activeCard._fileSize
+              };
               Object.assign(activeCard, parsed);
               Object.assign(activeCard, internal);
               Editor.populateEditor(activeCard);
@@ -4361,7 +4465,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       return null;
     },
     async handleQuickAction(action) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const { activeCard } = window.AppState;
       if (action === "newcard") {
         Wizard.show();
@@ -4476,7 +4580,7 @@ Current:
       this.send();
     },
     addChatMessage(role, content, usage, applyData, historyIndex) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const container = $("#aiChatMessages");
       const welcome = container.querySelector(".ai-welcome");
       if (welcome)
@@ -4567,7 +4671,7 @@ Current:
         const cardId = window.AppState.activeCard?._id || "global";
         CardStorage.saveSessionMessages(cardId, this._currentSessionId, chatHistory);
       }
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const container = $("#aiChatMessages");
       const allMsgs = container.querySelectorAll(".ai-message");
       let removedDom = 0;
@@ -4595,7 +4699,7 @@ Current:
       this.send(lastUserPrompt);
     },
     createStreamingMessage() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const container = $("#aiChatMessages");
       const welcome = container.querySelector(".ai-welcome");
       if (welcome)
@@ -4612,7 +4716,7 @@ Current:
       if (this._historyRendered)
         return;
       const { chatHistory } = window.AppState;
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const container = $("#aiChatMessages");
       if (chatHistory.length === 0) {
         this._historyRendered = true;
@@ -4655,7 +4759,7 @@ Current:
       }
     },
     _renderHistoryList() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const list = $("#aiHistoryList");
       if (!list)
         return;
@@ -4678,7 +4782,7 @@ Current:
       });
     },
     _showWelcome() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const container = $("#aiChatMessages");
       if (!container)
         return;
@@ -4699,8 +4803,8 @@ Current:
       window.AppState.chatHistory = sessionMessages;
       this._currentSessionId = sessionId;
       this._historyRendered = false;
-      this._applyStore.clear();
-      const $ = (sel) => document.querySelector(sel);
+      this._resetApplyQueue();
+      const $ = Ui.$;
       const container = $("#aiChatMessages");
       if (container)
         container.innerHTML = "";
@@ -4716,7 +4820,7 @@ Current:
         item.classList.add("active");
     },
     toggleHistory(forceState) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const panel = $("#aiHistoryPanel");
       const messages = $("#aiChatMessages");
       const inputArea = $(".ai-input-area");
@@ -4750,7 +4854,7 @@ Current:
       Ui.showToast(I18n.t("toast.chatCleared"), "info");
     },
     updateSendButton() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const btn = $("#btnAiSend");
       const stop = $("#btnAiStop");
       if (!btn)
@@ -4761,7 +4865,7 @@ Current:
         stop.classList.toggle("d-none", !window.AppState.isAiLoading);
     },
     async updateContextBar() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const bar = $("#contextBarFill");
       const label = $("#contextBarLabel");
       if (!bar || !label)
@@ -4773,6 +4877,7 @@ Current:
       const modelId = modelSelect.value;
       const prompt = input.value || "";
       const { activeCard } = window.AppState;
+      const gen = ++this._contextBarGen;
       if (!modelId) {
         bar.style.width = "0%";
         bar.classList.remove("warn", "danger");
@@ -4805,12 +4910,12 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       } catch (_) {
         inputTokens = 0;
       }
+      if (gen !== this._contextBarGen)
+        return;
       if (!inputTokens) {
-        inputTokens = window.Tokenizer && typeof window.Tokenizer.quickCount === "function" ? window.Tokenizer.quickCount(inputText + `
+        inputTokens = Tokenizer.syncCount(inputText + `
 ` + historyText + `
-` + prompt) : Math.ceil((inputText + `
-` + historyText + `
-` + prompt).length / 3);
+` + prompt);
       }
       const modelData = (window.AppState.models || []).find((m) => m.id === modelId);
       const modelMaxOut = modelData && modelData.max_output_tokens > 0 ? modelData.max_output_tokens : AIService.DEFAULT_MAX_TOKENS;
@@ -4819,6 +4924,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       const historyMsgs = history.map((m) => ({ role: m.role, content: m.content || "" }));
       const allMessages = [{ role: "system", content: inputText }, ...historyMsgs, { role: "user", content: prompt }];
       const resolvedMax = await AIService.resolveMaxTokens(modelId, allMessages);
+      if (gen !== this._contextBarGen)
+        return;
       const actualMaxOut = Math.min(outputCap, resolvedMax);
       const total = inputTokens + actualMaxOut;
       const ratio = ctx > 0 ? total / ctx : 0;
@@ -5489,6 +5596,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
               throw new Error("No image for tags: " + slotTags.join(", "));
             const item = items[Math.floor(Math.random() * items.length)];
             const imgResp = await fetch(item.url);
+            if (!imgResp.ok)
+              throw new Error("Image fetch failed: " + imgResp.status);
             const blob = await imgResp.blob();
             const objUrl = URL.createObjectURL(blob);
             this._fetchedImages[i] = {
@@ -5801,10 +5910,10 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       this._refreshPreview();
       this._render();
     },
-    _onSourceChange() {
+    _onSourceChange(mode) {
       const select = document.querySelector("#waifuSourceSelect");
       this._source = select ? select.value : "snapshot";
-      this._mode = "source";
+      this._mode = mode || "source";
       const isChar = this._source === "character";
       const genderWrap = document.querySelector("#waifuGenderWrap");
       if (genderWrap)
@@ -6063,7 +6172,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       this._source = "character";
       this._gender = "all";
       this._mode = "mixed";
-      this._onSourceChange();
+      this._onSourceChange("mixed");
       this._syncGenderChips();
       this._runFetch({ mode: "mixed", search: this._searchValue() }, document.querySelector("#waifuBtnMixed"));
     },
@@ -6215,8 +6324,25 @@ Respond with ONLY a valid JSON array of greeting strings. No explanations, no ma
 Example response format: ["Greeting one...", "Greeting two...", "Greeting three..."]
 Each greeting should be an in-character opening message that could start a conversation with {{user}}.`
     },
+    _currentModelId(provider) {
+      const p = provider || CardStorage.getProvider() || "openrouter";
+      if (p === "openrouter")
+        return CardStorage.getDefaultModel() || "";
+      if (p === "custom")
+        return CardStorage.getCustomModelId() || "";
+      return CardStorage.getProviderModelId(p) || "";
+    },
+    _setCurrentModelId(modelId, provider) {
+      const p = provider || CardStorage.getProvider() || "openrouter";
+      if (p === "openrouter")
+        CardStorage.setDefaultModel(modelId || "");
+      else if (p === "custom")
+        CardStorage.setCustomModelId(modelId || "");
+      else
+        CardStorage.setProviderModelId(p, modelId || "");
+    },
     async saveSettings(modal) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const provider = $("#providerSelect").value;
       const apiKey = $("#apiKeyInput").value.trim();
       const defaultModel = $("#defaultModelSelect").value;
@@ -6229,7 +6355,7 @@ Each greeting should be an in-character opening message that could start a conve
       if (provider === "openrouter") {
         await CardStorage.setApiKey(apiKey);
         AIService.setProvider("openrouter", apiKey);
-        CardStorage.setDefaultModel(defaultModel);
+        this._setCurrentModelId(defaultModel);
         $("#aiModelSelect").value = defaultModel;
       } else {
         const isCustom = provider === "custom";
@@ -6240,9 +6366,8 @@ Each greeting should be an in-character opening message that could start a conve
         } else {
           await CardStorage.setProviderKey(provider, customApiKey);
         }
-        CardStorage.setCustomModelId(customModelId);
+        this._setCurrentModelId(customModelId);
         AIService.setProvider(provider, customApiKey);
-        CardStorage.setDefaultModel(customModelId);
         $("#aiModelSelect").value = customModelId;
       }
       CardStorage.setMaxTokens(maxTokens);
@@ -6275,7 +6400,7 @@ Each greeting should be an in-character opening message that could start a conve
         this.refreshModelsList();
     },
     toggleApiKeyVisibility() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const input = $("#apiKeyInput");
       const icon = $("#btnToggleApiKey i");
       if (input.type === "password") {
@@ -6287,7 +6412,7 @@ Each greeting should be an in-character opening message that could start a conve
       }
     },
     toggleNamedApiKeyVisibility() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const input = $("#namedApiKeyInput");
       const icon = $("#btnToggleNamedApiKey i");
       if (input.type === "password") {
@@ -6299,7 +6424,7 @@ Each greeting should be an in-character opening message that could start a conve
       }
     },
     toggleProvider() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const provider = $("#providerSelect").value;
       const isOpenRouter = provider === "openrouter";
       const isCustom = provider === "custom";
@@ -6412,7 +6537,7 @@ Each greeting should be an in-character opening message that could start a conve
       root.style.setProperty("--vignette-opacity", CardStorage.getVignette() ? "1" : "0");
     },
     syncAppearanceControls() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const density = $("#glassDensitySelect");
       if (density)
         density.value = CardStorage.getGlassDensity();
@@ -6424,7 +6549,7 @@ Each greeting should be an in-character opening message that could start a conve
         vignette.checked = CardStorage.getVignette();
     },
     async openSettings() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       await CardStorage._unlockKeys();
       const provider = CardStorage.getProvider() || "openrouter";
       $("#providerSelect").value = provider;
@@ -6432,7 +6557,7 @@ Each greeting should be an in-character opening message that could start a conve
       $("#namedApiKeyInput").value = provider === "custom" ? "" : CardStorage.getProviderKey(provider);
       $("#customApiKeyInput").value = CardStorage.getCustomApiKey();
       $("#customApiUrlInput").value = CardStorage.getCustomApiUrl();
-      $("#customModelInput").value = CardStorage.getCustomModelId();
+      $("#customModelInput").value = provider === "custom" ? CardStorage.getCustomModelId() : CardStorage.getProviderModelId(provider);
       $("#maxTokensInput").value = CardStorage.getMaxTokens() || "";
       $("#injectCopyrightToggle").checked = CardStorage.getInjectCopyright();
       this.toggleProvider();
@@ -6445,7 +6570,7 @@ Each greeting should be an in-character opening message that could start a conve
       });
     },
     async refreshCredits() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       if (CardStorage.getProvider() !== "openrouter") {
         this.updateStorageUsage();
         return;
@@ -6468,7 +6593,7 @@ Each greeting should be an in-character opening message that could start a conve
       this.updateStorageUsage();
     },
     async refreshModelsList() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const modalEl = $("#settingsModal");
       const modalOpen = modalEl && modalEl.classList.contains("show");
       const provider = modalOpen ? $("#providerSelect").value : CardStorage.getProvider();
@@ -6507,8 +6632,8 @@ Each greeting should be an in-character opening message that could start a conve
       }
     },
     populateModelSelects() {
-      const $ = (sel) => document.querySelector(sel);
-      const d = CardStorage.getDefaultModel();
+      const $ = Ui.$;
+      const d = this._currentModelId($("#providerSelect") ? $("#providerSelect").value : null);
       const sorted = [...window.AppState.models].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: "base" }));
       let h = sorted.map((m) => '<option value="' + Ui.escapeAttr(m.id) + '"' + (m.id === d ? " selected" : "") + ">" + Ui.escapeHtml(m.name) + (m.is_free ? " [" + I18n.t("gen.free") + "]" : "") + "</option>").join("");
       if (d && !window.AppState.models.some((m) => m.id === d)) {
@@ -6520,7 +6645,7 @@ Each greeting should be an in-character opening message that could start a conve
     _modelPageSize: 50,
     _modelPage: 1,
     renderModelList(filter, resetPage) {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       filter = (filter || "").toLowerCase();
       if (resetPage)
         this._modelPage = 1;
@@ -6536,7 +6661,7 @@ Each greeting should be an in-character opening message that could start a conve
         container.innerHTML = '<div class="text-center text-muted py-4">' + I18n.t("settings.noModels") + "</div>";
         return;
       }
-      const d = CardStorage.getDefaultModel();
+      const d = this._currentModelId();
       const end = this._modelPage * this._modelPageSize;
       const shown = filtered.slice(0, end);
       const hasMore = end < filtered.length;
@@ -6547,7 +6672,7 @@ Each greeting should be an in-character opening message that could start a conve
         item.addEventListener("click", () => {
           $("#defaultModelSelect").value = item.dataset.modelId;
           $("#aiModelSelect").value = item.dataset.modelId;
-          CardStorage.setDefaultModel(item.dataset.modelId);
+          self._setCurrentModelId(item.dataset.modelId);
           self.renderModelList(filter);
           Ui.showToast(I18n.t("toast.modelSet", { model: item.dataset.modelId }), "info");
         });
@@ -6560,11 +6685,11 @@ Each greeting should be an in-character opening message that could start a conve
         });
     },
     filterModels() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       this.renderModelList($("#modelSearch").value, true);
     },
     async updateStorageUsage() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const bytes = await CardStorage.getUsageEstimate();
       const kb = (bytes / 1024).toFixed(1);
       const mb = (bytes / (1024 * 1024)).toFixed(2);
@@ -6572,7 +6697,7 @@ Each greeting should be an in-character opening message that could start a conve
       $("#storageUsage").textContent = parseFloat(gb) >= 1 ? gb + " GB" : parseFloat(kb) > 1000 ? mb + " MB" : kb + " KB";
     },
     async confirmClearStorage() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       if (!await Ui.confirm({
         title: I18n.t ? I18n.t("settings.clearTitle") : "Clear all data?",
         message: I18n.t ? I18n.t("settings.clearConfirm") : "Delete ALL cards, settings, and chat history? This cannot be undone.",
@@ -6584,6 +6709,10 @@ Each greeting should be an in-character opening message that could start a conve
       window.AppState.activeCard = null;
       window.AppState.chatHistory = [];
       window.AppState.models = [];
+      AiChat.clearChat();
+      try {
+        sessionStorage.removeItem("stce_wizard_draft");
+      } catch (_) {}
       AIService.setProvider("openrouter");
       $("#apiKeyInput").value = "";
       $("#providerSelect").value = "openrouter";
@@ -6608,13 +6737,14 @@ Each greeting should be an in-character opening message that could start a conve
         maxTokens: CardStorage.getMaxTokens(),
         injectCopyright: CardStorage.getInjectCopyright(),
         customApiUrl: CardStorage.getCustomApiUrl(),
-        customModelId: CardStorage.getCustomModelId()
+        customModelId: CardStorage.getCustomModelId(),
+        providerModelIds: CardStorage.getAllProviderModelIds ? CardStorage.getAllProviderModelIds() : undefined
       };
       Ui.downloadFile("st-card-editor-settings.json", JSON.stringify(settings, null, 2), "application/json");
       Ui.showToast(I18n.t("toast.settingsExported"), "success");
     },
     importSettings() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const input = document.querySelector("#settingsFileInput");
       input.onchange = (e) => {
         const file = e.target.files[0];
@@ -6629,7 +6759,7 @@ Each greeting should be an in-character opening message that could start a conve
               $("#providerSelect").value = settings.provider;
               this.toggleProvider();
             }
-            if (settings.defaultModel) {
+            if (settings.defaultModel !== undefined) {
               CardStorage.setDefaultModel(settings.defaultModel);
               $("#defaultModelSelect").value = settings.defaultModel;
               $("#aiModelSelect").value = settings.defaultModel;
@@ -6642,14 +6772,22 @@ Each greeting should be an in-character opening message that could start a conve
               CardStorage.setInjectCopyright(settings.injectCopyright);
               $("#injectCopyrightToggle").checked = settings.injectCopyright;
             }
-            if (settings.customApiUrl) {
+            if (settings.customApiUrl !== undefined) {
               CardStorage.setCustomApiUrl(settings.customApiUrl);
               $("#customApiUrlInput").value = settings.customApiUrl;
             }
-            if (settings.customModelId) {
+            if (settings.customModelId !== undefined) {
               CardStorage.setCustomModelId(settings.customModelId);
               $("#customModelInput").value = settings.customModelId;
             }
+            if (settings.providerModelIds && typeof settings.providerModelIds === "object") {
+              for (const [prov, modelId] of Object.entries(settings.providerModelIds)) {
+                if (modelId)
+                  CardStorage.setProviderModelId(prov, modelId);
+              }
+            }
+            const cur = CardStorage.getProvider();
+            $("#customModelInput").value = cur === "custom" ? CardStorage.getCustomModelId() : CardStorage.getProviderModelId(cur);
             Ui.showToast(I18n.t("toast.settingsImported"), "success");
           } catch (err) {
             Ui.showToast(I18n.t("toast.invalidFile"), "danger");
@@ -6669,7 +6807,7 @@ Each greeting should be an in-character opening message that could start a conve
       Ui.showToast(I18n.t ? I18n.t("settings.promptsExported") : "Prompts exported", "success");
     },
     importPrompts() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const input = document.querySelector("#promptFileInput");
       input.onchange = (e) => {
         const file = e.target.files[0];
@@ -6708,7 +6846,7 @@ Each greeting should be an in-character opening message that could start a conve
       input.click();
     },
     async exportWorkspace() {
-      const $ = (sel) => document.querySelector(sel);
+      const $ = Ui.$;
       const cards = CardStorage.getCards();
       const fullCards = [];
       for (const meta of cards) {
@@ -6798,6 +6936,7 @@ Each greeting should be an in-character opening message that could start a conve
               normalized._hasImage = true;
               normalized._thumbnail = normalized._thumbnail || await CardEngine._createThumbnail(card._imageBase64);
             }
+            normalized._fileSize = CardEngine.computeFileSize(normalized);
             await CardStorage.upsertCard(normalized);
             imported++;
           }
@@ -6832,7 +6971,7 @@ Each greeting should be an in-character opening message that could start a conve
           Settings2.refreshModelsList();
           const modelSel = document.querySelector("#aiModelSelect");
           if (modelSel)
-            modelSel.value = CardStorage.getDefaultModel() || "";
+            modelSel.value = this._currentModelId() || "";
           Ui.showToast(I18n.t ? I18n.t("settings.workspaceImported", { count: imported }) : "Workspace imported (" + imported + " cards)", "success");
         } catch (err) {
           console.error("Workspace import failed:", err);
@@ -23814,15 +23953,18 @@ Each greeting should be an in-character opening message that could start a conve
     getLang() {
       return this._lang;
     },
-    init() {
+    _detectLanguage() {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved && SUPPORTED.includes(saved)) {
-        this._lang = saved;
-      } else {
-        const browserLang = (navigator.language || navigator.userLanguage || "").toLowerCase();
-        const short = browserLang.split("-")[0];
-        this._lang = SUPPORTED.includes(short) ? short : "en";
-      }
+      if (saved && SUPPORTED.includes(saved))
+        return saved;
+      const browserLang = (navigator.language || navigator.userLanguage || "").toLowerCase();
+      if (SUPPORTED.includes(browserLang))
+        return browserLang;
+      const short = browserLang.split("-")[0];
+      return SUPPORTED.includes(short) ? short : "en";
+    },
+    init() {
+      this._lang = this._detectLanguage();
       document.documentElement.lang = this._lang;
       document.documentElement.dir = RTL_LANGS.includes(this._lang) ? "rtl" : "ltr";
       this._applyBootstrapDir();
@@ -23860,6 +24002,9 @@ Each greeting should be an in-character opening message that could start a conve
       this._applyBootstrapDir();
       document.title = this.t("app.title");
       this.translateDOM();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("stce:language-changed", { detail: { lang } }));
+      }
     },
     _applyBootstrapDir() {
       var rtl = RTL_LANGS.includes(this._lang);
@@ -23975,7 +24120,7 @@ Each greeting should be an in-character opening message that could start a conve
       URL.revokeObjectURL(url);
     },
     _openDialog(cfg) {
-      const $ = (sel2) => document.querySelector(sel2);
+      const $ = Ui2.$;
       const modal = this._dialogInstance || (this._dialogInstance = new bootstrap.Modal("#dialogModal"));
       $("#dialogTitle").textContent = cfg.title || "";
       const msg = $("#dialogMsg");
@@ -24129,10 +24274,9 @@ Each greeting should be an in-character opening message that could start a conve
       }
     },
     async _mergePendingRemote(expectedCardId) {
+      const snapshotPromise = this._pendingRemoteSnapshot;
       this._pendingRemoteReload = false;
       this._pendingRemoteCardId = null;
-      const snapshot = this._pendingRemoteSnapshot;
-      const touched = this._pendingRemoteTouched;
       this._pendingRemoteSnapshot = null;
       this._pendingRemoteTouched = null;
       const ac = window.AppState.activeCard;
@@ -24140,8 +24284,19 @@ Each greeting should be an in-character opening message that could start a conve
         return;
       if (expectedCardId && ac._id !== expectedCardId)
         return;
-      if (!snapshot)
+      let snapshot = null;
+      if (snapshotPromise) {
+        try {
+          snapshot = await snapshotPromise;
+        } catch (_) {
+          snapshot = null;
+        }
+        if (!snapshot)
+          return;
+      } else {
         return;
+      }
+      const touched = this._pendingRemoteTouched;
       const id = ac._id;
       const localB64 = ac._imageBase64;
       const merged = JSON.parse(JSON.stringify(ac));
@@ -24187,6 +24342,7 @@ Each greeting should be an in-character opening message that could start a conve
     _pendingRemoteCardId: null,
     _pendingRemoteSnapshot: null,
     _pendingRemoteTouched: null,
+    _pendingBlurCardId: null,
     _markTouchedField(field) {
       if (this._pendingRemoteTouched)
         this._pendingRemoteTouched.add(field);
@@ -24356,7 +24512,6 @@ Each greeting should be an in-character opening message that could start a conve
     window.AppState.cards = CardStorage.getCards();
     window.AppState.chatHistory = [];
     const apiKey = CardStorage.getApiKey();
-    const defaultModel = CardStorage.getDefaultModel();
     const unreadableOpenrouter = CardStorage._secretWarn.apiKey;
     const unreadableCustom = CardStorage._secretWarn.customApiKey;
     if (unreadableOpenrouter || unreadableCustom) {
@@ -24365,20 +24520,9 @@ Each greeting should be an in-character opening message that could start a conve
     if (apiKey) {
       $("#apiKeyInput").value = apiKey;
     }
-    if (defaultModel) {
-      $("#aiModelSelect").value = defaultModel;
-      $("#defaultModelSelect").value = defaultModel;
-    }
     const provider = CardStorage.getProvider();
     const customKey = CardStorage.getCustomApiKey();
     AIService.setProvider(provider, provider === "openrouter" ? apiKey : provider === "custom" ? customKey : CardStorage.getProviderKey(provider));
-    if (provider === "custom") {
-      const customModel = CardStorage.getCustomModelId();
-      if (customModel) {
-        CardStorage.setDefaultModel(customModel);
-        $("#aiModelSelect").value = customModel;
-      }
-    }
     Settings.populateModelSelects();
     const maxTokens = CardStorage.getMaxTokens();
     if (maxTokens > 0)
@@ -24430,6 +24574,17 @@ Each greeting should be an in-character opening message that could start a conve
       }
     });
     window.addEventListener("storage", handleStorageChange);
+    document.addEventListener("focusout", (e) => {
+      if (!Ui2._pendingBlurCardId)
+        return;
+      if (!(e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable)))
+        return;
+      const cardId = Ui2._pendingBlurCardId;
+      Ui2._pendingBlurCardId = null;
+      if (window.AppState.activeCard && window.AppState.activeCard._id === cardId && !window.AppState._dirty) {
+        Ui2._reloadActiveCard(cardId);
+      }
+    });
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./sw.js").catch(() => {});
     }
@@ -24576,6 +24731,15 @@ Each greeting should be an in-character opening message that could start a conve
       I18n.translateDOM();
       Ui2.showToast(I18n.t("settings.languageChanged"), "success");
     });
+    window.addEventListener("stce:language-changed", () => {
+      CardManager.renderCardList();
+      AiChat._renderFieldChips();
+      AiChat.updateContextBar();
+    });
+    window.addEventListener("stce:tokenizer-ready", () => {
+      Editor.updateCharCounts();
+      AiChat.updateContextBar();
+    });
     const themeColorPicker = $("#themeColorPicker");
     const themeColorHex = $("#themeColorHex");
     const applyAccentFromControls = () => {
@@ -24672,7 +24836,7 @@ Each greeting should be an in-character opening message that could start a conve
       const val = $("#aiModelSelect").value;
       if (val) {
         $("#defaultModelSelect").value = val;
-        CardStorage.setDefaultModel(val);
+        Settings._setCurrentModelId(val);
       }
     });
     $("#btnExportJson").addEventListener("click", () => ExportUtils.exportAsJSON());
@@ -24949,7 +25113,7 @@ Each greeting should be an in-character opening message that could start a conve
     const toggle = (side) => setCollapsed(side, !isCollapsed(side));
     setCollapsed("left", (localStorage.getItem(storageKey("left")) || "0") === "1");
     setCollapsed("right", (localStorage.getItem(storageKey("right")) || "0") === "1");
-    const q = (sel) => document.querySelector(sel);
+    const q = Ui2.$;
     const collapseLeft = q("#btnCollapseLeft");
     const collapseRight = q("#btnCollapseRight");
     const expandLeft = q("#edgeExpandLeft");
@@ -25143,14 +25307,16 @@ Each greeting should be an in-character opening message that could start a conve
         Ui2._pendingRemoteReload = true;
         Ui2._pendingRemoteCardId = window.AppState.activeCard._id;
         Ui2._pendingRemoteTouched = new Set;
-        CardStorage.getCard(window.AppState.activeCard._id).then((c) => {
-          if (c && Ui2._pendingRemoteCardId === window.AppState.activeCard._id)
-            Ui2._pendingRemoteSnapshot = c;
-        }).catch((err) => console.error("Failed to snapshot remote card:", err));
+        Ui2._pendingRemoteSnapshot = CardStorage.getCard(window.AppState.activeCard._id).catch((err) => {
+          console.error("Failed to snapshot remote card:", err);
+          return null;
+        });
         return;
       }
-      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable))
+      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) {
+        Ui2._pendingBlurCardId = window.AppState.activeCard._id;
         return;
+      }
       Ui2._reloadActiveCard(window.AppState.activeCard._id);
     }
   }

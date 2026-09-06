@@ -22,6 +22,7 @@ const CardEngine = {
       }
       card._hasImage = true; // matches the webp branch; keeps the flag consistent (#44)
       card._thumbnail = await this._createThumbnail(card._imageBase64);
+      card._fileSize = this.computeFileSize(card); // image now attached: badge must include it
       return card;
     }
     if (ext === 'webp') {
@@ -32,6 +33,7 @@ const CardEngine = {
       card._imageBase64 = await this._blobToBase64(blob);
       card._hasImage = true;
       card._thumbnail = await this._createThumbnail(card._imageBase64);
+      card._fileSize = this.computeFileSize(card);
       return card;
     }
     throw new Error((I18n.t ? I18n.t('error.unsupportedFile', { ext: ext }) : 'Unsupported file type: .' + ext));
@@ -147,7 +149,18 @@ const CardEngine = {
     let writer = null;
     try {
       if (typeof DecompressionStream === 'undefined') return null;
-      const ds = new DecompressionStream('zlib');
+      let ds;
+      try {
+        ds = new DecompressionStream('zlib');
+      } catch (e) {
+        // Not every runtime accepts the 'zlib' format (Bun rejects it; some
+        // Safari versions too). zTXt/iTXt data is standard zlib-wrapped
+        // deflate: strip the 2-byte header and 4-byte adler32 trailer and
+        // inflate the raw deflate stream instead — identical output.
+        if (bytes.length <= 6) return null;
+        bytes = bytes.subarray(2, bytes.length - 4);
+        ds = new DecompressionStream('deflate');
+      }
       writer = ds.writable.getWriter();
       await writer.write(bytes);
       await writer.close();
@@ -186,7 +199,12 @@ const CardEngine = {
       'creator', 'character_version'];
     for (const f of fields) card[f] = source[f] || '';
     card.alternate_greetings = Array.isArray(source.alternate_greetings) ? [...source.alternate_greetings] : [];
-    card.tags = Array.isArray(source.tags) ? [...source.tags] : [];
+    // Tags must be non-empty strings: search/filter/tag-cloud renderers call
+    // .toLowerCase() on each tag, so a numeric/null/object tag from a foreign
+    // card would crash the library view ("toLowerCase is not a function").
+    card.tags = Array.isArray(source.tags)
+      ? source.tags.filter(t => t != null && t !== '').map(t => String(t).trim()).filter(Boolean)
+      : [];
     card.character_book = source.character_book ? JSON.parse(JSON.stringify(source.character_book)) : { entries: [] };
     card.extensions = source.extensions ? JSON.parse(JSON.stringify(source.extensions)) : {};
 
@@ -245,6 +263,24 @@ const CardEngine = {
     };
     card._fileSize = JSON.stringify(card).length;
     return card;
+  },
+
+  /**
+   * Full exported size of a card in characters: export-shaped JSON plus the
+   * decoded image bytes when an image is attached. `normalize()` computes
+   * `_fileSize` before the image exists, so every import/avatar path must run
+   * this after attaching `_imageBase64` — otherwise the sidebar badge and the
+   * Largest/Smallest sort ignore the image entirely.
+   */
+  computeFileSize(card) {
+    const jsonChars = JSON.stringify(this.toJSON(card || {})).length;
+    const b64 = card && card._imageBase64;
+    let imageBytes = 0;
+    if (typeof b64 === 'string') {
+      const comma = b64.indexOf(',');
+      if (comma >= 0) imageBytes = Math.round((b64.length - comma - 1) * 3 / 4);
+    }
+    return jsonChars + imageBytes;
   },
 
   toJSON(card) {
@@ -338,13 +374,25 @@ const CardEngine = {
           }
           canvas.width = w; canvas.height = h;
           ctx.drawImage(img, 0, 0, w, h);
+          // JPEG has no alpha channel: transparent pixels would turn black.
+          // Sample once and only pay the PNG cost when the image really has
+          // transparency (opaque avatars keep the smaller JPEG thumbnails).
+          let needsAlpha = false;
+          try {
+            const pixels = ctx.getImageData(0, 0, w, h).data;
+            for (let i = 3; i < pixels.length; i += 4) {
+              if (pixels[i] < 255) { needsAlpha = true; break; }
+            }
+          } catch (_) { /* getImageData can throw on tainted canvases; keep JPEG */ }
           // Release the decoded image WITHOUT nuking the src: assigning ''
           // makes the browser re-resolve the document URL and fire a spurious
           // request/onerror (#45).
           img.removeAttribute('src');
           img.onload = null;
           img.onerror = null;
-          resolve(canvas.toDataURL('image/jpeg', this.THUMBNAIL_JPEG_QUALITY));
+          resolve(needsAlpha
+            ? canvas.toDataURL('image/png')
+            : canvas.toDataURL('image/jpeg', this.THUMBNAIL_JPEG_QUALITY));
         } catch (_) {
           img.removeAttribute('src');
           img.onload = null;

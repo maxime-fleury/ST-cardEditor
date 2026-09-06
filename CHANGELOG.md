@@ -6,6 +6,48 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-09-06
+
+### Added
+- **Standalone CI workflow** (`.github/workflows/ci.yml`) — unit suite (8
+  files) + bundle-freshness/asset gate on every push and PR, with a README
+  badge.
+- **Single-command release script** — `bun run release X.Y.Z` bumps
+  package.json, cache-busters, badges, SW cache prefix and CHANGELOG in one
+  shot, then self-verifies with `check-assets` (`--dry-run` supported).
+- **Translation-coverage gate** — `i18n:check` now fails when a locale drops
+  below 75 % translated keys (`I18N_COVERAGE_FLOOR` to adjust).
+- **Focused e2e specs** — the monolithic smoke spec is split into shell,
+  editor, library, AI-chat, quick-actions and wizard specs (26 tests
+  preserved), so a failure pinpoints the feature.
+
+### Fixed
+- **AI/chat session state:** applying a full-card AI response no longer resets
+  the card's creation date; loading an old chat session clears the stale
+  apply queue; switching cards aborts in-flight requests and drops the
+  previous card's session/history; the lorebook search no longer crashes on
+  V2 cards with array-typed keys.
+- **Settings/provider handling:** models are stored per provider (no more
+  cross-provider model bleed in the dropdown or at send time); settings
+  export/import round-trips per-provider model IDs; “Clear all data” now
+  resets the AI chat runtime state and the wizard draft.
+- **Offline/service worker:** the CDN cache is no longer purged on every
+  activation, so the app stays usable offline right after an update.
+- **Image pipeline:** the sidebar file-size badge now includes the image
+  bytes (was ~4500× off); transparent avatars keep their transparency in
+  thumbnails; PNG export is byte-faithful for PNG sources; compressed zTXt
+  chara chunks import on runtimes without `zlib` support.
+- **Tokenizer consistency:** every token display (editor counters, context
+  bar, live streaming, request estimates) uses one shared estimator — the
+  real BPE tokenizer once loaded, a single heuristic before — and the
+  tokenizer now retries a CDN module that loads without a usable function.
+- **Service/API edge cases:** custom base URLs never get a doubled `/v1`;
+  the SSE parser keeps the final unterminated line; cross-tab merges no
+  longer lose the other tab's change; legacy storage migrations retry on
+  next load; tags are normalized and search/filter is hardened against
+  malformed values; the wizard shows an error state instead of a broken
+  thumbnail when an image fetch fails.
+
 ## [2.5.5] - 2026-09-04
 
 ### Fixed
@@ -129,7 +171,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   with a white popup in dark mode — fixed via `color-scheme` plus dark
   `form-select`/`option` styling across all browsers.
 
-[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.5.5...HEAD
+[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.6.0
 [2.5.5]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.5
 [2.5.4]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.4
 [2.5.3]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.3

@@ -64,9 +64,13 @@ const AIService = {
   },
 
   _resolveModel(model) {
-    // Prefer the navbar dropdown selection; fall back to a manually
+    // Prefer the navbar dropdown selection; fall back to the manually
     // configured "Model ID" (Settings) for providers without a model list.
-    return model || CardStorage.getCustomModelId() || '';
+    // Model IDs are stored per provider (like API keys) so switching between
+    // named providers never reuses another provider's model.
+    if (model) return model;
+    if (this._provider === 'custom') return CardStorage.getCustomModelId() || '';
+    return CardStorage.getProviderModelId(this._provider) || '';
   },
 
   async setApiKey(key) {
@@ -187,7 +191,11 @@ const AIService = {
     // host root, while others expose /models from an already versioned URL.
     // Try the alternate form once when the first path is not available.
     if (resp.status === 404) {
-      const alternateUrl = apiBaseUrl.slice(0, -3) + '/models';
+      const pathname = (apiBaseUrl.split('?')[0].split('#')[0]).replace(/\/+$/, '');
+      const alternateBase = pathname.endsWith('/v1')
+        ? pathname.slice(0, -3)
+        : pathname;
+      const alternateUrl = alternateBase + '/models';
       try {
         resp = await fetch(alternateUrl, {
           headers,
@@ -353,8 +361,21 @@ const AIService = {
    * @param {object} opts - { jsonMode, signal, history }
    * @returns {Promise<object>} { content, usage, model }
    */
+  /**
+   * Make a user-typed Custom base URL OpenAI-compatible.
+   * The user may type the host root ("http://localhost:1234"), a fully
+   * versioned endpoint ("http://localhost:1234/v1"), or another versioned
+   * path (".../v2", ".../api/paas/v4", ".../v1?tenant=x"). Only the bare
+   * host-root form gets /v1 appended; already-versioned paths are used as-is
+   * so a versioned endpoint is never hit as ".../v1/v1/...".
+   */
   _v1BaseUrl(baseUrl) {
-    return baseUrl.endsWith('/v1') ? baseUrl : baseUrl + '/v1';
+    const url = String(baseUrl || '').trim();
+    const path = url.split('?')[0].split('#')[0].replace(/\/+$/, '');
+    const lastSegment = path.split('/').pop() || '';
+    // "v1" alone, or any segment starting with v + digits (v2, v1.1…)
+    if (/^v\d/.test(lastSegment)) return url.replace(/\/+$/, '');
+    return url.replace(/\/+$/, '') + '/v1';
   },
 
   /**
@@ -507,6 +528,36 @@ const AIService = {
     let eventType = '';
     let streamDone = false;
 
+    // One SSE line at a time; returns true when the stream is finished ([DONE]
+    // or an error was already thrown). Extracted so the trailing line of a
+    // stream that ends without a final newline is processed identically.
+    const handleLine = (line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      if (trimmed.startsWith('event: ')) { eventType = trimmed.slice(7).trim(); return false; }
+      if (trimmed.startsWith(':')) return false; // SSE comment (e.g. : ping)
+      if (!trimmed.startsWith('data: ')) return false;
+      const data = trimmed.slice(6).trim();
+      if (data === '[DONE]') { eventType = ''; return true; }
+      try {
+        const parsed = JSON.parse(data);
+        const delta = parsed.choices?.[0]?.delta?.content;
+        if (delta) { full += delta; onChunk(full, delta); }
+        if (parsed.usage) usage = parsed.usage;
+        if (eventType === 'error') {
+          const msg = parsed.error?.message || parsed.detail || data;
+          throw new Error(msg);
+        }
+      } catch (e) {
+        if (e instanceof SyntaxError) {
+          console.warn('aiService: dropped unparseable SSE chunk:', data);
+        } else {
+          throw e;
+        }
+      }
+      return false;
+    };
+
     try {
       let bufferStr = '';
       while (!streamDone) {
@@ -516,30 +567,13 @@ const AIService = {
         const lines = bufferStr.split('\n');
         bufferStr = lines.pop();
         for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          if (trimmed.startsWith('event: ')) { eventType = trimmed.slice(7).trim(); continue; }
-          if (trimmed.startsWith(':')) continue; // SSE comment (e.g. : ping)
-          if (!trimmed.startsWith('data: ')) continue;
-          const data = trimmed.slice(6).trim();
-          if (data === '[DONE]') { eventType = ''; streamDone = true; break; }
-          try {
-            const parsed = JSON.parse(data);
-            const delta = parsed.choices?.[0]?.delta?.content;
-            if (delta) { full += delta; onChunk(full, delta); }
-            if (parsed.usage) usage = parsed.usage;
-            if (eventType === 'error') {
-              const msg = parsed.error?.message || parsed.detail || data;
-              throw new Error(msg);
-            }
-          } catch (e) {
-            if (e instanceof SyntaxError) {
-              console.warn('aiService: dropped unparseable SSE chunk:', data);
-            } else {
-              throw e;
-            }
-          }
+          if (handleLine(line)) { streamDone = true; break; }
         }
+      }
+      // The stream ended without a trailing newline: the final partial line is
+      // still a complete SSE event and must not be dropped.
+      if (!streamDone && bufferStr) {
+        handleLine(bufferStr);
       }
     } finally {
       reader.cancel().catch(() => {});
@@ -574,10 +608,11 @@ const AIService = {
     } catch (_) { inputTokens = 0; }
     if (!inputTokens && messages?.length) {
       inputTokens = (messages || []).reduce((sum, m) => {
-        const quick = window.Tokenizer && typeof window.Tokenizer.quickCount === 'function'
-          ? window.Tokenizer.quickCount(m.content || '')
-          : Math.ceil((m.content || '').length / 3);
-        return sum + quick;
+        // Shared estimator: real BPE once the CDN lib is loaded (even when the
+        // async count above failed), heuristic before — same number the
+        // context bar and editor counters would compute. syncCount degrades
+        // to the heuristic internally, so no guard is needed here.
+        return sum + Tokenizer.syncCount(m.content || '');
       }, 0);
     }
 

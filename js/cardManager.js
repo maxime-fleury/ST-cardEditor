@@ -104,6 +104,7 @@ const CardManager = {
    * (image bytes excluded — same text with different art is legitimate).
    */
   _cardSignature(card) {
+    const tags = (card.tags || []).map(t => String(t == null ? '' : t).trim().toLowerCase()).filter(Boolean);
     return JSON.stringify([
       card.spec_version || '',
       (card.description || '').trim(),
@@ -115,8 +116,14 @@ const CardManager = {
       (card.system_prompt || '').trim(),
       (card.post_history_instructions || '').trim(),
       (card.character_version || '').trim(),
-      (card.tags || []).join('|').toLowerCase(),
+      tags.join('|'),
     ]);
+  },
+
+  // Lowercased string set of a card's tags, tolerant of malformed values so
+  // a stray numeric/null tag can never crash search or filtering.
+  _tagSet(card) {
+    return new Set((card.tags || []).map(t => String(t == null ? '' : t).trim().toLowerCase()).filter(Boolean));
   },
 
   _searchQuery: '',
@@ -388,7 +395,7 @@ const CardManager = {
   },
 
   renderCardList() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const { cards, activeCard } = window.AppState;
     const container = $('#cardList');
     const emptyState = $('#emptyState');
@@ -409,13 +416,13 @@ const CardManager = {
       const q = this._searchQuery.toLowerCase();
       filtered = cards.filter(c => (c.name || '').toLowerCase().includes(q)
         || (c.creator || '').toLowerCase().includes(q)
-        || (c.tags || []).some(t => t.toLowerCase().includes(q)));
+        || [...this._tagSet(c)].some(t => t.includes(q)));
     }
 
     // Tag filter
     if (this._activeTagFilters.size > 0) {
       filtered = filtered.filter(c => {
-        const cardTags = new Set((c.tags || []).map(t => t.toLowerCase()));
+        const cardTags = this._tagSet(c);
         for (const filter of this._activeTagFilters) {
           if (!cardTags.has(filter.toLowerCase())) return false;
         }
@@ -593,6 +600,11 @@ const CardManager = {
     window.AppState.activeCard = fullCard;
     CardStorage.setActiveCardId(fullCard._id);
 
+    // Pending AI responses and chat sessions belong to a single card: never
+    // let a stale apply-queue entry or session ID bleed into the new card.
+    AiChat._resetApplyQueue();
+    AiChat._currentSessionId = null;
+
     try {
       const b64 = await CardStorage.getImage(fullCard._id);
       if (b64) window.AppState.activeCard._imageBase64 = b64;
@@ -600,7 +612,8 @@ const CardManager = {
       console.error('Failed to load image from IndexedDB:', e);
     }
 
-    window.AppState.chatHistory = CardStorage.getChatHistory(fullCard._id);
+    const cardHistory = CardStorage.getChatHistory(fullCard._id);
+    window.AppState.chatHistory = cardHistory;
     // Load the latest session's messages if available
     const sessions = CardStorage.getChatSessions(fullCard._id);
     if (sessions.length > 0) {
@@ -610,12 +623,12 @@ const CardManager = {
         window.AppState.chatHistory = sessionMessages;
         AiChat._currentSessionId = latestSession.id;
       } else {
-        // Fallback: migrate old chatHistory into a session
+        // Fallback: migrate THIS card's own chat history into a session. The
+        // history above was re-read for fullCard._id, so a previous card's
+        // conversation can never be copied into this card's session.
         AiChat._currentSessionId = latestSession.id;
-        CardStorage.saveSessionMessages(fullCard._id, latestSession.id, window.AppState.chatHistory);
+        CardStorage.saveSessionMessages(fullCard._id, latestSession.id, cardHistory);
       }
-    } else {
-      AiChat._currentSessionId = null;
     }
     AiChat._historyRendered = false;
     AiChat.renderChatHistory();

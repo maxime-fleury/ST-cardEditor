@@ -15,6 +15,9 @@ const AiChat = {
   _gen: 0,                    // generation token: bumped on every send/clear so
                               // stale aborted callbacks bail out instead of
                               // clobbering the new run's state
+  _contextBarGen: 0,          // generation token for updateContextBar: each new
+                              // call supersedes in-flight ones so the bar can
+                              // never show a stale estimate after a newer call
   MAX_PARALLEL_FIELDS: 20,    // cap parallel API requests
 
   FIELD_DEFS: [
@@ -30,7 +33,7 @@ const AiChat = {
   ],
 
   _renderFieldChips() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const container = $('#aiFieldChips');
     if (!container) return;
 
@@ -96,7 +99,7 @@ const AiChat = {
   },
 
   send(retryPrompt) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const input = $('#aiInput');
     const prompt = retryPrompt || input.value.trim();
     const { activeCard } = window.AppState;
@@ -277,7 +280,7 @@ const AiChat = {
   // ─── GROUPED MULTI-FIELD CARD ───────────────────────
 
   _createGroupedCard(fields) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const container = $('#aiChatMessages');
     const welcome = container.querySelector('.ai-welcome');
     if (welcome) welcome.remove();
@@ -370,7 +373,7 @@ const AiChat = {
   // ─── SHOW FULL RESULT IN MODAL ──────────────────────
 
   _showResultModal(field, content) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const fieldLabel = I18n.t
       ? I18n.t(this.FIELD_DEFS.find(d => d.id === field)?.labelKey || field)
       : field;
@@ -438,6 +441,16 @@ const AiChat = {
     this._abortControllers = [];
   },
 
+  // Drop all pending apply-able responses (queue, index, DOM-element map and
+  // re-apply store). Called when switching cards so a response generated for
+  // one card can never be applied to another via Prev/Next or a stale entry.
+  _resetApplyQueue() {
+    this._applyQueue = [];
+    this._applyIndex = 0;
+    this._applyElMap = new WeakMap();
+    this._applyStore.clear();
+  },
+
   _releaseController(controller) {
     const idx = this._abortControllers.indexOf(controller);
     if (idx >= 0) this._abortControllers.splice(idx, 1);
@@ -460,7 +473,7 @@ const AiChat = {
 
   _sendFullCard(prompt, opts) {
     opts = opts || {};
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const { activeCard } = window.AppState;
     if (window.AppState.isAiLoading) return;
     if (!AIService.hasApiKey()) { Ui.showToast(I18n.t('toast.apiKey'), 'warning'); return; }
@@ -500,8 +513,9 @@ const AiChat = {
     let shimmerGone = false;
 
     // Live “thinking…” presence: elapsed-time + (once tokens arrive) a live
-    // token count, so long generations never look hung. Cheap heuristic count;
-    // the real usage bar is still updated by updateContextBar().
+    // token count, so long generations never look hung. Uses the shared
+    // estimator (real BPE once the CDN lib loads, heuristic before) so this
+    // display agrees with the context bar and the editor counters.
     const startedAt = Date.now();
     let lastOut = '';
     const statusEl = streamingEl.querySelector('.ai-stream-status');
@@ -515,9 +529,8 @@ const AiChat = {
       let liveCount = 0;
       if (lastOut) {
         try {
-          liveCount = (window.Tokenizer && typeof window.Tokenizer.quickCount === 'function')
-            ? window.Tokenizer.quickCount(lastOut)
-            : Math.ceil(lastOut.length / 3);
+          // syncCount degrades to the heuristic internally — no guard needed.
+          liveCount = Tokenizer.syncCount(lastOut);
         } catch (_) { liveCount = Math.ceil(lastOut.length / 3); }
       }
       statusEl.textContent = lastOut
@@ -657,7 +670,18 @@ const AiChat = {
           oldVal: CardEngine.toJSON(activeCard),
           newVal: CardEngine.toJSON(parsed),
           applyFn: () => {
-            const internal = { _id: activeCard._id, _filename: activeCard._filename, _hasImage: activeCard._hasImage, _imageBase64: activeCard._imageBase64, _thumbnail: activeCard._thumbnail };
+            // normalize() mints a fresh _id/_createdAt/_fileSize; restore every
+            // internal field so applying an AI full-card edit can't bump the
+            // card to the top of the Newest sort or rewrite its metadata.
+            const internal = {
+              _id: activeCard._id,
+              _filename: activeCard._filename,
+              _hasImage: activeCard._hasImage,
+              _imageBase64: activeCard._imageBase64,
+              _thumbnail: activeCard._thumbnail,
+              _createdAt: activeCard._createdAt,
+              _fileSize: activeCard._fileSize,
+            };
             Object.assign(activeCard, parsed);
             Object.assign(activeCard, internal);
             Editor.populateEditor(activeCard);
@@ -940,7 +964,7 @@ const AiChat = {
   // ─── QUICK ACTIONS ──────────────────────────────────
 
   async handleQuickAction(action) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const { activeCard } = window.AppState;
     if (action === 'newcard') {
       Wizard.show();
@@ -1055,7 +1079,7 @@ const AiChat = {
   // ─── CHAT MESSAGES ──────────────────────────────────
 
   addChatMessage(role, content, usage, applyData, historyIndex) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const container = $('#aiChatMessages');
     const welcome = container.querySelector('.ai-welcome');
     if (welcome) welcome.remove();
@@ -1170,7 +1194,7 @@ const AiChat = {
     // DOM order mirrors history order, and multi-field grouped cards carry no
     // historyIndex, so removing by index alone would orphan them — remove from
     // the target user bubble's DOM position onward instead (v2 fix).
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const container = $('#aiChatMessages');
     const allMsgs = container.querySelectorAll('.ai-message');
     let removedDom = 0;
@@ -1203,7 +1227,7 @@ const AiChat = {
   },
 
   createStreamingMessage() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const container = $('#aiChatMessages');
     const welcome = container.querySelector('.ai-welcome');
     if (welcome) welcome.remove();
@@ -1221,7 +1245,7 @@ const AiChat = {
   renderChatHistory() {
     if (this._historyRendered) return;
     const { chatHistory } = window.AppState;
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const container = $('#aiChatMessages');
     if (chatHistory.length === 0) {
       // Card has no chat: never leave a previous card's messages on screen,
@@ -1282,7 +1306,7 @@ const AiChat = {
   },
 
   _renderHistoryList() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const list = $('#aiHistoryList');
     if (!list) return;
     const cardId = window.AppState.activeCard?._id || 'global';
@@ -1313,7 +1337,7 @@ const AiChat = {
   },
 
   _showWelcome() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const container = $('#aiChatMessages');
     if (!container) return;
     container.innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>' + I18n.t('ai.welcomeTitle') + '</h6><p>' + I18n.t('ai.welcomeText') + '</p><div class="quick-actions">'
@@ -1348,10 +1372,14 @@ const AiChat = {
     window.AppState.chatHistory = sessionMessages;
     this._currentSessionId = sessionId;
     this._historyRendered = false;
-    this._applyStore.clear();
+    // Pending AI responses belong to the conversation that generated them:
+    // loading a different session must drop the previous transcript's apply
+    // queue exactly like switching cards does (clearChat resets it too —
+    // _loadSession used to miss it, leaving stale Prev/Next entries).
+    this._resetApplyQueue();
 
     // Clear the DOM and re-render
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const container = $('#aiChatMessages');
     if (container) container.innerHTML = '';
 
@@ -1370,7 +1398,7 @@ const AiChat = {
   },
 
   toggleHistory(forceState) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const panel = $('#aiHistoryPanel');
     const messages = $('#aiChatMessages');
     const inputArea = $('.ai-input-area');
@@ -1407,7 +1435,7 @@ const AiChat = {
   },
 
   updateSendButton() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const btn = $('#btnAiSend');
     const stop = $('#btnAiStop');
     if (!btn) return;
@@ -1417,7 +1445,7 @@ const AiChat = {
   },
 
   async updateContextBar() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const bar = $('#contextBarFill');
     const label = $('#contextBarLabel');
     if (!bar || !label) return;
@@ -1429,6 +1457,11 @@ const AiChat = {
     const modelId = modelSelect.value;
     const prompt = input.value || '';
     const { activeCard } = window.AppState;
+
+    // Capture AFTER the element guards so only real invocations supersede
+    // in-flight ones; a stale call that finishes later must not overwrite the
+    // bar with older text (async Tokenizer.count / resolveMaxTokens).
+    const gen = ++this._contextBarGen;
 
     if (!modelId) {
       bar.style.width = '0%';
@@ -1461,10 +1494,12 @@ const AiChat = {
     } catch (_) {
       inputTokens = 0;
     }
+    if (gen !== this._contextBarGen) return; // superseded by a newer call
     if (!inputTokens) {
-      inputTokens = window.Tokenizer && typeof window.Tokenizer.quickCount === 'function'
-        ? window.Tokenizer.quickCount(inputText + '\n' + historyText + '\n' + prompt)
-        : Math.ceil((inputText + '\n' + historyText + '\n' + prompt).length / 3);
+      // Shared estimator: real BPE once the CDN lib is loaded (even when the
+      // async count above failed), heuristic before — always the same number
+      // the editor counters and the live streaming display compute.
+      inputTokens = Tokenizer.syncCount(inputText + '\n' + historyText + '\n' + prompt);
     }
 
     // Get the model's actual max output limit from the model data
@@ -1484,6 +1519,7 @@ const AiChat = {
     const historyMsgs = history.map(m => ({ role: m.role, content: m.content || '' }));
     const allMessages = [{ role: 'system', content: inputText }, ...historyMsgs, { role: 'user', content: prompt }];
     const resolvedMax = await AIService.resolveMaxTokens(modelId, allMessages);
+    if (gen !== this._contextBarGen) return; // superseded by a newer call
     // The actual usable output is the smaller of the request cap and available context
     const actualMaxOut = Math.min(outputCap, resolvedMax);
 

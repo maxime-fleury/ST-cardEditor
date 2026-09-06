@@ -41,8 +41,26 @@ const Settings = {
     greetingsSystem: 'The user wants you to generate ALTERNATE GREETINGS for this character.\nCurrent greetings: {current}\nGenerate exactly {count} new alternate greeting(s).\nRespond with ONLY a valid JSON array of greeting strings. No explanations, no markdown.\nExample response format: ["Greeting one...", "Greeting two...", "Greeting three..."]\nEach greeting should be an in-character opening message that could start a conversation with {{user}}.',
   },
 
+  // The model belongs to the provider it was configured for. The shared
+  // `defaultModel` slot is OpenRouter's alone; named providers keep a
+  // per-provider slot and Custom keeps its own — so switching providers never
+  // surfaces (or sends) another provider's model.
+  _currentModelId(provider) {
+    const p = provider || CardStorage.getProvider() || 'openrouter';
+    if (p === 'openrouter') return CardStorage.getDefaultModel() || '';
+    if (p === 'custom') return CardStorage.getCustomModelId() || '';
+    return CardStorage.getProviderModelId(p) || '';
+  },
+
+  _setCurrentModelId(modelId, provider) {
+    const p = provider || CardStorage.getProvider() || 'openrouter';
+    if (p === 'openrouter') CardStorage.setDefaultModel(modelId || '');
+    else if (p === 'custom') CardStorage.setCustomModelId(modelId || '');
+    else CardStorage.setProviderModelId(p, modelId || '');
+  },
+
   async saveSettings(modal) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const provider = $('#providerSelect').value;
     const apiKey = $('#apiKeyInput').value.trim();
     const defaultModel = $('#defaultModelSelect').value;
@@ -58,7 +76,7 @@ const Settings = {
       // Always persist (also when blanked) so the key can be cleared from the UI.
       await CardStorage.setApiKey(apiKey);
       AIService.setProvider('openrouter', apiKey);
-      CardStorage.setDefaultModel(defaultModel);
+      this._setCurrentModelId(defaultModel);
       $('#aiModelSelect').value = defaultModel;
     } else {
       const isCustom = provider === 'custom';
@@ -74,12 +92,13 @@ const Settings = {
         // switching between them never cross-sends a previous provider's key.
         await CardStorage.setProviderKey(provider, customApiKey);
       }
-      CardStorage.setCustomModelId(customModelId);
+      // Model IDs live in a per-provider slot (like API keys) so switching
+      // between named providers never reuses another provider's model. The
+      // shared `defaultModel` slot belongs to OpenRouter only — writing the
+      // named/custom model there would make the next OpenRouter send use a
+      // foreign model (#88).
+      this._setCurrentModelId(customModelId);
       AIService.setProvider(provider, customApiKey);
-      // Always persist the model id, even when blank: otherwise a cleared
-      // "Model ID" leaves the previous provider's default in place and the
-      // request goes out with a stale model (#85).
-      CardStorage.setDefaultModel(customModelId);
       $('#aiModelSelect').value = customModelId;
     }
 
@@ -116,7 +135,7 @@ const Settings = {
   },
 
   toggleApiKeyVisibility() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const input = $('#apiKeyInput');
     const icon = $('#btnToggleApiKey i');
     if (input.type === 'password') { input.type = 'text'; icon.className = 'bi bi-eye-slash-fill'; }
@@ -124,7 +143,7 @@ const Settings = {
   },
 
   toggleNamedApiKeyVisibility() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const input = $('#namedApiKeyInput');
     const icon = $('#btnToggleNamedApiKey i');
     if (input.type === 'password') { input.type = 'text'; icon.className = 'bi bi-eye-slash-fill'; }
@@ -132,7 +151,7 @@ const Settings = {
   },
 
   toggleProvider() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const provider = $('#providerSelect').value;
     const isOpenRouter = provider === 'openrouter';
     const isCustom = provider === 'custom';
@@ -274,7 +293,7 @@ const Settings = {
   // is separate from applyAppearance() so opening settings never overwrites
   // the live CSS with stale dialog state.
   syncAppearanceControls() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const density = $('#glassDensitySelect');
     if (density) density.value = CardStorage.getGlassDensity();
     const radius = $('#cardRadiusSelect');
@@ -284,7 +303,7 @@ const Settings = {
   },
 
   async openSettings() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     await CardStorage._unlockKeys();
     const provider = CardStorage.getProvider() || 'openrouter';
     $('#providerSelect').value = provider;
@@ -292,7 +311,11 @@ const Settings = {
     $('#namedApiKeyInput').value = provider === 'custom' ? '' : CardStorage.getProviderKey(provider);
     $('#customApiKeyInput').value = CardStorage.getCustomApiKey();
     $('#customApiUrlInput').value = CardStorage.getCustomApiUrl();
-    $('#customModelInput').value = CardStorage.getCustomModelId();
+    // Show the model ID that belongs to the provider currently selected in
+    // the (saved) settings, not a shared slot.
+    $('#customModelInput').value = provider === 'custom'
+      ? CardStorage.getCustomModelId()
+      : CardStorage.getProviderModelId(provider);
     $('#maxTokensInput').value = CardStorage.getMaxTokens() || '';
     $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
     this.toggleProvider();
@@ -305,7 +328,7 @@ const Settings = {
   },
 
   async refreshCredits() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     // /key is an OpenRouter-only endpoint; named providers 404 on it.
     if (CardStorage.getProvider() !== 'openrouter') { this.updateStorageUsage(); return; }
     if (!AIService.hasApiKey()) { this.updateStorageUsage(); return; }
@@ -324,7 +347,7 @@ const Settings = {
   },
 
   async refreshModelsList() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     // Prefer the dropdown selection when the settings modal is open (Refresh
     // Models button); otherwise (page load, workspace import) fall back to the
     // saved provider so a stale unopened dropdown never hijacks the fetch.
@@ -377,8 +400,11 @@ const Settings = {
   },
 
   populateModelSelects() {
-    const $ = (sel) => document.querySelector(sel);
-    const d = CardStorage.getDefaultModel();
+    const $ = Ui.$;
+    // Preselect the model that belongs to the provider currently shown in the
+    // settings form (falling back to the saved provider), never a model
+    // configured for a different provider.
+    const d = this._currentModelId($('#providerSelect') ? $('#providerSelect').value : null);
     // Alphabetical for the plain <select>s (the settings browser keeps its
     // own price/context ordering); hundreds of OpenRouter models are much
     // easier to scan sorted by name.
@@ -397,7 +423,7 @@ const Settings = {
   _modelPage: 1,
 
   renderModelList(filter, resetPage) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     filter = (filter || '').toLowerCase();
     if (resetPage) this._modelPage = 1;
     const container = $('#modelList');
@@ -408,7 +434,7 @@ const Settings = {
       return !filter || name.toLowerCase().includes(filter) || id.toLowerCase().includes(filter) || prov.toLowerCase().includes(filter) || desc.toLowerCase().includes(filter);
     });
     if (!filtered.length) { container.innerHTML = '<div class="text-center text-muted py-4">' + I18n.t('settings.noModels') + '</div>'; return; }
-    const d = CardStorage.getDefaultModel();
+    const d = this._currentModelId();
     const end = this._modelPage * this._modelPageSize;
     const shown = filtered.slice(0, end);
     const hasMore = end < filtered.length;
@@ -431,7 +457,7 @@ const Settings = {
       item.addEventListener('click', () => {
         $('#defaultModelSelect').value = item.dataset.modelId;
         $('#aiModelSelect').value = item.dataset.modelId;
-        CardStorage.setDefaultModel(item.dataset.modelId);
+        self._setCurrentModelId(item.dataset.modelId);
         self.renderModelList(filter);
         Ui.showToast(I18n.t('toast.modelSet', { model: item.dataset.modelId }), 'info');
       });
@@ -441,14 +467,14 @@ const Settings = {
   },
 
   filterModels() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     this.renderModelList($('#modelSearch').value, true);
   },
 
 
 
   async updateStorageUsage() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     // Count only this app's own data. navigator.storage.estimate() reports the
     // ENTIRE origin including SW caches and other apps' storage, which would
     // mislabel unrelated usage as "card data" (#39).
@@ -460,7 +486,7 @@ const Settings = {
   },
 
   async confirmClearStorage() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     if (!await Ui.confirm({
       title: I18n.t ? I18n.t('settings.clearTitle') : 'Clear all data?',
       message: I18n.t ? I18n.t('settings.clearConfirm') : 'Delete ALL cards, settings, and chat history? This cannot be undone.',
@@ -471,6 +497,13 @@ const Settings = {
     window.AppState.activeCard = null;
     window.AppState.chatHistory = [];
     window.AppState.models = [];
+    // Wipe the AI chat's in-memory runtime state too: apply queue, current
+    // session, field selection and in-flight requests would otherwise survive
+    // the storage wipe — old responses staying applicable to new cards, and a
+    // running generation repopulating the cleared history.
+    AiChat.clearChat();
+    // The wizard draft lives in sessionStorage, which clearAll() does not touch.
+    try { sessionStorage.removeItem('stce_wizard_draft'); } catch (_) {}
     AIService.setProvider('openrouter');
     $('#apiKeyInput').value = '';
     $('#providerSelect').value = 'openrouter';
@@ -499,13 +532,16 @@ const Settings = {
       // NOTE: customApiKey intentionally NOT exported — it is a credential and
       // would leak if the settings file is shared.
       customModelId: CardStorage.getCustomModelId(),
+      // Per-provider model IDs (named providers) round-trip too, or a settings
+      // file silently loses every named provider's configured model.
+      providerModelIds: CardStorage.getAllProviderModelIds ? CardStorage.getAllProviderModelIds() : undefined,
     };
     Ui.downloadFile('st-card-editor-settings.json', JSON.stringify(settings, null, 2), 'application/json');
     Ui.showToast(I18n.t('toast.settingsExported'), 'success');
   },
 
   importSettings() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const input = document.querySelector('#settingsFileInput');
     input.onchange = (e) => {
       const file = e.target.files[0];
@@ -515,11 +551,24 @@ const Settings = {
         try {
           const settings = JSON.parse(reader.result);
           if (settings.provider) { CardStorage.setProvider(settings.provider); $('#providerSelect').value = settings.provider; this.toggleProvider(); }
-          if (settings.defaultModel) { CardStorage.setDefaultModel(settings.defaultModel); $('#defaultModelSelect').value = settings.defaultModel; $('#aiModelSelect').value = settings.defaultModel; }
+          // Presence-based (not truthy) so explicitly-empty values in an
+          // imported file actually clear previously stored ones.
+          if (settings.defaultModel !== undefined) { CardStorage.setDefaultModel(settings.defaultModel); $('#defaultModelSelect').value = settings.defaultModel; $('#aiModelSelect').value = settings.defaultModel; }
           if (settings.maxTokens !== undefined) { CardStorage.setMaxTokens(settings.maxTokens); $('#maxTokensInput').value = settings.maxTokens || ''; }
           if (settings.injectCopyright !== undefined) { CardStorage.setInjectCopyright(settings.injectCopyright); $('#injectCopyrightToggle').checked = settings.injectCopyright; }
-          if (settings.customApiUrl) { CardStorage.setCustomApiUrl(settings.customApiUrl); $('#customApiUrlInput').value = settings.customApiUrl; }
-          if (settings.customModelId) { CardStorage.setCustomModelId(settings.customModelId); $('#customModelInput').value = settings.customModelId; }
+          if (settings.customApiUrl !== undefined) { CardStorage.setCustomApiUrl(settings.customApiUrl); $('#customApiUrlInput').value = settings.customApiUrl; }
+          if (settings.customModelId !== undefined) { CardStorage.setCustomModelId(settings.customModelId); $('#customModelInput').value = settings.customModelId; }
+          if (settings.providerModelIds && typeof settings.providerModelIds === 'object') {
+            for (const [prov, modelId] of Object.entries(settings.providerModelIds)) {
+              if (modelId) CardStorage.setProviderModelId(prov, modelId);
+            }
+          }
+          // Refresh the visible model field for the provider that was just
+          // imported (it may be a named provider whose slot changed).
+          const cur = CardStorage.getProvider();
+          $('#customModelInput').value = cur === 'custom'
+            ? CardStorage.getCustomModelId()
+            : CardStorage.getProviderModelId(cur);
           Ui.showToast(I18n.t('toast.settingsImported'), 'success');
         } catch (err) {
           Ui.showToast(I18n.t('toast.invalidFile'), 'danger');
@@ -544,7 +593,7 @@ const Settings = {
   },
 
   importPrompts() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const input = document.querySelector('#promptFileInput');
     input.onchange = (e) => {
       const file = e.target.files[0];
@@ -583,7 +632,7 @@ const Settings = {
   },
 
   async exportWorkspace() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const cards = CardStorage.getCards();
     const fullCards = [];
     for (const meta of cards) {
@@ -666,6 +715,9 @@ const Settings = {
             normalized._hasImage = true;
             normalized._thumbnail = normalized._thumbnail || await CardEngine._createThumbnail(card._imageBase64);
           }
+          // Recompute now that the image may be attached: normalize() computed
+          // _fileSize before it existed, so the badge/sort would ignore it.
+          normalized._fileSize = CardEngine.computeFileSize(normalized);
           await CardStorage.upsertCard(normalized);
           imported++;
         }
@@ -697,7 +749,7 @@ const Settings = {
         Settings.applyAppearance();
         Settings.refreshModelsList();
         const modelSel = document.querySelector('#aiModelSelect');
-        if (modelSel) modelSel.value = CardStorage.getDefaultModel() || '';
+        if (modelSel) modelSel.value = this._currentModelId() || '';
         Ui.showToast((I18n.t ? I18n.t('settings.workspaceImported', { count: imported }) : 'Workspace imported (' + imported + ' cards)'), 'success');
       } catch (err) {
         console.error('Workspace import failed:', err);

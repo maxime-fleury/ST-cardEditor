@@ -76,7 +76,7 @@ const Ui = {
   // match the app's styling. Ui.prompt({select|text}) -> Promise<value|null>,
   // Ui.confirm({...}) -> Promise<boolean>.
   _openDialog(cfg) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const modal = this._dialogInstance || (this._dialogInstance = new bootstrap.Modal('#dialogModal'));
     $('#dialogTitle').textContent = cfg.title || '';
     const msg = $('#dialogMsg');
@@ -221,16 +221,25 @@ const Ui = {
   // Fields the user actually touched locally keep the local value; all other
   // fields adopt the remote snapshot so cross-tab changes are preserved (#103).
   async _mergePendingRemote(expectedCardId) {
+    const snapshotPromise = this._pendingRemoteSnapshot;
     this._pendingRemoteReload = false;
     this._pendingRemoteCardId = null;
-    const snapshot = this._pendingRemoteSnapshot;
-    const touched = this._pendingRemoteTouched;
     this._pendingRemoteSnapshot = null;
     this._pendingRemoteTouched = null;
     const ac = window.AppState.activeCard;
     if (!ac) return;
     if (expectedCardId && ac._id !== expectedCardId) return; // user switched cards
-    if (!snapshot) return; // no remote version captured; nothing to merge
+    // The remote snapshot may still be in flight when the local save settles.
+    // Wait for it instead of giving up: discarding it would lose the other
+    // tab's change (race where getCard() resolves after setDirty(false)).
+    let snapshot = null;
+    if (snapshotPromise) {
+      try { snapshot = await snapshotPromise; } catch (_) { snapshot = null; }
+      if (!snapshot) return; // snapshot failed; nothing to merge
+    } else {
+      return; // no remote version captured; nothing to merge
+    }
+    const touched = this._pendingRemoteTouched;
     const id = ac._id;
     const localB64 = ac._imageBase64;
     const merged = JSON.parse(JSON.stringify(ac));
@@ -269,8 +278,9 @@ const Ui = {
   _markdownPending: [],        // [{target, text}] re-rendered once libs arrive
   _pendingRemoteReload: false,
   _pendingRemoteCardId: null,
-  _pendingRemoteSnapshot: null, // last remote card data (for the cross-tab merge)
+  _pendingRemoteSnapshot: null, // Promise<remote card data> for the cross-tab merge
   _pendingRemoteTouched: null,  // field names edited locally since the remote write
+  _pendingBlurCardId: null,     // card whose remote update waits for a field blur
 
   // Record that the user edited `field` on the active card. Used to decide which
   // fields keep the local value when a cross-tab change is merged in.
@@ -467,7 +477,6 @@ async function init() {
   window.AppState.cards = CardStorage.getCards();
   window.AppState.chatHistory = [];
   const apiKey = CardStorage.getApiKey();
-  const defaultModel = CardStorage.getDefaultModel();
 
   // If a stored key could not be decrypted (e.g. the server moved to a new
   // port/host), tell the user we need it re-entered.
@@ -480,10 +489,6 @@ async function init() {
   if (apiKey) {
     $('#apiKeyInput').value = apiKey;
   }
-  if (defaultModel) {
-    $('#aiModelSelect').value = defaultModel;
-    $('#defaultModelSelect').value = defaultModel;
-  }
 
   // Restore provider before any model requests. Custom providers do not need
   // an API key, so model discovery must be based on the saved endpoint.
@@ -495,16 +500,10 @@ async function init() {
   AIService.setProvider(provider, provider === 'openrouter'
     ? apiKey
     : (provider === 'custom' ? customKey : CardStorage.getProviderKey(provider)));
-  if (provider === 'custom') {
-    const customModel = CardStorage.getCustomModelId();
-    if (customModel) {
-      CardStorage.setDefaultModel(customModel);
-      $('#aiModelSelect').value = customModel;
-    }
-  }
-  // Populate the model selects with the saved default model (if any) before
-  // any fetch attempt, so the dropdowns are usable even when models can't
-  // be loaded (e.g. no API key yet).
+  // Populate the model selects with the model belonging to the restored
+  // provider (never another provider's shared default) before any fetch
+  // attempt, so the dropdowns are usable even when models can't be loaded
+  // (e.g. no API key yet).
   Settings.populateModelSelects();
 
   const maxTokens = CardStorage.getMaxTokens();
@@ -567,6 +566,19 @@ Wizard.init();
     }
   });
   window.addEventListener('storage', handleStorageChange);
+
+  // Surface a remote card update that arrived while an input was focused: the
+  // storage handler defers it to avoid clobbering the DOM mid-typing, and the
+  // blur is the safe moment to reload.
+  document.addEventListener('focusout', (e) => {
+    if (!Ui._pendingBlurCardId) return;
+    if (!(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable))) return;
+    const cardId = Ui._pendingBlurCardId;
+    Ui._pendingBlurCardId = null;
+    if (window.AppState.activeCard && window.AppState.activeCard._id === cardId && !window.AppState._dirty) {
+      Ui._reloadActiveCard(cardId);
+    }
+  });
 
   // Register service worker for offline support
   if ('serviceWorker' in navigator) {
@@ -704,6 +716,23 @@ function bindEvents(settingsModal) {
     Ui.showToast(I18n.t('settings.languageChanged'), 'success');
   });
 
+  // Re-render dynamic (JS-generated) content after a language change: the
+  // card counter, tag cloud and AI chips are built with I18n.t() at render
+  // time and are not covered by data-i18n translation.
+  window.addEventListener('stce:language-changed', () => {
+    CardManager.renderCardList();
+    AiChat._renderFieldChips();
+    AiChat.updateContextBar();
+  });
+
+  // The per-field char counters use the sync token estimator and the context
+  // bar the async one; once the real BPE tokenizer finishes loading they must
+  // both flip to it at the same moment, or their warnings would disagree.
+  window.addEventListener('stce:tokenizer-ready', () => {
+    Editor.updateCharCounts();
+    AiChat.updateContextBar();
+  });
+
   // Theme accent — apply in realtime and keep picker/hex in sync. The picker
   // never fired anything before, so picking a color had no effect even on save
   // (saveSettings only reads the hex field).
@@ -812,7 +841,9 @@ function bindEvents(settingsModal) {
     const val = $('#aiModelSelect').value;
     if (val) {
       $('#defaultModelSelect').value = val;
-      CardStorage.setDefaultModel(val);
+      // Route into the provider-appropriate slot: OpenRouter owns the shared
+      // default, named/custom providers keep their own model IDs.
+      Settings._setCurrentModelId(val);
     }
   });
   $('#btnExportJson').addEventListener('click', () => ExportUtils.exportAsJSON());
@@ -1098,9 +1129,8 @@ function bindEvents(settingsModal) {
     setCollapsed('left', (localStorage.getItem(storageKey('left')) || '0') === '1');
     setCollapsed('right', (localStorage.getItem(storageKey('right')) || '0') === '1');
 
-    // NOTE: top-level function — `$` (Ui.$) is scoped to init() only, so use
-    // document.querySelector directly.
-    const q = (sel) => document.querySelector(sel);
+    // NOTE: `$` (Ui.$) is scoped to init() only, so alias it locally.
+    const q = Ui.$;
     const collapseLeft = q('#btnCollapseLeft');
     const collapseRight = q('#btnCollapseRight');
     const expandLeft = q('#edgeExpandLeft');
@@ -1314,14 +1344,19 @@ async function handleStorageChange(e) {
       // Snapshot the other tab's version *now*: by the time the local autosave
       // completes, IndexedDB holds our copy, not the remote one — so reloading
       // from IDB at setDirty(false) would silently drop the remote change (#103).
-      CardStorage.getCard(window.AppState.activeCard._id)
-        .then((c) => {
-          if (c && Ui._pendingRemoteCardId === window.AppState.activeCard._id) Ui._pendingRemoteSnapshot = c;
-        })
-        .catch((err) => console.error('Failed to snapshot remote card:', err));
+      // The snapshot is kept as a Promise: _mergePendingRemote awaits it, so a
+      // local save settling before the read finishes can't lose the change.
+      Ui._pendingRemoteSnapshot = CardStorage.getCard(window.AppState.activeCard._id)
+        .catch((err) => { console.error('Failed to snapshot remote card:', err); return null; });
       return;
     }
-    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
+      // A focused field means the user may be typing; don't clobber the DOM.
+      // Remember the card and reload it as soon as the field loses focus so
+      // remote edits are surfaced instead of being skipped until a reload.
+      Ui._pendingBlurCardId = window.AppState.activeCard._id;
+      return;
+    }
     Ui._reloadActiveCard(window.AppState.activeCard._id);
   }
 }

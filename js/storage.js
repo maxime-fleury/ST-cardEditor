@@ -97,6 +97,7 @@ const CardStorage = {
     customApiUrl: 'customApiUrl',
     customApiKey: 'customApiKey',
     customModelId: 'customModelId',
+    providerModelIds: 'providerModelIds',
     providerApiKeys: 'providerApiKeys',
     darkAccent: 'darkAccent',
     lightAccent: 'lightAccent',
@@ -433,6 +434,50 @@ const CardStorage = {
     localStorage.setItem(this.PREFIX + this._keys.customModelId, id);
   },
 
+  // Per-provider Model ID (named providers). Stored as a JSON map
+  // provider -> model id so switching providers never reuses a stale model
+  // from another provider's slot (mirrors the per-provider API-key design).
+  getProviderModelId(provider) {
+    if (!provider) return '';
+    try {
+      const raw = localStorage.getItem(this.PREFIX + this._keys.providerModelIds);
+      const map = raw ? JSON.parse(raw) : {};
+      return (map && typeof map === 'object' && map[provider]) || '';
+    } catch {
+      return '';
+    }
+  },
+
+  setProviderModelId(provider, id) {
+    if (!provider) return;
+    try {
+      const raw = localStorage.getItem(this.PREFIX + this._keys.providerModelIds);
+      const map = raw ? JSON.parse(raw) : {};
+      if (map && typeof map === 'object') {
+        if (id) map[provider] = id;
+        else delete map[provider];
+        localStorage.setItem(this.PREFIX + this._keys.providerModelIds, JSON.stringify(map));
+      }
+    } catch (_) { /* best-effort: a corrupt map is not worth crashing settings over */ }
+  },
+
+  // Full per-provider model map, for settings export. Only non-empty entries
+  // are returned so a settings file never carries stale/deleted models.
+  getAllProviderModelIds() {
+    try {
+      const raw = localStorage.getItem(this.PREFIX + this._keys.providerModelIds);
+      const map = raw ? JSON.parse(raw) : {};
+      if (!map || typeof map !== 'object') return {};
+      const out = {};
+      for (const [prov, id] of Object.entries(map)) {
+        if (prov && id) out[prov] = id;
+      }
+      return out;
+    } catch {
+      return {};
+    }
+  },
+
   setInjectCopyright(val) {
     localStorage.setItem(this.PREFIX + this._keys.injectCopyright, String(val));
   },
@@ -458,8 +503,10 @@ const CardStorage = {
       localStorage.removeItem(this.PREFIX + 'cards');
       this._migrationDone = true;
     } catch (e) {
-      console.error('Migration failed:', e);
-      this._migrationDone = true;
+      // Keep _migrationDone false so the next startup retries the migration.
+      // Marking it done on failure permanently orphaned the remaining cards
+      // in the legacy store.
+      console.error('Migration failed (will retry on next load):', e);
     }
   },
 

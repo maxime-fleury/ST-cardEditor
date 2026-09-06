@@ -145,7 +145,7 @@ const Editor = {
     Ui.showToast(I18n.t('toast.redo') + ': ' + entry.field, 'info');
   },
   populateEditor(card) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     function safeStyle(id, displayVal) { const el = $(id); if (el) el.style.display = displayVal; }
 
     // Records which card the DOM currently reflects. _doSync uses this to refuse
@@ -227,7 +227,7 @@ const Editor = {
   // Shared field-capture logic used by both sync paths so the two stay in
   // sync and cannot drift when fields are added or edited.
   _captureFields(activeCard) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     activeCard.name = $('#editName').value.trim();
     activeCard.description = $('#editDescription').value;
     activeCard.personality = $('#editPersonality').value;
@@ -241,24 +241,9 @@ const Editor = {
     activeCard.creator = $('#editCreator').value.trim();
     activeCard.character_version = $('#editVersion').value.trim();
     activeCard.tags = $('#editTags').value.split(/[,，\n]/).map(s => s.trim()).filter(Boolean);
-    // Compute file size using the export format (without internal metadata)
-    activeCard._fileSize = JSON.stringify({
-      spec: activeCard.spec || 'chara_card_v2',
-      spec_version: activeCard.spec_version || '2.0',
-      data: {
-        name: activeCard.name || '', description: activeCard.description || '',
-        personality: activeCard.personality || '', scenario: activeCard.scenario || '',
-        first_mes: activeCard.first_mes || '', mes_example: activeCard.mes_example || '',
-        creator_notes: activeCard.creator_notes || '',
-        system_prompt: activeCard.system_prompt || '',
-        post_history_instructions: activeCard.post_history_instructions || '',
-        alternate_greetings: activeCard.alternate_greetings || [],
-        tags: activeCard.tags || [], creator: activeCard.creator || '',
-        character_version: activeCard.character_version || '',
-        character_book: activeCard.character_book || { entries: [] },
-        extensions: activeCard.extensions || {},
-      },
-    }).length;
+    // Full card weight: export-shaped JSON plus embedded image bytes, so the
+    // sidebar badge and the Largest/Smallest sort include the avatar.
+    activeCard._fileSize = CardEngine.computeFileSize(activeCard);
   },
 
   async syncEditorToCard() {
@@ -313,13 +298,13 @@ const Editor = {
   },
 
   showEditor() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     $('#noCardSelected').classList.add('d-none');
     $('#editorContainer').classList.remove('d-none');
   },
 
   async setAvatar(file) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const { activeCard } = window.AppState;
     if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
     try {
@@ -341,7 +326,7 @@ const Editor = {
   },
 
   hideEditor() {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     $('#noCardSelected').classList.remove('d-none');
     $('#editorContainer').classList.add('d-none');
   },
@@ -380,11 +365,10 @@ const Editor = {
       countEl.classList.add('field-counter');
       countEl.classList.remove('is-warn', 'is-danger');
       const len = (el.value || '').length;
-      // Use the same estimator as Tokenizer (which the context bar uses) so the
-      // char counts and the token context bar never disagree.
-      const tokens = typeof Tokenizer !== 'undefined' && Tokenizer.quickCount
-        ? Tokenizer.quickCount(el.value || '')
-        : Math.ceil(len / 3);
+      // Use the same estimator as the context bar (real BPE once the CDN lib
+      // loads, heuristic before) so the char counts and the token budget agree.
+      // syncCount degrades to the heuristic internally — no guard needed.
+      const tokens = Tokenizer.syncCount(el.value || '');
       countEl.textContent = I18n.t ? I18n.t('editor.charCount', { chars: len, tokens }) : (len + ' chars ~' + tokens + ' tokens');
       if (maxTokens > 0) {
         if (tokens > maxTokens) {
@@ -401,7 +385,7 @@ const Editor = {
   },
 
   renderGreetings(card) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const container = $('#greetingsList');
     const count = $('#greetingCount');
     const greetings = card.alternate_greetings || [];
@@ -519,7 +503,7 @@ const Editor = {
   syncGreetings() {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const greetings = [];
     const list = $('#greetingsList');
     if (list) {
@@ -533,7 +517,7 @@ const Editor = {
   async addGreeting() {
     const { activeCard } = window.AppState;
     if (!activeCard) return;
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     if (!activeCard.alternate_greetings) activeCard.alternate_greetings = [];
     activeCard.alternate_greetings.push('');
     this.renderGreetings(activeCard);
@@ -597,7 +581,7 @@ const Editor = {
       if (!el) continue;
       const v = el.value || '';
       chars += v.length;
-      tokens += (typeof Tokenizer !== 'undefined' && Tokenizer.quickCount) ? Tokenizer.quickCount(v) : Math.ceil(v.length / 3);
+      tokens += Tokenizer.syncCount(v);
     }
     const extra = [];
     const extEl = document.querySelector('#editExtensions');
@@ -610,7 +594,7 @@ const Editor = {
     if (lb) lb.querySelectorAll('textarea[data-lore-idx]').forEach(ta => extra.push(ta.value || ''));
     for (const v of extra) {
       chars += v.length;
-      tokens += (typeof Tokenizer !== 'undefined' && Tokenizer.quickCount) ? Tokenizer.quickCount(v) : Math.ceil(v.length / 3);
+      tokens += Tokenizer.syncCount(v);
     }
     return { chars, tokens };
   },
@@ -628,8 +612,23 @@ const Editor = {
   },
 
   // ─── LOREBOOK — Accordion with Search ──────────────
+
+  // Pure search predicate (unit-testable). `key` is an ARRAY per the V2 spec,
+  // so it must be joined before `.toLowerCase()` — searching with array keys
+  // used to throw a TypeError and kill the whole lorebook panel. Content and
+  // comment are coerced to strings too, so numeric values from foreign cards
+  // cannot crash the filter either.
+  _lorebookEntryMatches(entry, query) {
+    const toStr = (v) => Array.isArray(v) ? v.join(' ') : (v == null ? '' : String(v));
+    const q = query.toLowerCase();
+    return toStr(entry && entry.key).toLowerCase().includes(q)
+      || toStr(entry && entry.keysecondary).toLowerCase().includes(q)
+      || toStr(entry && entry.content).toLowerCase().includes(q)
+      || toStr(entry && entry.comment).toLowerCase().includes(q);
+  },
+
   renderLorebook(card) {
-    const $ = (sel) => document.querySelector(sel);
+    const $ = Ui.$;
     const container = $('#lorebookEntries');
     // Normalize malformed entries in place (self-healing: the fixed shape is
     // persisted on the next sync). keysecondary is an array per the V2 spec,
@@ -669,14 +668,7 @@ const Editor = {
     // Filter entries by search
     let filteredEntries = entries.map((entry, idx) => ({ entry, idx }));
     if (searchQuery) {
-      filteredEntries = filteredEntries.filter(({ entry }) => {
-        const keyStr = (entry.key || '').toLowerCase();
-        const secStr = (entry.keysecondary || []).join(' ').toLowerCase();
-        const contentStr = (entry.content || '').toLowerCase();
-        const commentStr = (entry.comment || '').toLowerCase();
-        return keyStr.includes(searchQuery) || secStr.includes(searchQuery)
-          || contentStr.includes(searchQuery) || commentStr.includes(searchQuery);
-      });
+      filteredEntries = filteredEntries.filter(({ entry }) => this._lorebookEntryMatches(entry, searchQuery));
     }
 
     if (filteredEntries.length === 0) {

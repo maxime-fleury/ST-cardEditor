@@ -80,10 +80,12 @@ const WaifuTab = {
     this._render();
   },
 
-  _onSourceChange() {
+  _onSourceChange(mode) {
     const select = document.querySelector('#waifuSourceSelect');
     this._source = select ? select.value : 'snapshot';
-    this._mode = 'source';   // any manual source switch leaves the mixed pack
+    // Manual source switches leave the mixed pack, but a programmatic switch
+    // (e.g. _fetchMixedFromUI) may want to KEEP an active mode.
+    this._mode = mode || 'source';
     const isChar = this._source === 'character';
     const genderWrap = document.querySelector('#waifuGenderWrap');
     if (genderWrap) genderWrap.style.display = isChar ? '' : 'none';
@@ -350,7 +352,7 @@ const WaifuTab = {
     this._source = 'character';
     this._gender = 'all';
     this._mode = 'mixed';
-    this._onSourceChange();   // reflects character mode + clears old results
+    this._onSourceChange('mixed');   // reflects character mode + keeps the mixed mode + clears old results
     this._syncGenderChips();
     this._runFetch({ mode: 'mixed', search: this._searchValue() }, document.querySelector('#waifuBtnMixed'));
   },
