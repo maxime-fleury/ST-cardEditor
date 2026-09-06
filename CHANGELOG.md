@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-09-06
+
 ## [2.6.0] - 2026-09-06
 
 ### Added
@@ -171,7 +173,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   with a white popup in dark mode — fixed via `color-scheme` plus dark
   `form-select`/`option` styling across all browsers.
 
-[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.6.0...HEAD
+[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.6.1...HEAD
+[2.6.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.6.1
 [2.6.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.6.0
 [2.5.5]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.5
 [2.5.4]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.4
