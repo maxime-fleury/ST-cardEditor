@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': 'カードのプレビュー',
+  'preview.open': 'カードをプレビュー',
+  'preview.openEditor': 'エディターで開く',
+  'preview.empty': '説明や最初のメッセージはありません。',
+  'editor.collapse': 'セクションを折りたたむ',
+  'editor.expand': 'セクションを展開する',
+  'toast.pasteNoCard': 'クリップボードにキャラクターカードも画像もありません。',
+  'toast.pasteAvatarNoCard': '先にカードを選択してから、画像をアバターとして貼り付けてください。',
   'app.title': 'ST Card Editor — SillyTavern キャラクターカードスタジオ',
   'nav.selectModel': 'モデルを選択...',
   'nav.wizard': 'AIウィザードで作成',

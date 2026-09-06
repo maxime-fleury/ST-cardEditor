@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': 'Kaartvoorbeeld',
+  'preview.open': 'Kaart bekijken',
+  'preview.openEditor': 'Openen in editor',
+  'preview.empty': 'Geen beschrijving of eerste bericht.',
+  'editor.collapse': 'Sectie inklappen',
+  'editor.expand': 'Sectie uitklappen',
+  'toast.pasteNoCard': 'Het klembord bevat geen personagekaart of afbeelding.',
+  'toast.pasteAvatarNoCard': 'Selecteer eerst een kaart en plak daarna de afbeelding als avatar.',
   'app.title': 'ST Card Editor — SillyTavern personagekaartenstudio',
   'nav.selectModel': 'Selecteer model...',
   'nav.wizard': 'Maak met AI-wizard',

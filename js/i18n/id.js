@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': 'Pratinjau Kartu',
+  'preview.open': 'Lihat pratinjau',
+  'preview.openEditor': 'Buka di editor',
+  'preview.empty': 'Tidak ada deskripsi atau pesan pertama.',
+  'editor.collapse': 'Ciutkan bagian',
+  'editor.expand': 'Bentangkan bagian',
+  'toast.pasteNoCard': 'Papan klip tidak berisi kartu karakter atau gambar.',
+  'toast.pasteAvatarNoCard': 'Pilih kartu terlebih dahulu, lalu tempel gambar sebagai avatar.',
   'app.title': 'ST Card Editor — Studio kartu karakter SillyTavern',
   'nav.selectModel': 'Pilih model...',
   'nav.wizard': 'Buat dengan wizard AI',

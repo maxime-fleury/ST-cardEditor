@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': '卡片预览',
+  'preview.open': '预览卡片',
+  'preview.openEditor': '在编辑器中打开',
+  'preview.empty': '没有描述或首条消息。',
+  'editor.collapse': '折叠区域',
+  'editor.expand': '展开区域',
+  'toast.pasteNoCard': '剪贴板中既没有角色卡也没有图片。',
+  'toast.pasteAvatarNoCard': '请先选择一张卡片，然后将图片作为头像粘贴。',
   'app.title': 'ST Card Editor — SillyTavern 角色卡工作室',
   'nav.selectModel': '选择模型...',
   'nav.wizard': '使用AI向导创建',

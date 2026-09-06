@@ -3175,7 +3175,7 @@ ${value}`).join(`
       const thumb = card._thumbnail || card._imageBase64;
       const desc = (card.description || "").slice(0, 300);
       const fileSize = card._fileSize ? Ui.formatFileSize(card._fileSize) : "";
-      return '<div class="card-list-item' + (isActive ? " active" : "") + (isBatch ? " batch-selected" : "") + '" data-card-id="' + card._id + '" role="option" aria-selected="' + isActive + '">' + '<div class="card-list-avatar">' + (thumb ? '<img src="' + Ui.escapeAttr(thumb) + '" alt="">' : '<i class="bi bi-person-fill"></i>') + "</div>" + '<div class="card-list-info">' + '<div class="card-list-name">' + Ui.escapeHtml(card.name || I18n.t("gen.unnamed")) + "</div>" + '<div class="card-list-meta">' + (card.creator ? Ui.escapeHtml(card.creator) : "") + (card.creator && tags.length ? " · " : "") + tags.map((t) => Ui.escapeHtml(t)).join(", ") + (fileSize ? ' <span class="meta-filesize">' + fileSize + "</span>" : "") + "</div></div>" + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? " checked" : "") + ">" + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"><i class="bi bi-grip-vertical"></i></span>' + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + "</span>" : "") + '<div class="card-preview-tooltip">' + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : "") + '<div class="fw-semibold">' + Ui.escapeHtml(card.name || I18n.t("gen.unnamed")) + "</div>" + (card.creator ? '<div class="text-muted" style="font-size:0.7rem;">' + I18n.t("gen.byCreator", { name: Ui.escapeHtml(card.creator) }) + "</div>" : "") + (desc ? '<div class="preview-desc">' + Ui.escapeHtml(desc) + "</div>" : "") + "</div></div>";
+      return '<div class="card-list-item' + (isActive ? " active" : "") + (isBatch ? " batch-selected" : "") + '" data-card-id="' + card._id + '" role="option" aria-selected="' + isActive + '">' + '<div class="card-list-avatar">' + (thumb ? '<img src="' + Ui.escapeAttr(thumb) + '" alt="">' : '<i class="bi bi-person-fill"></i>') + "</div>" + '<div class="card-list-info">' + '<div class="card-list-name">' + Ui.escapeHtml(card.name || I18n.t("gen.unnamed")) + "</div>" + '<div class="card-list-meta">' + (card.creator ? Ui.escapeHtml(card.creator) : "") + (card.creator && tags.length ? " · " : "") + tags.map((t) => Ui.escapeHtml(t)).join(", ") + (fileSize ? ' <span class="meta-filesize">' + fileSize + "</span>" : "") + "</div></div>" + '<button type="button" class="card-preview-btn" data-card-id="' + card._id + '" title="' + (I18n.t ? I18n.t("preview.open") : "Preview card") + '" aria-label="' + (I18n.t ? I18n.t("preview.open") : "Preview card") + '"><i class="bi bi-eye"></i></button>' + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? " checked" : "") + ">" + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"><i class="bi bi-grip-vertical"></i></span>' + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + "</span>" : "") + '<div class="card-preview-tooltip">' + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : "") + '<div class="fw-semibold">' + Ui.escapeHtml(card.name || I18n.t("gen.unnamed")) + "</div>" + (card.creator ? '<div class="text-muted" style="font-size:0.7rem;">' + I18n.t("gen.byCreator", { name: Ui.escapeHtml(card.creator) }) + "</div>" : "") + (desc ? '<div class="preview-desc">' + Ui.escapeHtml(desc) + "</div>" : "") + "</div></div>";
     },
     _groupCards(list) {
       if (this._sortMode !== "name-asc" && this._sortMode !== "name-desc") {
@@ -3297,6 +3297,28 @@ ${value}`).join(`
           });
         });
       }
+      if (!this._previewHoverBound && container) {
+        this._previewHoverBound = true;
+        container.addEventListener("mouseover", (e) => {
+          const item = e.target.closest(".card-list-item");
+          if (!item)
+            return;
+          const descEl = item.querySelector(".preview-desc");
+          if (!descEl || descEl.dataset.filled)
+            return;
+          const id = item.dataset.cardId;
+          if (this._previewCache.has(id)) {
+            this._fillTooltipDesc(descEl, id);
+            return;
+          }
+          CardStorage.getCard(id).then((full) => {
+            if (full) {
+              this._previewCache.set(id, full);
+              this._fillTooltipDesc(descEl, id);
+            }
+          }).catch(() => {});
+        });
+      }
       if (!this._cardListBound && container) {
         this._cardListBound = true;
         container.addEventListener("click", (e) => {
@@ -3312,6 +3334,12 @@ ${value}`).join(`
               else
                 this._collapsedGroups.delete(letter);
             }
+            return;
+          }
+          const previewBtn = e.target.closest(".card-preview-btn");
+          if (previewBtn) {
+            e.stopPropagation();
+            CardManager2.showCardPreview(previewBtn.dataset.cardId);
             return;
           }
           const checkbox = e.target.closest(".card-batch-check");
@@ -3594,6 +3622,152 @@ ${value}`).join(`
         await this.selectCard(snapshot);
         Ui.showToast(I18n.t("toast.cardRestored"), "success");
       });
+    },
+    _previewModal: null,
+    _previewCardId: null,
+    _previewCache: new Map,
+    _previewHoverBound: false,
+    _fillTooltipDesc(descEl, cardId) {
+      const full = this._previewCache.get(cardId);
+      if (!full)
+        return;
+      const text = (full.description || "").trim();
+      const snippet = (text || (full.first_mes || "").trim()).slice(0, 400);
+      if (snippet) {
+        descEl.textContent = snippet;
+        descEl.dataset.filled = "1";
+      }
+    },
+    async showCardPreview(cardId) {
+      const full = await CardStorage.getCard(cardId);
+      if (!full)
+        return;
+      this._previewCardId = cardId;
+      const $ = Ui.$;
+      const t = (key, fallback) => I18n && I18n.t ? I18n.t(key) : fallback;
+      $("#cardPreviewTitle").textContent = full.name || t("gen.unnamed", "Unnamed");
+      const img = $("#cardPreviewAvatar");
+      const b64 = full._imageBase64 || full._thumbnail;
+      if (b64) {
+        img.src = b64;
+        img.hidden = false;
+        $("#cardPreviewAvatarPlaceholder").style.display = "none";
+      } else {
+        img.removeAttribute("src");
+        img.hidden = true;
+        $("#cardPreviewAvatarPlaceholder").style.display = "";
+      }
+      const metaParts = [];
+      if (full.creator)
+        metaParts.push(Ui.escapeHtml(full.creator));
+      if (full.spec_version)
+        metaParts.push("v" + Ui.escapeHtml(full.spec_version));
+      if ((full.tags || []).length)
+        metaParts.push((full.tags || []).map((x) => Ui.escapeHtml(String(x))).join(", "));
+      $("#cardPreviewMeta").innerHTML = metaParts.join(" · ");
+      const body = $("#cardPreviewBody");
+      const sections = [];
+      if ((full.description || "").trim()) {
+        sections.push('<h6 class="card-preview-section-title">' + t("editor.desc", "Description") + "</h6>" + '<div class="card-preview-section" id="cardPreviewDesc"></div>');
+      }
+      if ((full.first_mes || "").trim()) {
+        sections.push('<h6 class="card-preview-section-title">' + t("editor.firstMes", "First Message") + "</h6>" + '<div class="card-preview-section" id="cardPreviewFirstMes"></div>');
+      }
+      if (!sections.length) {
+        sections.push('<p class="text-muted mb-0" style="font-size:0.85rem;">' + t("preview.empty", "No description or first message.") + "</p>");
+      }
+      body.innerHTML = sections.join("");
+      const descEl = $("#cardPreviewDesc");
+      if (descEl)
+        descEl.innerHTML = Ui.renderMarkdown(full.description || "", descEl);
+      const fmEl = $("#cardPreviewFirstMes");
+      if (fmEl)
+        fmEl.innerHTML = Ui.renderMarkdown(full.first_mes || "", fmEl);
+      this._previewModal = this._previewModal || new bootstrap.Modal("#cardPreviewModal");
+      this._previewModal.show();
+    },
+    async _fileHasChara(file) {
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (bytes.length < 8)
+          return false;
+        const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+        for (let i = 0;i < 8; i++)
+          if (bytes[i] !== sig[i])
+            return false;
+        const dec = new TextDecoder("utf-8");
+        let offset = 8;
+        while (offset + 12 <= bytes.length) {
+          const len = (bytes[offset] << 24 | bytes[offset + 1] << 16 | bytes[offset + 2] << 8 | bytes[offset + 3]) >>> 0;
+          const type = dec.decode(bytes.slice(offset + 4, offset + 8));
+          if (type === "tEXt" || type === "iTXt" || type === "zTXt") {
+            const data = bytes.slice(offset + 8, offset + 8 + len);
+            const nullIdx = data.indexOf(0);
+            if (nullIdx > 0) {
+              const kw = dec.decode(data.slice(0, nullIdx)).toLowerCase();
+              if (kw === "chara" || kw === "ccv3")
+                return true;
+            }
+          } else if (type === "IEND") {
+            break;
+          }
+          offset += 12 + len;
+        }
+        return false;
+      } catch (e) {
+        return false;
+      }
+    },
+    async _pasteAsAvatar(file) {
+      if (!window.AppState.activeCard) {
+        Ui.showToast(I18n.t ? I18n.t("toast.pasteAvatarNoCard") : "Select a card first, then paste the image as its avatar", "warning");
+        return;
+      }
+      try {
+        await Editor.setAvatar(file);
+      } catch (_) {}
+    },
+    async _importPastedFile(file) {
+      await this.processFiles([file]);
+    },
+    async processPaste(files, text) {
+      const t = (key, fallback) => I18n && I18n.t ? I18n.t(key) : fallback;
+      if (files && files.length) {
+        for (const file of files) {
+          const ext = (file.name.split(".").pop() || "").toLowerCase();
+          const isImage = (file.type || "").startsWith("image/");
+          if (ext === "json") {
+            await this._importPastedFile(file);
+            continue;
+          }
+          if (isImage && ext === "png" && await this._fileHasChara(file)) {
+            await this._importPastedFile(file);
+            continue;
+          }
+          if (isImage) {
+            await this._pasteAsAvatar(file);
+            continue;
+          }
+          Ui.showToast(t("toast.pasteNoCard", "Clipboard contains no character card or image"), "warning");
+        }
+        return;
+      }
+      if (!text)
+        return;
+      if (/^data:image\//i.test(text)) {
+        try {
+          const blob = await (await fetch(text)).blob();
+          await this._pasteAsAvatar(new File([blob], "pasted-avatar", { type: blob.type || "image/png" }));
+        } catch (_) {
+          Ui.showToast(t("toast.pasteNoCard", "Clipboard contains no character card or image"), "warning");
+        }
+        return;
+      }
+      if (text[0] === "{" || text[0] === "[") {
+        await this._importPastedFile(new File([text], "pasted-card.json", { type: "application/json" }));
+        return;
+      }
+      Ui.showToast(t("toast.pasteNoCard", "Clipboard contains no character card or image"), "warning");
     }
   };
   if (typeof window !== "undefined")
@@ -6988,6 +7162,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/en.js
   var en_default = {
+    "preview.title": "Card Preview",
+    "preview.open": "Preview card",
+    "preview.openEditor": "Open in editor",
+    "preview.empty": "No description or first message.",
+    "editor.collapse": "Collapse section",
+    "editor.expand": "Expand section",
+    "toast.pasteNoCard": "Clipboard contains no character card or image",
+    "toast.pasteAvatarNoCard": "Select a card first, then paste the image as its avatar",
     "app.title": "ST Card Editor — SillyTavern Character Card Studio",
     "nav.selectModel": "Select model...",
     "nav.wizard": "Create with AI wizard",
@@ -7615,6 +7797,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/fr.js
   var fr_default = {
+    "preview.title": "Aperçu de la carte",
+    "preview.open": "Voir l'aperçu",
+    "preview.openEditor": "Ouvrir dans l'éditeur",
+    "preview.empty": "Aucune description ni premier message.",
+    "editor.collapse": "Replier la section",
+    "editor.expand": "Déplier la section",
+    "toast.pasteNoCard": "Le presse-papiers ne contient ni carte de personnage ni image.",
+    "toast.pasteAvatarNoCard": "Sélectionnez d'abord une carte, puis collez l'image comme avatar.",
     "app.title": "ST Card Editor — Studio de cartes de personnages SillyTavern",
     "nav.selectModel": "Sélectionner le modèle...",
     "nav.wizard": "Créer avec l'assistant IA",
@@ -8242,6 +8432,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/es.js
   var es_default = {
+    "preview.title": "Vista previa de la tarjeta",
+    "preview.open": "Ver vista previa",
+    "preview.openEditor": "Abrir en el editor",
+    "preview.empty": "No hay descripción ni primer mensaje.",
+    "editor.collapse": "Contraer sección",
+    "editor.expand": "Expandir sección",
+    "toast.pasteNoCard": "El portapapeles no contiene ninguna tarjeta de personaje ni imagen.",
+    "toast.pasteAvatarNoCard": "Selecciona primero una tarjeta y luego pega la imagen como avatar.",
     "app.title": "ST Card Editor — Estudio de tarjetas de personajes SillyTavern",
     "nav.selectModel": "Seleccionar modelo...",
     "nav.wizard": "Crear con asistente de IA",
@@ -8869,6 +9067,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/de.js
   var de_default = {
+    "preview.title": "Kartenvorschau",
+    "preview.open": "Karte anzeigen",
+    "preview.openEditor": "Im Editor öffnen",
+    "preview.empty": "Keine Beschreibung oder erste Nachricht vorhanden.",
+    "editor.collapse": "Abschnitt einklappen",
+    "editor.expand": "Abschnitt ausklappen",
+    "toast.pasteNoCard": "Die Zwischenablage enthält weder eine Charakterkarte noch ein Bild.",
+    "toast.pasteAvatarNoCard": "Wählen Sie zuerst eine Karte aus und fügen Sie dann das Bild als Avatar ein.",
     "app.title": "ST Card Editor — SillyTavern Charakterkarten-Studio",
     "nav.selectModel": "Modell auswählen...",
     "nav.wizard": "Mit KI-Assistenten erstellen",
@@ -9496,6 +9702,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/pt.js
   var pt_default = {
+    "preview.title": "Pré-visualização da carta",
+    "preview.open": "Ver pré-visualização",
+    "preview.openEditor": "Abrir no editor",
+    "preview.empty": "Não há descrição nem primeira mensagem.",
+    "editor.collapse": "Recolher seção",
+    "editor.expand": "Expandir seção",
+    "toast.pasteNoCard": "A área de transferência não contém nenhuma carta de personagem nem imagem.",
+    "toast.pasteAvatarNoCard": "Selecione primeiro uma carta e depois cole a imagem como avatar.",
     "app.title": "ST Card Editor — Estúdio de cartas de personagens SillyTavern",
     "nav.selectModel": "Selecionar modelo...",
     "nav.wizard": "Criar com assistente de IA",
@@ -10123,6 +10337,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/ja.js
   var ja_default = {
+    "preview.title": "カードのプレビュー",
+    "preview.open": "カードをプレビュー",
+    "preview.openEditor": "エディターで開く",
+    "preview.empty": "説明や最初のメッセージはありません。",
+    "editor.collapse": "セクションを折りたたむ",
+    "editor.expand": "セクションを展開する",
+    "toast.pasteNoCard": "クリップボードにキャラクターカードも画像もありません。",
+    "toast.pasteAvatarNoCard": "先にカードを選択してから、画像をアバターとして貼り付けてください。",
     "app.title": "ST Card Editor — SillyTavern キャラクターカードスタジオ",
     "nav.selectModel": "モデルを選択...",
     "nav.wizard": "AIウィザードで作成",
@@ -10750,6 +10972,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/zh.js
   var zh_default = {
+    "preview.title": "卡片预览",
+    "preview.open": "预览卡片",
+    "preview.openEditor": "在编辑器中打开",
+    "preview.empty": "没有描述或首条消息。",
+    "editor.collapse": "折叠区域",
+    "editor.expand": "展开区域",
+    "toast.pasteNoCard": "剪贴板中既没有角色卡也没有图片。",
+    "toast.pasteAvatarNoCard": "请先选择一张卡片，然后将图片作为头像粘贴。",
     "app.title": "ST Card Editor — SillyTavern 角色卡工作室",
     "nav.selectModel": "选择模型...",
     "nav.wizard": "使用AI向导创建",
@@ -11377,6 +11607,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/ko.js
   var ko_default = {
+    "preview.title": "카드 미리보기",
+    "preview.open": "미리보기 열기",
+    "preview.openEditor": "편집기에서 열기",
+    "preview.empty": "설명이나 첫 번째 메시지가 없습니다.",
+    "editor.collapse": "섹션 접기",
+    "editor.expand": "섹션 펼치기",
+    "toast.pasteNoCard": "클립보드에 캐릭터 카드나 이미지가 없습니다.",
+    "toast.pasteAvatarNoCard": "먼저 카드를 선택한 다음 이미지를 아바타로 붙여넣으세요.",
     "app.title": "ST Card Editor — SillyTavern 캐릭터 카드 스튜디오",
     "nav.selectModel": "모델 선택...",
     "nav.wizard": "AI 마법사로 만들기",
@@ -12004,6 +12242,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/el.js
   var el_default = {
+    "preview.title": "Προεπισκόπηση κάρτας",
+    "preview.open": "Προβολή προεπισκόπησης",
+    "preview.openEditor": "Άνοιγμα στον επεξεργαστή",
+    "preview.empty": "Δεν υπάρχει περιγραφή ή πρώτο μήνυμα.",
+    "editor.collapse": "Σύμπτυξη ενότητας",
+    "editor.expand": "Ανάπτυξη ενότητας",
+    "toast.pasteNoCard": "Το πρόχειρο δεν περιέχει κάρτα χαρακτήρα ή εικόνα.",
+    "toast.pasteAvatarNoCard": "Επιλέξτε πρώτα μια κάρτα και μετά επικολλήστε την εικόνα ως avatar.",
     "app.title": "ST Card Editor — Στούντιο καρτών χαρακτήρων SillyTavern",
     "nav.selectModel": "Επιλογή μοντέλου...",
     "nav.wizard": "Δημιουργία με AI βοηθό",
@@ -12631,6 +12877,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/ru.js
   var ru_default = {
+    "preview.title": "Предпросмотр карточки",
+    "preview.open": "Просмотр карточки",
+    "preview.openEditor": "Открыть в редакторе",
+    "preview.empty": "Нет описания или первого сообщения.",
+    "editor.collapse": "Свернуть раздел",
+    "editor.expand": "Развернуть раздел",
+    "toast.pasteNoCard": "В буфере обмена нет карточки персонажа или изображения.",
+    "toast.pasteAvatarNoCard": "Сначала выберите карточку, затем вставьте изображение как аватар.",
     "app.title": "ST Card Editor — Студия карт персонажей SillyTavern",
     "nav.selectModel": "Выбрать модель...",
     "nav.wizard": "Создать с помощью ИИ-помощника",
@@ -13258,6 +13512,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/it.js
   var it_default = {
+    "preview.title": "Anteprima scheda",
+    "preview.open": "Visualizza anteprima",
+    "preview.openEditor": "Apri nell'editor",
+    "preview.empty": "Nessuna descrizione o primo messaggio.",
+    "editor.collapse": "Comprimi sezione",
+    "editor.expand": "Espandi sezione",
+    "toast.pasteNoCard": "Gli appunti non contengono nessuna scheda di personaggio né immagine.",
+    "toast.pasteAvatarNoCard": "Seleziona prima una scheda, poi incolla l'immagine come avatar.",
     "app.title": "ST Card Editor — Studio di carte personaggio SillyTavern",
     "nav.selectModel": "Seleziona modello...",
     "nav.wizard": "Crea con la procedura guidata AI",
@@ -13885,6 +14147,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/pl.js
   var pl_default = {
+    "preview.title": "Podgląd karty",
+    "preview.open": "Zobacz podgląd",
+    "preview.openEditor": "Otwórz w edytorze",
+    "preview.empty": "Brak opisu lub pierwszej wiadomości.",
+    "editor.collapse": "Zwiń sekcję",
+    "editor.expand": "Rozwiń sekcję",
+    "toast.pasteNoCard": "Schowek nie zawiera karty postaci ani obrazu.",
+    "toast.pasteAvatarNoCard": "Najpierw wybierz kartę, a następnie wklej obraz jako awatar.",
     "app.title": "ST Card Editor — Studio kart postaci SillyTavern",
     "nav.selectModel": "Wybierz model...",
     "nav.wizard": "Utwórz za pomocą kreatora AI",
@@ -14512,6 +14782,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/tr.js
   var tr_default = {
+    "preview.title": "Kart Önizlemesi",
+    "preview.open": "Kartı önizle",
+    "preview.openEditor": "Editörde aç",
+    "preview.empty": "Açıklama veya ilk mesaj yok.",
+    "editor.collapse": "Bölümü daralt",
+    "editor.expand": "Bölümü genişlet",
+    "toast.pasteNoCard": "Panoda karakter kartı veya görsel yok.",
+    "toast.pasteAvatarNoCard": "Önce bir kart seçin, ardından görseli avatar olarak yapıştırın.",
     "app.title": "ST Card Editor — SillyTavern karakter kartı stüdyosu",
     "nav.selectModel": "Model seçin...",
     "nav.wizard": "AI sihirbazıyla oluştur",
@@ -15139,6 +15417,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/nl.js
   var nl_default = {
+    "preview.title": "Kaartvoorbeeld",
+    "preview.open": "Kaart bekijken",
+    "preview.openEditor": "Openen in editor",
+    "preview.empty": "Geen beschrijving of eerste bericht.",
+    "editor.collapse": "Sectie inklappen",
+    "editor.expand": "Sectie uitklappen",
+    "toast.pasteNoCard": "Het klembord bevat geen personagekaart of afbeelding.",
+    "toast.pasteAvatarNoCard": "Selecteer eerst een kaart en plak daarna de afbeelding als avatar.",
     "app.title": "ST Card Editor — SillyTavern personagekaartenstudio",
     "nav.selectModel": "Selecteer model...",
     "nav.wizard": "Maak met AI-wizard",
@@ -15766,6 +16052,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/uk.js
   var uk_default = {
+    "preview.title": "Попередній перегляд картки",
+    "preview.open": "Переглянути картку",
+    "preview.openEditor": "Відкрити в редакторі",
+    "preview.empty": "Немає опису або першого повідомлення.",
+    "editor.collapse": "Згорнути розділ",
+    "editor.expand": "Розгорнути розділ",
+    "toast.pasteNoCard": "У буфері обміну немає картки персонажа або зображення.",
+    "toast.pasteAvatarNoCard": "Спочатку виберіть картку, а потім вставте зображення як аватар.",
     "app.title": "ST Card Editor — Студія карток персонажів SillyTavern",
     "nav.selectModel": "Виберіть модель...",
     "nav.wizard": "Створити за допомогою AI-майстра",
@@ -16393,6 +16687,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/vi.js
   var vi_default = {
+    "preview.title": "Xem trước thẻ",
+    "preview.open": "Xem trước",
+    "preview.openEditor": "Mở trong trình chỉnh sửa",
+    "preview.empty": "Không có mô tả hoặc tin nhắn đầu tiên.",
+    "editor.collapse": "Thu gọn mục",
+    "editor.expand": "Mở rộng mục",
+    "toast.pasteNoCard": "Bảng tạm không chứa thẻ nhân vật hoặc hình ảnh nào.",
+    "toast.pasteAvatarNoCard": "Trước tiên hãy chọn một thẻ, sau đó dán hình ảnh làm hình đại diện.",
     "app.title": "ST Card Editor — Xưởng thẻ nhân vật SillyTavern",
     "nav.selectModel": "Chọn mô hình...",
     "nav.wizard": "Tạo bằng trình hướng dẫn AI",
@@ -17020,6 +17322,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/id.js
   var id_default = {
+    "preview.title": "Pratinjau Kartu",
+    "preview.open": "Lihat pratinjau",
+    "preview.openEditor": "Buka di editor",
+    "preview.empty": "Tidak ada deskripsi atau pesan pertama.",
+    "editor.collapse": "Ciutkan bagian",
+    "editor.expand": "Bentangkan bagian",
+    "toast.pasteNoCard": "Papan klip tidak berisi kartu karakter atau gambar.",
+    "toast.pasteAvatarNoCard": "Pilih kartu terlebih dahulu, lalu tempel gambar sebagai avatar.",
     "app.title": "ST Card Editor — Studio kartu karakter SillyTavern",
     "nav.selectModel": "Pilih model...",
     "nav.wizard": "Buat dengan wizard AI",
@@ -17647,6 +17957,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/hi.js
   var hi_default = {
+    "preview.title": "कार्ड पूर्वावलोकन",
+    "preview.open": "कार्ड देखें",
+    "preview.openEditor": "संपादक में खोलें",
+    "preview.empty": "कोई विवरण या पहला संदेश नहीं है।",
+    "editor.collapse": "अनुभाग संक्षिप्त करें",
+    "editor.expand": "अनुभाग विस्तृत करें",
+    "toast.pasteNoCard": "क्लिपबोर्ड में कोई चरित्र कार्ड या छवि नहीं है।",
+    "toast.pasteAvatarNoCard": "पहले एक कार्ड चुनें, फिर छवि को अवतार के रूप में पेस्ट करें।",
     "app.title": "ST Card Editor — SillyTavern कैरेक्टर कार्ड स्टूडियो",
     "nav.selectModel": "मॉडल चुनें...",
     "nav.wizard": "AI विज़ार्ड से बनाएं",
@@ -18274,6 +18592,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/ar.js
   var ar_default = {
+    "preview.title": "معاينة البطاقة",
+    "preview.open": "عرض المعاينة",
+    "preview.openEditor": "فتح في المحرر",
+    "preview.empty": "لا يوجد وصف أو رسالة أولى.",
+    "editor.collapse": "طي القسم",
+    "editor.expand": "توسيع القسم",
+    "toast.pasteNoCard": "لا تحتوي الحافظة على بطاقة شخصية أو صورة.",
+    "toast.pasteAvatarNoCard": "حدد بطاقة أولاً، ثم الصق الصورة كصورة رمزية.",
     "app.title": "ST Card Editor — استوديو بطاقات الشخصيات SillyTavern",
     "nav.selectModel": "اختر النموذج...",
     "nav.wizard": "إنشاء باستخدام معالج الذكاء الاصطناعي",
@@ -18901,6 +19227,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/he.js
   var he_default = {
+    "preview.title": "תצוגה מקדימה של הכרטיס",
+    "preview.open": "הצגת תצוגה מקדימה",
+    "preview.openEditor": "פתיחה בעורך",
+    "preview.empty": "אין תיאור או הודעה ראשונה.",
+    "editor.collapse": "קיפול קטע",
+    "editor.expand": "פתיחת קטע",
+    "toast.pasteNoCard": "הלוח אינו מכיל כרטיס דמות או תמונה.",
+    "toast.pasteAvatarNoCard": "בחרו תחילה כרטיס, ואז הדביקו את התמונה כתמונת ראשית.",
     "app.title": "ST Card Editor — סטודיו לכרטיסי דמויות SillyTavern",
     "nav.selectModel": "בחרו מודל...",
     "nav.wizard": "יצירה עם אשף ה-AI",
@@ -19528,6 +19862,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/fa.js
   var fa_default = {
+    "preview.title": "پیش‌نمایش کارت",
+    "preview.open": "نمایش پیش‌نمایش",
+    "preview.openEditor": "باز کردن در ویرایشگر",
+    "preview.empty": "توضیح یا پیام اولی وجود ندارد.",
+    "editor.collapse": "جمع‌کردن بخش",
+    "editor.expand": "بازکردن بخش",
+    "toast.pasteNoCard": "کلیپ‌بورد شامل کارت شخصیت یا تصویری نیست.",
+    "toast.pasteAvatarNoCard": "ابتدا یک کارت انتخاب کنید و سپس تصویر را به‌عنوان آواتار جای‌گذاری کنید.",
     "app.title": "ST Card Editor — استودیو کارت شخصیت SillyTavern",
     "nav.selectModel": "انتخاب مدل...",
     "nav.wizard": "ساخت با جادوگر هوش مصنوعی",
@@ -20155,6 +20497,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/ro.js
   var ro_default = {
+    "preview.title": "Previzualizare card",
+    "preview.open": "Vezi previzualizarea",
+    "preview.openEditor": "Deschide în editor",
+    "preview.empty": "Nu există descriere sau prim mesaj.",
+    "editor.collapse": "Restrânge secțiunea",
+    "editor.expand": "Extinde secțiunea",
+    "toast.pasteNoCard": "Clipboard-ul nu conține un card de personaj sau o imagine.",
+    "toast.pasteAvatarNoCard": "Selectează mai întâi un card, apoi lipește imaginea ca avatar.",
     "app.title": "ST Card Editor — SillyTavern Character Card Studio",
     "nav.selectModel": "Selectează modelul...",
     "nav.wizard": "Creează cu asistentul AI",
@@ -20782,6 +21132,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/cs.js
   var cs_default = {
+    "preview.title": "Náhled karty",
+    "preview.open": "Zobrazit náhled",
+    "preview.openEditor": "Otevřít v editoru",
+    "preview.empty": "Žádný popis ani první zpráva.",
+    "editor.collapse": "Sbalit sekci",
+    "editor.expand": "Rozbalit sekci",
+    "toast.pasteNoCard": "Schránka neobsahuje kartu postavy ani obrázek.",
+    "toast.pasteAvatarNoCard": "Nejprve vyberte kartu a poté vložte obrázek jako avatar.",
     "app.title": "ST Card Editor — SillyTavern Character Card Studio",
     "nav.selectModel": "Vyberte model...",
     "nav.wizard": "Vytvořit s AI průvodcem",
@@ -21409,6 +21767,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/sv.js
   var sv_default = {
+    "preview.title": "Kortförhandsvisning",
+    "preview.open": "Visa förhandsvisning",
+    "preview.openEditor": "Öppna i redigeraren",
+    "preview.empty": "Ingen beskrivning eller första meddelande.",
+    "editor.collapse": "Fäll ihop avsnitt",
+    "editor.expand": "Fäll ut avsnitt",
+    "toast.pasteNoCard": "Urklippet innehåller varken ett karaktärskort eller en bild.",
+    "toast.pasteAvatarNoCard": "Välj först ett kort och klistra sedan in bilden som avatar.",
     "app.title": "ST Card Editor — SillyTavern Karakterkortsstudio",
     "nav.selectModel": "Välj modell...",
     "nav.wizard": "Skapa med AI-guiden",
@@ -22036,6 +22402,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/th.js
   var th_default = {
+    "preview.title": "ดูตัวอย่างการ์ด",
+    "preview.open": "ดูตัวอย่าง",
+    "preview.openEditor": "เปิดในตัวแก้ไข",
+    "preview.empty": "ไม่มีคำอธิบายหรือข้อความแรก",
+    "editor.collapse": "ย่อส่วน",
+    "editor.expand": "ขยายส่วน",
+    "toast.pasteNoCard": "คลิปบอร์ดไม่มีการ์ดตัวละครหรือรูปภาพ",
+    "toast.pasteAvatarNoCard": "เลือกการ์ดก่อน แล้ววางรูปภาพเป็นรูปแทนตัว",
     "app.title": "ST Card Editor — สตูดิโอการ์ดตัวละคร SillyTavern",
     "nav.selectModel": "เลือกโมเดล...",
     "nav.wizard": "สร้างด้วยตัวช่วย AI",
@@ -22663,6 +23037,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/pt-pt.js
   var pt_pt_default = {
+    "preview.title": "Pré-visualização do cartão",
+    "preview.open": "Ver pré-visualização",
+    "preview.openEditor": "Abrir no editor",
+    "preview.empty": "Não existe descrição nem primeira mensagem.",
+    "editor.collapse": "Recolher secção",
+    "editor.expand": "Expandir secção",
+    "toast.pasteNoCard": "A área de transferência não contém nenhum cartão de personagem nem imagem.",
+    "toast.pasteAvatarNoCard": "Selecione primeiro um cartão e depois cole a imagem como avatar.",
     "app.title": "ST Card Editor — Estúdio de Cartas de Personagens SillyTavern",
     "nav.selectModel": "Selecionar modelo...",
     "nav.wizard": "Criar com assistente IA",
@@ -23290,6 +23672,14 @@ Each greeting should be an in-character opening message that could start a conve
 
   // js/i18n/tl.js
   var tl_default = {
+    "preview.title": "Preview ng Kard",
+    "preview.open": "Tingnan ang preview",
+    "preview.openEditor": "Buksan sa editor",
+    "preview.empty": "Walang paglalarawan o unang mensahe.",
+    "editor.collapse": "I-collapse ang seksyon",
+    "editor.expand": "I-expand ang seksyon",
+    "toast.pasteNoCard": "Walang character card o larawan sa clipboard.",
+    "toast.pasteAvatarNoCard": "Pumili muna ng kard, pagkatapos ay i-paste ang larawan bilang avatar.",
     "app.title": "ST Card Editor — SillyTavern Character Card Studio",
     "nav.selectModel": "Pumili ng modelo...",
     "nav.wizard": "Lumikha gamit ang AI wizard",
@@ -24706,6 +25096,21 @@ Each greeting should be an in-character opening message that could start a conve
           CardManager.processFiles(files);
       }
     });
+    document.addEventListener("paste", async (e) => {
+      const target = e.target;
+      const isEditable = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (isEditable)
+        return;
+      const dt = e.clipboardData;
+      if (!dt)
+        return;
+      const files = Array.from(dt.files || []);
+      const text = (dt.getData("text/plain") || "").trim();
+      if (!files.length && !text)
+        return;
+      e.preventDefault();
+      await CardManager.processPaste(files, text);
+    });
     $("#btnNewCardCenter").addEventListener("click", () => CardManager.createNewCard());
     $("#btnSaveCard").addEventListener("click", () => CardManager.saveCurrentCard());
     $("#btnSettings").addEventListener("click", () => settingsModal.show());
@@ -24884,6 +25289,56 @@ Each greeting should be an in-character opening message that could start a conve
           Editor.setAvatar(f);
         e.target.value = "";
       });
+    let sectionState = [];
+    try {
+      sectionState = JSON.parse(localStorage.getItem("stce_collapsed_sections") || "[]");
+    } catch (_) {}
+    document.querySelectorAll(".field-section").forEach((section) => {
+      const header = section.querySelector(".field-section-header");
+      if (!header)
+        return;
+      const name = section.dataset.section;
+      const setTitle = (collapsed) => {
+        header.title = I18n && I18n.t ? I18n.t(collapsed ? "editor.expand" : "editor.collapse") : collapsed ? "Expand section" : "Collapse section";
+      };
+      if (sectionState.includes(name)) {
+        section.classList.add("collapsed");
+        header.setAttribute("aria-expanded", "false");
+        setTitle(true);
+      } else {
+        setTitle(false);
+      }
+      header.addEventListener("click", () => {
+        const collapsed = section.classList.toggle("collapsed");
+        header.setAttribute("aria-expanded", String(!collapsed));
+        setTitle(collapsed);
+        let state = [];
+        try {
+          state = JSON.parse(localStorage.getItem("stce_collapsed_sections") || "[]");
+        } catch (_) {}
+        if (collapsed) {
+          if (!state.includes(name))
+            state.push(name);
+        } else {
+          state = state.filter((n) => n !== name);
+        }
+        try {
+          localStorage.setItem("stce_collapsed_sections", JSON.stringify(state));
+        } catch (_) {}
+        if (!collapsed)
+          Editor.autoResizeTextareas();
+      });
+    });
+    $("#btnPreviewOpenEditor").addEventListener("click", () => {
+      const id = CardManager._previewCardId;
+      if (!id)
+        return;
+      const meta = window.AppState.cards.find((c) => c._id === id);
+      if (CardManager._previewModal)
+        CardManager._previewModal.hide();
+      if (meta)
+        CardManager.selectCard(meta);
+    });
     [
       "editName",
       "editDescription",

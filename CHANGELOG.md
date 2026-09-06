@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Mini card preview** — an eye button on each library row opens a modal with
+  the card's full markdown-rendered description and first message (plus
+  creator/tags/spec), without leaving the library; hover tooltips now show the
+  real description text (fetched once and cached).
+- **Collapsible field sections across all editor tabs** — Description, First
+  Message, Scenario, Personality Summary, Example Messages, System Prompt,
+  Post-History Instructions, Creator Notes, Alternate Greetings and Extensions
+  fold into accordion headers; per-section collapse state persists across
+  reloads. The Edit/Preview toggle and {{char}}/{{user}} chips moved into a
+  per-section toolbar row.
+- **Clipboard paste import** — paste a PNG/JSON character card anywhere to
+  import it (dedupe included), paste a plain image onto the active card's
+  avatar, or paste raw card JSON / a data-URL image from the clipboard.
+- **Localization** — the 8 new preview/collapse/paste keys are translated in
+  all 26 non-English locales (208 new translations; English copyover dropped
+  from 2,195 to 1,987 keys).
+
+## [2.6.2] - 2026-09-06
+
 ## [2.6.1] - 2026-09-06
 
 ## [2.6.0] - 2026-09-06
@@ -173,7 +193,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   with a white popup in dark mode — fixed via `color-scheme` plus dark
   `form-select`/`option` styling across all browsers.
 
-[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.6.1...HEAD
+[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.6.2...HEAD
+[2.6.2]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.6.2
 [2.6.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.6.1
 [2.6.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.6.0
 [2.5.5]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.5.5

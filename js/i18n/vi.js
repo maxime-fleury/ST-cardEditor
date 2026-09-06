@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': 'Xem trước thẻ',
+  'preview.open': 'Xem trước',
+  'preview.openEditor': 'Mở trong trình chỉnh sửa',
+  'preview.empty': 'Không có mô tả hoặc tin nhắn đầu tiên.',
+  'editor.collapse': 'Thu gọn mục',
+  'editor.expand': 'Mở rộng mục',
+  'toast.pasteNoCard': 'Bảng tạm không chứa thẻ nhân vật hoặc hình ảnh nào.',
+  'toast.pasteAvatarNoCard': 'Trước tiên hãy chọn một thẻ, sau đó dán hình ảnh làm hình đại diện.',
   'app.title': 'ST Card Editor — Xưởng thẻ nhân vật SillyTavern',
   'nav.selectModel': 'Chọn mô hình...',
   'nav.wizard': 'Tạo bằng trình hướng dẫn AI',

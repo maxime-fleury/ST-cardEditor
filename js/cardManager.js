@@ -340,6 +340,7 @@ const CardManager = {
       + tags.map(t => Ui.escapeHtml(t)).join(', ')
       + (fileSize ? ' <span class="meta-filesize">' + fileSize + '</span>' : '')
       + '</div></div>'
+      + '<button type="button" class="card-preview-btn" data-card-id="' + card._id + '" title="' + (I18n.t ? I18n.t('preview.open') : 'Preview card') + '" aria-label="' + (I18n.t ? I18n.t('preview.open') : 'Preview card') + '"><i class="bi bi-eye"></i></button>'
       + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? ' checked' : '') + '>'
       + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"><i class="bi bi-grip-vertical"></i></span>'
       + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + '</span>' : '')
@@ -477,6 +478,23 @@ const CardManager = {
       });
     }
 
+    // Hover tooltip enrichment: meta cards carry no description, so fetch the
+    // full card once (cached) and fill the tooltip's description line.
+    if (!this._previewHoverBound && container) {
+      this._previewHoverBound = true;
+      container.addEventListener('mouseover', (e) => {
+        const item = e.target.closest('.card-list-item');
+        if (!item) return;
+        const descEl = item.querySelector('.preview-desc');
+        if (!descEl || descEl.dataset.filled) return;
+        const id = item.dataset.cardId;
+        if (this._previewCache.has(id)) { this._fillTooltipDesc(descEl, id); return; }
+        CardStorage.getCard(id).then((full) => {
+          if (full) { this._previewCache.set(id, full); this._fillTooltipDesc(descEl, id); }
+        }).catch(() => {});
+      });
+    }
+
     if (!this._cardListBound && container) {
       this._cardListBound = true;
       container.addEventListener('click', (e) => {
@@ -491,6 +509,12 @@ const CardManager = {
             if (collapsed) this._collapsedGroups.add(letter);
             else this._collapsedGroups.delete(letter);
           }
+          return;
+        }
+        const previewBtn = e.target.closest('.card-preview-btn');
+        if (previewBtn) {
+          e.stopPropagation();
+          CardManager.showCardPreview(previewBtn.dataset.cardId);
           return;
         }
         const checkbox = e.target.closest('.card-batch-check');
@@ -765,6 +789,154 @@ const CardManager = {
       await this.selectCard(snapshot);
       Ui.showToast(I18n.t('toast.cardRestored'), 'success');
     });
+  },
+
+  // ─── Mini card preview ─────────────────────────────────
+
+  _previewModal: null,
+  _previewCardId: null,
+  // Full cards fetched for the hover tooltip / preview modal (id → full card).
+  _previewCache: new Map(),
+  _previewHoverBound: false,
+
+  _fillTooltipDesc(descEl, cardId) {
+    const full = this._previewCache.get(cardId);
+    if (!full) return;
+    const text = (full.description || '').trim();
+    const snippet = (text || (full.first_mes || '').trim()).slice(0, 400);
+    if (snippet) {
+      descEl.textContent = snippet;
+      descEl.dataset.filled = '1';
+    }
+  },
+
+  async showCardPreview(cardId) {
+    const full = await CardStorage.getCard(cardId);
+    if (!full) return;
+    this._previewCardId = cardId;
+    const $ = Ui.$;
+    const t = (key, fallback) => (I18n && I18n.t ? I18n.t(key) : fallback);
+
+    $('#cardPreviewTitle').textContent = full.name || t('gen.unnamed', 'Unnamed');
+    const img = $('#cardPreviewAvatar');
+    const b64 = full._imageBase64 || full._thumbnail;
+    if (b64) {
+      img.src = b64;
+      img.hidden = false;
+      $('#cardPreviewAvatarPlaceholder').style.display = 'none';
+    } else {
+      img.removeAttribute('src');
+      img.hidden = true;
+      $('#cardPreviewAvatarPlaceholder').style.display = '';
+    }
+    const metaParts = [];
+    if (full.creator) metaParts.push(Ui.escapeHtml(full.creator));
+    if (full.spec_version) metaParts.push('v' + Ui.escapeHtml(full.spec_version));
+    if ((full.tags || []).length) metaParts.push((full.tags || []).map(x => Ui.escapeHtml(String(x))).join(', '));
+    $('#cardPreviewMeta').innerHTML = metaParts.join(' · ');
+
+    const body = $('#cardPreviewBody');
+    const sections = [];
+    if ((full.description || '').trim()) {
+      sections.push('<h6 class="card-preview-section-title">' + t('editor.desc', 'Description') + '</h6>'
+        + '<div class="card-preview-section" id="cardPreviewDesc"></div>');
+    }
+    if ((full.first_mes || '').trim()) {
+      sections.push('<h6 class="card-preview-section-title">' + t('editor.firstMes', 'First Message') + '</h6>'
+        + '<div class="card-preview-section" id="cardPreviewFirstMes"></div>');
+    }
+    if (!sections.length) {
+      sections.push('<p class="text-muted mb-0" style="font-size:0.85rem;">' + t('preview.empty', 'No description or first message.') + '</p>');
+    }
+    body.innerHTML = sections.join('');
+    const descEl = $('#cardPreviewDesc');
+    if (descEl) descEl.innerHTML = Ui.renderMarkdown(full.description || '', descEl);
+    const fmEl = $('#cardPreviewFirstMes');
+    if (fmEl) fmEl.innerHTML = Ui.renderMarkdown(full.first_mes || '', fmEl);
+
+    this._previewModal = this._previewModal || new bootstrap.Modal('#cardPreviewModal');
+    this._previewModal.show();
+  },
+
+  // ─── Clipboard paste (card import + paste-to-avatar) ───
+
+  /**
+   * True when a PNG buffer carries a chara/ccv3 text chunk, i.e. it is a
+   * character card and not a plain image. Scans the chunk structure exactly
+   * like CardEngine.parsePNG (no regex false positives on IDAT data).
+   */
+  async _fileHasChara(file) {
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (bytes.length < 8) return false;
+      const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+      for (let i = 0; i < 8; i++) if (bytes[i] !== sig[i]) return false;
+      const dec = new TextDecoder('utf-8');
+      let offset = 8;
+      while (offset + 12 <= bytes.length) {
+        const len = ((bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]) >>> 0;
+        const type = dec.decode(bytes.slice(offset + 4, offset + 8));
+        if (type === 'tEXt' || type === 'iTXt' || type === 'zTXt') {
+          const data = bytes.slice(offset + 8, offset + 8 + len);
+          const nullIdx = data.indexOf(0);
+          if (nullIdx > 0) {
+            const kw = dec.decode(data.slice(0, nullIdx)).toLowerCase();
+            if (kw === 'chara' || kw === 'ccv3') return true;
+          }
+        } else if (type === 'IEND') {
+          break;
+        }
+        offset += 12 + len;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  async _pasteAsAvatar(file) {
+    if (!window.AppState.activeCard) {
+      Ui.showToast(I18n.t ? I18n.t('toast.pasteAvatarNoCard') : 'Select a card first, then paste the image as its avatar', 'warning');
+      return;
+    }
+    try {
+      await Editor.setAvatar(file);
+    } catch (_) { /* Editor.setAvatar already toasts failures */ }
+  },
+
+  async _importPastedFile(file) {
+    await this.processFiles([file]);
+  },
+
+  async processPaste(files, text) {
+    const t = (key, fallback) => (I18n && I18n.t ? I18n.t(key) : fallback);
+    if (files && files.length) {
+      for (const file of files) {
+        const ext = (file.name.split('.').pop() || '').toLowerCase();
+        const isImage = (file.type || '').startsWith('image/');
+        if (ext === 'json') { await this._importPastedFile(file); continue; }
+        if (isImage && ext === 'png' && await this._fileHasChara(file)) { await this._importPastedFile(file); continue; }
+        if (isImage) { await this._pasteAsAvatar(file); continue; }
+        Ui.showToast(t('toast.pasteNoCard', 'Clipboard contains no character card or image'), 'warning');
+      }
+      return;
+    }
+    if (!text) return;
+    // Pasted text: data-URL image → avatar; otherwise try to parse as card JSON.
+    if (/^data:image\//i.test(text)) {
+      try {
+        const blob = await (await fetch(text)).blob();
+        await this._pasteAsAvatar(new File([blob], 'pasted-avatar', { type: blob.type || 'image/png' }));
+      } catch (_) {
+        Ui.showToast(t('toast.pasteNoCard', 'Clipboard contains no character card or image'), 'warning');
+      }
+      return;
+    }
+    if (text[0] === '{' || text[0] === '[') {
+      await this._importPastedFile(new File([text], 'pasted-card.json', { type: 'application/json' }));
+      return;
+    }
+    Ui.showToast(t('toast.pasteNoCard', 'Clipboard contains no character card or image'), 'warning');
   },
 };
 

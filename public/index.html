@@ -45,7 +45,7 @@
           <i class="bi bi-stars"></i>
         </div>
         <span class="brand-text" data-i18n="nav.brand">ST Card Editor</span>
-        <span class="badge bg-purple ms-2">v2.6.1</span>
+        <span class="badge bg-purple ms-2">v2.6.2</span>
       </a>
       
       <div class="d-flex align-items-center gap-2">
@@ -258,25 +258,32 @@
         
         <!-- Tab Content -->
         <div class="tab-content editor-content" id="editorTabContent">
-          <!-- Core Tab -->
+          <!-- Core Tab (collapsible field sections) -->
           <div class="tab-pane fade show active" id="tabCore">
-            <div class="row g-3">
-              <div class="col-12">
-                <label class="form-label field-label editor-field-label">
-                  <span data-i18n="editor.desc">Description</span> <small data-i18n="editor.descSub">(appearance, backstory)</small>
+            <div class="field-section" data-section="description">
+              <button type="button" class="field-section-header" aria-expanded="true" data-i18n-title="editor.collapse">
+                <i class="bi bi-chevron-down"></i><span data-i18n="editor.desc">Description</span>
+                <small data-i18n="editor.descSub">(appearance, backstory)</small>
+              </button>
+              <div class="field-section-body">
+                <div class="field-tools">
                   <span class="field-toggle-group" data-target="editDescription">
                     <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
                     <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
                   </span>
-                </label>
+                </div>
                 <textarea class="form-control editor-textarea" id="editDescription" rows="10" 
                           data-i18n-placeholder="editor.descPlaceholder" placeholder="Describe the character's appearance, background, and key traits..."></textarea>
                 <div class="md-preview" id="previewDescription"></div>
                 <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
               </div>
-              <div class="col-md-6">
-                <label class="form-label field-label editor-field-label">
-                  <span data-i18n="editor.firstMes">First Message</span>
+            </div>
+            <div class="field-section" data-section="firstMessage">
+              <button type="button" class="field-section-header" aria-expanded="true" data-i18n-title="editor.collapse">
+                <i class="bi bi-chevron-down"></i><span data-i18n="editor.firstMes">First Message</span>
+              </button>
+              <div class="field-section-body">
+                <div class="field-tools">
                   <span class="token-insert-group">
                     <button type="button" class="token-insert-btn" data-target="editFirstMes" data-token="{{char}}" title="Insert {{char}} token" aria-label="Insert {{char}} token">{{char}}</button>
                     <button type="button" class="token-insert-btn" data-target="editFirstMes" data-token="{{user}}" title="Insert {{user}} token" aria-label="Insert {{user}} token">{{user}}</button>
@@ -285,15 +292,19 @@
                     <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
                     <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
                   </span>
-                </label>
+                </div>
                 <textarea class="form-control editor-textarea" id="editFirstMes" rows="12" 
                           data-i18n-placeholder="editor.firstMesPlaceholder" placeholder="The character's first message when starting a chat..."></textarea>
                 <div class="md-preview" id="previewFirstMes"></div>
                 <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
               </div>
-              <div class="col-md-6">
-                <label class="form-label field-label editor-field-label">
-                  <span data-i18n="editor.scenario">Scenario</span>
+            </div>
+            <div class="field-section" data-section="scenario">
+              <button type="button" class="field-section-header" aria-expanded="true" data-i18n-title="editor.collapse">
+                <i class="bi bi-chevron-down"></i><span data-i18n="editor.scenario">Scenario</span>
+              </button>
+              <div class="field-section-body">
+                <div class="field-tools">
                   <span class="token-insert-group">
                     <button type="button" class="token-insert-btn" data-target="editScenario" data-token="{{char}}" title="Insert {{char}} token" aria-label="Insert {{char}} token">{{char}}</button>
                     <button type="button" class="token-insert-btn" data-target="editScenario" data-token="{{user}}" title="Insert {{user}} token" aria-label="Insert {{user}} token">{{user}}</button>
@@ -302,11 +313,13 @@
                     <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
                     <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
                   </span>
-                </label>
+                </div>
                 <textarea class="form-control editor-textarea" id="editScenario" rows="10" 
                           data-i18n-placeholder="editor.scenarioPlaceholder" placeholder="Current circumstances and context of the conversation..."></textarea>
                 <div class="md-preview" id="previewScenario"></div>
               </div>
+            </div>
+            <div class="row g-3 mt-3">
               <div class="col-md-6">
                 <div class="floating-label">
                   <label class="form-label field-label"><span data-i18n="editor.creator">Creator</span></label>
@@ -329,69 +342,84 @@
             </div>
           </div>
           
-          <!-- Personality Tab -->
+          <!-- Personality Tab (collapsible field sections) -->
           <div class="tab-pane fade" id="tabPersonality">
-            <div class="row g-3">
-              <div class="col-12">
-                <div class="floating-label">
-                  <label class="form-label field-label"><span data-i18n="editor.personalitySummary">Personality Summary</span></label>
-                  <textarea class="form-control editor-textarea" id="editPersonality" rows="14" 
-                            data-i18n-placeholder="editor.personalityPlaceholder" placeholder="A brief description of the character's personality... (used in character card format)"></textarea>
-                  <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
-                </div>
+            <div class="field-section" data-section="personality">
+              <button type="button" class="field-section-header" aria-expanded="true" data-i18n-title="editor.collapse">
+                <i class="bi bi-chevron-down"></i><span data-i18n="editor.personalitySummary">Personality Summary</span>
+              </button>
+              <div class="field-section-body">
+                <textarea class="form-control editor-textarea" id="editPersonality" rows="14" 
+                          data-i18n-placeholder="editor.personalityPlaceholder" placeholder="A brief description of the character's personality... (used in character card format)"></textarea>
+                <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
               </div>
-              <div class="col-12">
-                <label class="form-label field-label editor-field-label">
-                  <span data-i18n="editor.mesExample">Example Messages</span>
+            </div>
+            <div class="field-section" data-section="mesExample">
+              <button type="button" class="field-section-header" aria-expanded="true" data-i18n-title="editor.collapse">
+                <i class="bi bi-chevron-down"></i><span data-i18n="editor.mesExample">Example Messages</span>
+              </button>
+              <div class="field-section-body">
+                <div class="field-tools">
                   <span class="field-toggle-group" data-target="editMesExample">
                     <button class="field-toggle-btn active" data-mode="edit" data-i18n="editor.edit">Edit</button>
                     <button class="field-toggle-btn" data-mode="preview" data-i18n="editor.preview">Preview</button>
                   </span>
-                </label>
+                </div>
                 <textarea class="form-control editor-textarea font-mono" id="editMesExample" rows="16" 
                             placeholder="&lt;START&gt;&#10;{{char}}: Example dialogue here...&#10;{{user}}: User response...&#10;&lt;START&gt;&#10;{{char}}: Another example..."></textarea>
-                  <div class="md-preview" id="previewMesExample"></div>
-                  <small class="form-text text-muted" data-i18n="editor.mesExampleFormat">Format: &lt;START&gt; blocks with {{char}}: and {{user}}: prefixes</small>
+                <div class="md-preview" id="previewMesExample"></div>
+                <small class="form-text text-muted" data-i18n="editor.mesExampleFormat">Format: &lt;START&gt; blocks with {{char}}: and {{user}}: prefixes</small>
               </div>
             </div>
           </div>
           
-          <!-- Advanced Tab -->
+          <!-- Advanced Tab (collapsible field sections) -->
           <div class="tab-pane fade" id="tabAdvanced">
-            <div class="row g-3">
-              <div class="col-12">
-                <div class="floating-label">
-                  <label class="form-label field-label"><span data-i18n="editor.systemPrompt">System Prompt</span></label>
-                  <textarea class="form-control editor-textarea font-mono" id="editSystemPrompt" rows="12" 
-                            data-i18n-placeholder="editor.systemPromptPlaceholder" placeholder="Override the system prompt. Use {{original}} to include the default."></textarea>
-                  <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
-                </div>
+            <div class="field-section" data-section="systemPrompt">
+              <button type="button" class="field-section-header" aria-expanded="true" data-i18n-title="editor.collapse">
+                <i class="bi bi-chevron-down"></i><span data-i18n="editor.systemPrompt">System Prompt</span>
+              </button>
+              <div class="field-section-body">
+                <textarea class="form-control editor-textarea font-mono" id="editSystemPrompt" rows="12" 
+                          data-i18n-placeholder="editor.systemPromptPlaceholder" placeholder="Override the system prompt. Use {{original}} to include the default."></textarea>
+                <small class="char-count text-secondary" style="font-size:0.7rem;"></small>
               </div>
-              <div class="col-12">
-                <div class="floating-label">
-                  <label class="form-label field-label"><span data-i18n="editor.postHistory">Post-History Instructions</span></label>
-                  <textarea class="form-control editor-textarea font-mono" id="editPostHistory" rows="10" 
-                            data-i18n-placeholder="editor.postHistoryPlaceholder" placeholder="Instructions injected after the chat history. Use {{original}} for default."></textarea>
-                </div>
+            </div>
+            <div class="field-section" data-section="postHistory">
+              <button type="button" class="field-section-header" aria-expanded="true" data-i18n-title="editor.collapse">
+                <i class="bi bi-chevron-down"></i><span data-i18n="editor.postHistory">Post-History Instructions</span>
+              </button>
+              <div class="field-section-body">
+                <textarea class="form-control editor-textarea font-mono" id="editPostHistory" rows="10" 
+                          data-i18n-placeholder="editor.postHistoryPlaceholder" placeholder="Instructions injected after the chat history. Use {{original}} for default."></textarea>
               </div>
-              <div class="col-12">
-                <div class="floating-label">
-                  <label class="form-label field-label"><span data-i18n="editor.creatorNotes">Creator Notes</span></label>
-<textarea class="form-control editor-textarea" id="editCreatorNotes" rows="5" 
+            </div>
+            <div class="field-section" data-section="creatorNotes">
+              <button type="button" class="field-section-header" aria-expanded="true" data-i18n-title="editor.collapse">
+                <i class="bi bi-chevron-down"></i><span data-i18n="editor.creatorNotes">Creator Notes</span>
+              </button>
+              <div class="field-section-body">
+                <textarea class="form-control editor-textarea" id="editCreatorNotes" rows="5" 
                           data-i18n-placeholder="editor.creatorNotesPlaceholder" placeholder="Notes for card users (model recommendations, usage tips...)"></textarea>
-                </div>
               </div>
-              <div class="col-12">
-                <label class="form-label fw-semibold" style="font-size:0.85rem;color:var(--text-accent);"><span data-i18n="editor.greetings">Alternate Greetings</span> <span class="greeting-count" id="greetingCount"></span></label>
+            </div>
+            <div class="field-section" data-section="greetings">
+              <button type="button" class="field-section-header" aria-expanded="true" data-i18n-title="editor.collapse">
+                <i class="bi bi-chevron-down"></i><span data-i18n="editor.greetings">Alternate Greetings</span>
+                <span class="greeting-count" id="greetingCount"></span>
+              </button>
+              <div class="field-section-body">
                 <div class="greetings-list" id="greetingsList"></div>
                 <button class="btn btn-outline-accent btn-sm mt-2" id="btnAddGreeting">
                   <i class="bi bi-plus-lg me-1"></i> <span data-i18n="editor.addGreeting">Add Greeting</span>
                 </button>
               </div>
-              <div class="col-12 mt-2">
-                <label class="form-label fw-semibold" style="font-size:0.85rem;color:var(--text-accent);">
-                  <i class="bi bi-braces me-1"></i><span data-i18n="editor.extensions">Extensions (JSON)</span>
-                </label>
+            </div>
+            <div class="field-section" data-section="extensions">
+              <button type="button" class="field-section-header" aria-expanded="true" data-i18n-title="editor.collapse">
+                <i class="bi bi-chevron-down"></i><i class="bi bi-braces me-1"></i><span data-i18n="editor.extensions">Extensions (JSON)</span>
+              </button>
+              <div class="field-section-body">
                 <textarea class="form-control editor-textarea font-mono" id="editExtensions" rows="6" spellcheck="false"
                           data-i18n-placeholder="editor.extensionsHint"
                           placeholder="Raw card `extensions` object — JSON. Editing this may break SillyTavern features."></textarea>
@@ -1423,6 +1451,33 @@
     </div>
   </div>
 
+  <!-- Mini Card Preview (library eye button / hover) -->
+  <div class="modal fade" id="cardPreviewModal" tabindex="-1" aria-hidden="true" aria-labelledby="cardPreviewTitle">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="d-flex align-items-center gap-3">
+            <div class="card-preview-avatar" id="cardPreviewAvatarWrap">
+              <img id="cardPreviewAvatar" src="" alt="" hidden>
+              <i class="bi bi-person-fill avatar-placeholder" id="cardPreviewAvatarPlaceholder"></i>
+            </div>
+            <div>
+              <h5 class="modal-title" id="cardPreviewTitle"></h5>
+              <div class="card-preview-meta" id="cardPreviewMeta"></div>
+            </div>
+          </div>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body" id="cardPreviewBody"></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-accent" id="btnPreviewOpenEditor">
+            <i class="bi bi-pencil-square me-1"></i><span data-i18n="preview.openEditor">Open in editor</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- AI Panel Toggle (mobile) -->
   <button class="btn btn-accent d-lg-none position-fixed bottom-0 end-0 m-3 rounded-circle shadow"
           id="btnToggleAI" style="width:48px;height:48px;z-index:1050;" title="Toggle AI Assistant" aria-label="Toggle AI Assistant" data-i18n-title="nav.toggleAI" data-i18n-aria="nav.toggleAIAria">
@@ -1464,6 +1519,6 @@
   <!-- App bundle -- one entry module built by `bun run build` (scripts/build.mjs).
        Replaces the 13 individual <script type="module"> tags; a single ?v= buster
        (derived from package.json version by check-assets) invalidates the cache.) -->
-  <script type="module" src="js/app.js?v=261"></script>
+  <script type="module" src="js/app.js?v=262"></script>
 </body>
 </html>

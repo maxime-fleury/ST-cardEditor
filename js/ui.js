@@ -693,6 +693,21 @@ function bindEvents(settingsModal) {
     }
   });
 
+  // Clipboard paste: PNG/JSON cards import as cards, plain images land on the
+  // active card's avatar. Text fields keep their native paste behavior.
+  document.addEventListener('paste', async (e) => {
+    const target = e.target;
+    const isEditable = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+    if (isEditable) return;
+    const dt = e.clipboardData;
+    if (!dt) return;
+    const files = Array.from(dt.files || []);
+    const text = (dt.getData('text/plain') || '').trim();
+    if (!files.length && !text) return;
+    e.preventDefault();
+    await CardManager.processPaste(files, text);
+  });
+
   $('#btnNewCardCenter').addEventListener('click', () => CardManager.createNewCard());
   $('#btnSaveCard').addEventListener('click', () => CardManager.saveCurrentCard());
   $('#btnSettings').addEventListener('click', () => settingsModal.show());
@@ -880,6 +895,47 @@ function bindEvents(settingsModal) {
     const f = e.target.files?.[0];
     if (f) Editor.setAvatar(f);
     e.target.value = '';
+  });
+
+  // Collapsible field sections (Advanced tab) — state persisted per section
+  // so a reload keeps the layout the user chose.
+  let sectionState = [];
+  try { sectionState = JSON.parse(localStorage.getItem('stce_collapsed_sections') || '[]'); } catch (_) {}
+  document.querySelectorAll('.field-section').forEach(section => {
+    const header = section.querySelector('.field-section-header');
+    if (!header) return;
+    const name = section.dataset.section;
+    const setTitle = (collapsed) => {
+      header.title = (I18n && I18n.t) ? I18n.t(collapsed ? 'editor.expand' : 'editor.collapse') : (collapsed ? 'Expand section' : 'Collapse section');
+    };
+    if (sectionState.includes(name)) {
+      section.classList.add('collapsed');
+      header.setAttribute('aria-expanded', 'false');
+      setTitle(true);
+    } else {
+      setTitle(false);
+    }
+    header.addEventListener('click', () => {
+      const collapsed = section.classList.toggle('collapsed');
+      header.setAttribute('aria-expanded', String(!collapsed));
+      setTitle(collapsed);
+      let state = [];
+      try { state = JSON.parse(localStorage.getItem('stce_collapsed_sections') || '[]'); } catch (_) {}
+      if (collapsed) { if (!state.includes(name)) state.push(name); }
+      else { state = state.filter(n => n !== name); }
+      try { localStorage.setItem('stce_collapsed_sections', JSON.stringify(state)); } catch (_) {}
+      // Re-flow textareas after re-expanding (they clamp to min-height while hidden).
+      if (!collapsed) Editor.autoResizeTextareas();
+    });
+  });
+
+  // Preview modal: "Open in editor" selects the card and closes the modal.
+  $('#btnPreviewOpenEditor').addEventListener('click', () => {
+    const id = CardManager._previewCardId;
+    if (!id) return;
+    const meta = window.AppState.cards.find(c => c._id === id);
+    if (CardManager._previewModal) CardManager._previewModal.hide();
+    if (meta) CardManager.selectCard(meta);
   });
 
   // Editor field input bindings

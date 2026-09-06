@@ -3,6 +3,14 @@
  * Diacritics restored after the a444c5c encoding corruption (ě/š/č/ř/ž/ů were lost).
  */
 export default {
+  'preview.title': 'Náhled karty',
+  'preview.open': 'Zobrazit náhled',
+  'preview.openEditor': 'Otevřít v editoru',
+  'preview.empty': 'Žádný popis ani první zpráva.',
+  'editor.collapse': 'Sbalit sekci',
+  'editor.expand': 'Rozbalit sekci',
+  'toast.pasteNoCard': 'Schránka neobsahuje kartu postavy ani obrázek.',
+  'toast.pasteAvatarNoCard': 'Nejprve vyberte kartu a poté vložte obrázek jako avatar.',
   'app.title': 'ST Card Editor — SillyTavern Character Card Studio',
   'nav.selectModel': 'Vyberte model...',
   'nav.wizard': 'Vytvořit s AI průvodcem',

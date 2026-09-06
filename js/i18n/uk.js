@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': 'Попередній перегляд картки',
+  'preview.open': 'Переглянути картку',
+  'preview.openEditor': 'Відкрити в редакторі',
+  'preview.empty': 'Немає опису або першого повідомлення.',
+  'editor.collapse': 'Згорнути розділ',
+  'editor.expand': 'Розгорнути розділ',
+  'toast.pasteNoCard': 'У буфері обміну немає картки персонажа або зображення.',
+  'toast.pasteAvatarNoCard': 'Спочатку виберіть картку, а потім вставте зображення як аватар.',
   'app.title': 'ST Card Editor — Студія карток персонажів SillyTavern',
   'nav.selectModel': 'Виберіть модель...',
   'nav.wizard': 'Створити за допомогою AI-майстра',

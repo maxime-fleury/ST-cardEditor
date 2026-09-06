@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': 'Vista previa de la tarjeta',
+  'preview.open': 'Ver vista previa',
+  'preview.openEditor': 'Abrir en el editor',
+  'preview.empty': 'No hay descripción ni primer mensaje.',
+  'editor.collapse': 'Contraer sección',
+  'editor.expand': 'Expandir sección',
+  'toast.pasteNoCard': 'El portapapeles no contiene ninguna tarjeta de personaje ni imagen.',
+  'toast.pasteAvatarNoCard': 'Selecciona primero una tarjeta y luego pega la imagen como avatar.',
   'app.title': 'ST Card Editor — Estudio de tarjetas de personajes SillyTavern',
   'nav.selectModel': 'Seleccionar modelo...',
   'nav.wizard': 'Crear con asistente de IA',

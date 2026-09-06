@@ -7,7 +7,7 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 - **[Stable demo](https://maxime-fleury.github.io/ST-cardEditor/)** — the recommended current version
 - **[Beta demo](https://maxime-fleury.github.io/ST-cardEditor/dev/)** — the latest development build; features may change or break
 
-![Version](https://img.shields.io/badge/version-2.6.1-purple)
+![Version](https://img.shields.io/badge/version-2.6.2-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-000?logo=bun)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![Stable Demo](https://img.shields.io/badge/stable-demo-9147ff?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/)
@@ -42,8 +42,10 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 
 ### Card Library
 - **Drag & drop** loading of `.png`, `.webp`, and `.json` SillyTavern character cards
+- **Clipboard paste** — paste a PNG/JSON card from the clipboard to import it, or paste a plain image straight onto the active card's avatar
 - Automatic parsing of embedded card data from PNG/WebP files (`chara` and `ccv3` chunks)
 - Visual card library with avatars, names, creators, tags, and file size display
+- **Mini card preview** — an eye button on any card row opens a modal with the full markdown-rendered description and first message; hover tooltips show the card's real description
 - Stable card identification via content hashing
 - **3D tilt effect** on card hover (respects `prefers-reduced-motion`)
 - **Tag cloud** with click-to-filter across all cards (AND logic)
@@ -63,6 +65,7 @@ Four tabbed panels covering every aspect of the **V2/V3 card spec**:
 | **Lorebook** | Full character lorebook entry management |
 
 - **Undo/Redo** per field (up to 50 snapshots)
+- **Collapsible field sections** across all tabs — fold Description, First Message, Scenario, Personality Summary, Example Messages, System Prompt, Post-History, Creator Notes, Greetings and Extensions; per-section state persists across reloads
 - **Character & token counts** per field
 - **Markdown preview** toggle for any textarea
 - **Auto-resize** textareas (up to 800px)

@@ -3,6 +3,14 @@
  * Diacritics restored after the a444c5c encoding corruption (ă/â/î/ș/ț were lost).
  */
 export default {
+  'preview.title': 'Previzualizare card',
+  'preview.open': 'Vezi previzualizarea',
+  'preview.openEditor': 'Deschide în editor',
+  'preview.empty': 'Nu există descriere sau prim mesaj.',
+  'editor.collapse': 'Restrânge secțiunea',
+  'editor.expand': 'Extinde secțiunea',
+  'toast.pasteNoCard': 'Clipboard-ul nu conține un card de personaj sau o imagine.',
+  'toast.pasteAvatarNoCard': 'Selectează mai întâi un card, apoi lipește imaginea ca avatar.',
   'app.title': 'ST Card Editor — SillyTavern Character Card Studio',
   'nav.selectModel': 'Selectează modelul...',
   'nav.wizard': 'Creează cu asistentul AI',

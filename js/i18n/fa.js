@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': 'پیش‌نمایش کارت',
+  'preview.open': 'نمایش پیش‌نمایش',
+  'preview.openEditor': 'باز کردن در ویرایشگر',
+  'preview.empty': 'توضیح یا پیام اولی وجود ندارد.',
+  'editor.collapse': 'جمع‌کردن بخش',
+  'editor.expand': 'بازکردن بخش',
+  'toast.pasteNoCard': 'کلیپ‌بورد شامل کارت شخصیت یا تصویری نیست.',
+  'toast.pasteAvatarNoCard': 'ابتدا یک کارت انتخاب کنید و سپس تصویر را به‌عنوان آواتار جای‌گذاری کنید.',
   'app.title': 'ST Card Editor — استودیو کارت شخصیت SillyTavern',
   'nav.selectModel': 'انتخاب مدل...',
   'nav.wizard': 'ساخت با جادوگر هوش مصنوعی',

@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': 'Kart Önizlemesi',
+  'preview.open': 'Kartı önizle',
+  'preview.openEditor': 'Editörde aç',
+  'preview.empty': 'Açıklama veya ilk mesaj yok.',
+  'editor.collapse': 'Bölümü daralt',
+  'editor.expand': 'Bölümü genişlet',
+  'toast.pasteNoCard': 'Panoda karakter kartı veya görsel yok.',
+  'toast.pasteAvatarNoCard': 'Önce bir kart seçin, ardından görseli avatar olarak yapıştırın.',
   'app.title': 'ST Card Editor — SillyTavern karakter kartı stüdyosu',
   'nav.selectModel': 'Model seçin...',
   'nav.wizard': 'AI sihirbazıyla oluştur',

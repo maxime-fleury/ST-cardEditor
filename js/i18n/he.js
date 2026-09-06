@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': 'תצוגה מקדימה של הכרטיס',
+  'preview.open': 'הצגת תצוגה מקדימה',
+  'preview.openEditor': 'פתיחה בעורך',
+  'preview.empty': 'אין תיאור או הודעה ראשונה.',
+  'editor.collapse': 'קיפול קטע',
+  'editor.expand': 'פתיחת קטע',
+  'toast.pasteNoCard': 'הלוח אינו מכיל כרטיס דמות או תמונה.',
+  'toast.pasteAvatarNoCard': 'בחרו תחילה כרטיס, ואז הדביקו את התמונה כתמונת ראשית.',
   'app.title': 'ST Card Editor — סטודיו לכרטיסי דמויות SillyTavern',
   'nav.selectModel': 'בחרו מודל...',
   'nav.wizard': 'יצירה עם אשף ה-AI',

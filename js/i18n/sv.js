@@ -3,6 +3,14 @@
  * recovered from corrupted commit (cp1252 bytes)
  */
 export default {
+  'preview.title': 'Kortförhandsvisning',
+  'preview.open': 'Visa förhandsvisning',
+  'preview.openEditor': 'Öppna i redigeraren',
+  'preview.empty': 'Ingen beskrivning eller första meddelande.',
+  'editor.collapse': 'Fäll ihop avsnitt',
+  'editor.expand': 'Fäll ut avsnitt',
+  'toast.pasteNoCard': 'Urklippet innehåller varken ett karaktärskort eller en bild.',
+  'toast.pasteAvatarNoCard': 'Välj först ett kort och klistra sedan in bilden som avatar.',
   'app.title': 'ST Card Editor — SillyTavern Karakterkortsstudio',
   'nav.selectModel': 'Välj modell...',
   'nav.wizard': 'Skapa med AI-guiden',

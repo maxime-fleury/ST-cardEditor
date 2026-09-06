@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': 'Card Preview',
+  'preview.open': 'Preview card',
+  'preview.openEditor': 'Open in editor',
+  'preview.empty': 'No description or first message.',
+  'editor.collapse': 'Collapse section',
+  'editor.expand': 'Expand section',
+  'toast.pasteNoCard': 'Clipboard contains no character card or image',
+  'toast.pasteAvatarNoCard': 'Select a card first, then paste the image as its avatar',
   'app.title': 'ST Card Editor — SillyTavern Character Card Studio',
   'nav.selectModel': 'Select model...',
   'nav.wizard': 'Create with AI wizard',

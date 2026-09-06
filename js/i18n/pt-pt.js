@@ -3,6 +3,14 @@
  * recovered from corrupted commit (valid UTF-8 bytes)
  */
 export default {
+  'preview.title': 'Pré-visualização do cartão',
+  'preview.open': 'Ver pré-visualização',
+  'preview.openEditor': 'Abrir no editor',
+  'preview.empty': 'Não existe descrição nem primeira mensagem.',
+  'editor.collapse': 'Recolher secção',
+  'editor.expand': 'Expandir secção',
+  'toast.pasteNoCard': 'A área de transferência não contém nenhum cartão de personagem nem imagem.',
+  'toast.pasteAvatarNoCard': 'Selecione primeiro um cartão e depois cole a imagem como avatar.',
   'app.title': 'ST Card Editor — Estúdio de Cartas de Personagens SillyTavern',
   'nav.selectModel': 'Selecionar modelo...',
   'nav.wizard': 'Criar com assistente IA',

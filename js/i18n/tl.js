@@ -3,6 +3,14 @@
  * recovered from corrupted commit (valid UTF-8 bytes)
  */
 export default {
+  'preview.title': 'Preview ng Kard',
+  'preview.open': 'Tingnan ang preview',
+  'preview.openEditor': 'Buksan sa editor',
+  'preview.empty': 'Walang paglalarawan o unang mensahe.',
+  'editor.collapse': 'I-collapse ang seksyon',
+  'editor.expand': 'I-expand ang seksyon',
+  'toast.pasteNoCard': 'Walang character card o larawan sa clipboard.',
+  'toast.pasteAvatarNoCard': 'Pumili muna ng kard, pagkatapos ay i-paste ang larawan bilang avatar.',
   'app.title': 'ST Card Editor — SillyTavern Character Card Studio',
   'nav.selectModel': 'Pumili ng modelo...',
   'nav.wizard': 'Lumikha gamit ang AI wizard',

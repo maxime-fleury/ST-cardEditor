@@ -520,3 +520,34 @@
   border-color: var(--accent, #8b5cf6);
   color: #ffffff;
 }
+
+/* Collapsible field sections (Advanced tab) */
+.field-section {
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+.field-section + .field-section { margin-top: 1rem; }
+.field-section-header {
+  display: flex; align-items: center; gap: 0.5rem; width: 100%;
+  background: transparent; border: 0; padding: 0.65rem 0.9rem;
+  color: var(--text-primary); font-weight: 600; font-size: 0.85rem;
+  cursor: pointer; text-align: start;
+}
+.field-section-header:hover { background: var(--bg-base); }
+.field-section-header .bi-chevron-down {
+  transition: transform 0.2s ease; color: var(--text-muted); font-size: 0.8rem; flex: none;
+}
+.field-section.collapsed .field-section-header .bi-chevron-down { transform: rotate(-90deg); }
+.field-section-header .greeting-count { font-weight: 400; color: var(--text-muted); }
+.field-section-header small { font-weight: 400; color: var(--text-muted); font-size: 0.7rem; }
+.field-section-body { padding: 0.9rem; }
+.field-section.collapsed .field-section-body { display: none; }
+
+/* Toolbar row inside a section body (Edit/Preview toggle + token chips) */
+.field-tools {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  margin-bottom: 0.35rem;
+}
+.field-tools .field-toggle-group { margin-inline-start: auto; }

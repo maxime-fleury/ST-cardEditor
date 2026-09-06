@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': 'Προεπισκόπηση κάρτας',
+  'preview.open': 'Προβολή προεπισκόπησης',
+  'preview.openEditor': 'Άνοιγμα στον επεξεργαστή',
+  'preview.empty': 'Δεν υπάρχει περιγραφή ή πρώτο μήνυμα.',
+  'editor.collapse': 'Σύμπτυξη ενότητας',
+  'editor.expand': 'Ανάπτυξη ενότητας',
+  'toast.pasteNoCard': 'Το πρόχειρο δεν περιέχει κάρτα χαρακτήρα ή εικόνα.',
+  'toast.pasteAvatarNoCard': 'Επιλέξτε πρώτα μια κάρτα και μετά επικολλήστε την εικόνα ως avatar.',
   'app.title': 'ST Card Editor — Στούντιο καρτών χαρακτήρων SillyTavern',
   'nav.selectModel': 'Επιλογή μοντέλου...',
   'nav.wizard': 'Δημιουργία με AI βοηθό',

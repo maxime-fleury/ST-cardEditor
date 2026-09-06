@@ -3,6 +3,14 @@
  * restored from git b07096c (pre-corruption); 6 new wizard.language labels added
  */
 export default {
+  'preview.title': 'معاينة البطاقة',
+  'preview.open': 'عرض المعاينة',
+  'preview.openEditor': 'فتح في المحرر',
+  'preview.empty': 'لا يوجد وصف أو رسالة أولى.',
+  'editor.collapse': 'طي القسم',
+  'editor.expand': 'توسيع القسم',
+  'toast.pasteNoCard': 'لا تحتوي الحافظة على بطاقة شخصية أو صورة.',
+  'toast.pasteAvatarNoCard': 'حدد بطاقة أولاً، ثم الصق الصورة كصورة رمزية.',
   'app.title': 'ST Card Editor — استوديو بطاقات الشخصيات SillyTavern',
   'nav.selectModel': 'اختر النموذج...',
   'nav.wizard': 'إنشاء باستخدام معالج الذكاء الاصطناعي',

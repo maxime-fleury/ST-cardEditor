@@ -3,6 +3,14 @@
  * Fully re-translated: every Thai character was lost to '?' in the a444c5c corruption.
  */
 export default {
+  'preview.title': 'ดูตัวอย่างการ์ด',
+  'preview.open': 'ดูตัวอย่าง',
+  'preview.openEditor': 'เปิดในตัวแก้ไข',
+  'preview.empty': 'ไม่มีคำอธิบายหรือข้อความแรก',
+  'editor.collapse': 'ย่อส่วน',
+  'editor.expand': 'ขยายส่วน',
+  'toast.pasteNoCard': 'คลิปบอร์ดไม่มีการ์ดตัวละครหรือรูปภาพ',
+  'toast.pasteAvatarNoCard': 'เลือกการ์ดก่อน แล้ววางรูปภาพเป็นรูปแทนตัว',
   'app.title': 'ST Card Editor — สตูดิโอการ์ดตัวละคร SillyTavern',
   'nav.selectModel': 'เลือกโมเดล...',
   'nav.wizard': 'สร้างด้วยตัวช่วย AI',
