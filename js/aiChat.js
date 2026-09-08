@@ -21,6 +21,7 @@ const AiChat = {
   MAX_PARALLEL_FIELDS: 20,    // cap parallel API requests
 
   FIELD_DEFS: [
+    { id: 'name', labelKey: 'ai.target.name', icon: 'bi-person-badge' },
     { id: 'description', labelKey: 'ai.target.description', icon: 'bi-card-text' },
     { id: 'personality', labelKey: 'ai.target.personality', icon: 'bi-brain' },
     { id: 'first_mes', labelKey: 'ai.target.first_mes', icon: 'bi-chat-dots' },
@@ -101,16 +102,34 @@ const AiChat = {
   send(retryPrompt) {
     const $ = Ui.$;
     const input = $('#aiInput');
-    const prompt = retryPrompt || input.value.trim();
+    const rawPrompt = retryPrompt || input.value.trim();
+    // Normalize SillyTavern macros in the instruction: {user}/{User}/{{User}}
+    // all become {{user}} (same for {char}), so references to the player or
+    // character always reach the model in the form the card actually needs.
+    const prompt = this._normalizePlaceholders(rawPrompt);
     const { activeCard } = window.AppState;
     if (!prompt || window.AppState.isAiLoading) return;
 
     if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
 
-    const selectedFields = this.getSelectedFields();
+    let selectedFields = this.getSelectedFields();
     if (selectedFields.length === 0) {
-      Ui.showToast(I18n.t('toast.selectField'), 'info');
-      return;
+      // Natural-language intent: no chips were picked — infer the fields the
+      // request is about and select them automatically.
+      const inferred = this._inferFields(prompt);
+      if (inferred.length > 0) {
+        this._selectedFields = new Set(inferred);
+        this._renderFieldChips();
+        selectedFields = inferred;
+        const labels = inferred.map(f => {
+          const def = this.FIELD_DEFS.find(d => d.id === f);
+          return def ? (I18n.t ? I18n.t(def.labelKey) : def.labelKey) : f;
+        });
+        Ui.showToast(I18n.t('toast.fieldsDetected', { fields: labels.join(', ') }), 'info');
+      } else {
+        Ui.showToast(I18n.t('toast.selectField'), 'info');
+        return;
+      }
     }
     if (selectedFields.length > this.MAX_PARALLEL_FIELDS) {
       Ui.showToast(I18n.t ? I18n.t('toast.tooManyFields', { max: this.MAX_PARALLEL_FIELDS }) : 'Too many fields selected. Max ' + this.MAX_PARALLEL_FIELDS + ' at once.', 'warning');
@@ -131,6 +150,9 @@ const AiChat = {
 
     if (!retryPrompt) {
       input.value = '';
+      // Keep the input hot so the next instruction can be typed while the
+      // model streams (multi-round editing without a mouse trip).
+      input.focus();
       const userIdx = window.AppState.chatHistory.length;
       this.addChatMessage('user', prompt, null, null, userIdx);
     }
@@ -176,11 +198,7 @@ const AiChat = {
       const history = this._getRecentHistory(10);
       AIService.chatStream(prompt, this.buildSystemPrompt(field, capturedGreetingCount), modelId,
         (fullText) => {
-          contentEl.innerHTML = Ui.escapeHtml(fullText)
-            .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            .replace(/\n/g, '<br>');
+          contentEl.innerHTML = this._formatFieldText(fullText);
           const container = document.querySelector('#aiChatMessages');
           container.scrollTop = container.scrollHeight;
         },
@@ -195,7 +213,7 @@ const AiChat = {
             this._finalizeFieldSection(section, field, result.content);
           } catch (e) { console.error('aiChat: failed to finalize field section:', e); }
           completedCount++;
-          combinedContent += '\n\n[' + field + ']\n' + result.content;
+          combinedContent += '\n\n[' + field + ']\n' + this._fieldDisplayContent(field, result.content);
 
           if (completedCount === selectedFields.length) {
             this._finalizeGroupedCard(groupedCard, selectedFields.length);
@@ -256,7 +274,7 @@ const AiChat = {
       '',
       'Here is the FULL character card for context:',
       '```json',
-      CardEngine.toJSON(cardForPrompt),
+      this._normalizePlaceholders(CardEngine.toJSON(cardForPrompt)),
       '```',
       '',
     ];
@@ -268,7 +286,10 @@ const AiChat = {
         .split('{current}').join(existing.length ? JSON.stringify(existing) : '(none)');
       parts.push(greetInstr);
     } else {
-      const current = activeCard && activeCard[targetField] !== undefined ? (activeCard[targetField] || '(empty)') : '(empty)';
+      let current = '(empty)';
+      if (activeCard && typeof activeCard[targetField] === 'string' && activeCard[targetField]) {
+        current = this._normalizePlaceholders(activeCard[targetField]);
+      }
       const fieldInstr = (CardStorage.getPrompt('fieldsEdit') || Settings.getDefaultPrompt('fieldsEdit'))
         .split('{field}').join(fieldLabel)
         .split('{current}').join(current);
@@ -321,9 +342,18 @@ const AiChat = {
       if (status) status.remove();
     }
 
-    // Truncate long content — collapse to compact preview with modal expand
+    // Models sometimes ignore the per-field instruction and answer with the
+    // WHOLE card as JSON (very common for "rename the card…" prompts). Show
+    // only this field's value in that case — the full JSON blob belongs to
+    // the diff/apply step, not the chat bubble.
+    const display = this._fieldDisplayContent(field, content);
     const contentEl = section.querySelector('.multi-field-content');
-    if (contentEl && content.length > 300) {
+    if (contentEl && display !== content) {
+      contentEl.innerHTML = this._formatFieldText(display);
+    }
+
+    // Truncate long content — collapse to compact preview with modal expand
+    if (contentEl && display.length > 300) {
       contentEl.classList.add('collapsed');
       // Click on collapsed content toggles expand inline
       contentEl.addEventListener('click', function onClickExpand() {
@@ -345,19 +375,21 @@ const AiChat = {
       const self = this;
 
       // "View full result" button — opens modal
-      if (content.length > 300) {
+      if (display.length > 300) {
         const viewBtn = document.createElement('button');
         viewBtn.className = 'multi-field-expand-btn';
         viewBtn.type = 'button';
         viewBtn.innerHTML = '<i class="bi bi-arrows-expand"></i> ' + (I18n.t ? I18n.t('ai.viewFullResult') : 'View full result');
         viewBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          self._showResultModal(field, content);
+          self._showResultModal(field, display);
         });
         actions.appendChild(viewBtn);
       }
 
-      // "Review & Apply" button — opens diff modal
+      // "Review & Apply" button — opens diff modal. The RAW content is
+      // registered so _prepareApply can re-detect a full-card JSON and pull
+      // the right field out of it (including the card name for renames).
       this._registerApply(section, field, content);
       const btn = document.createElement('button');
       btn.className = 'btn btn-outline-accent btn-sm';
@@ -433,6 +465,54 @@ const AiChat = {
         if (errs > 0) msg += ' · ' + errs + ' failed';
       }
       header.innerHTML = '<i class="bi bi-robot"></i> ' + Ui.escapeHtml(msg);
+    }
+
+    // Sticky action bar: every completed section is a ready change — apply all
+    // in one click, or open the review modal (Enter/A/←/→ shortcuts inside).
+    const readySections = [...groupedCard.querySelectorAll('.multi-field-section.done')]
+      .filter(s => this._applyElMap.get(s));
+    if (readySections.length > 0) {
+      const footer = document.createElement('div');
+      footer.className = 'multi-field-footer';
+      footer.innerHTML = '<span class="multi-field-footer-count">'
+        + (I18n.t ? I18n.t('ai.changesReady', { count: readySections.length }) : readySections.length + ' changes ready')
+        + '</span>';
+      const viewBtn = document.createElement('button');
+      viewBtn.type = 'button';
+      viewBtn.className = 'btn btn-outline-accent btn-sm';
+      viewBtn.innerHTML = '<i class="bi bi-eye me-1"></i> ' + (I18n.t ? I18n.t('ai.reviewApply') : 'Review & Apply');
+      viewBtn.addEventListener('click', () => {
+        const idx = this._firstUnappliedIndex();
+        if (idx >= 0) this._openApplyAt(idx);
+      });
+      footer.appendChild(viewBtn);
+      const applyAllBtn = document.createElement('button');
+      applyAllBtn.type = 'button';
+      applyAllBtn.className = 'btn btn-accent btn-sm';
+      applyAllBtn.innerHTML = '<i class="bi bi-check2-all me-1"></i> ' + (I18n.t ? I18n.t('diff.applyAll') : 'Apply all');
+      applyAllBtn.addEventListener('click', () => this._applyAllPending(null));
+      footer.appendChild(applyAllBtn);
+      groupedCard.appendChild(footer);
+    }
+  },
+
+  // Index of the first not-yet-applied change in the queue (-1 when all done).
+  _firstUnappliedIndex() {
+    for (let i = 0; i < this._applyQueue.length; i++) {
+      if (!this._applyQueue[i].applied) return i;
+    }
+    return -1;
+  },
+
+  // Once nothing is pending anywhere, retire every ready-bar so its buttons
+  // can't be clicked a second time (they stay visible as a summary).
+  _maybeRetireReadyBars() {
+    if (typeof document === 'undefined') return;
+    if (this._applyQueue.every(it => it.applied)) {
+      document.querySelectorAll('.multi-field-footer button').forEach(b => {
+        b.disabled = true;
+        b.classList.add('disabled');
+      });
     }
   },
 
@@ -657,15 +737,27 @@ const AiChat = {
   // Build { oldVal, newVal, applyFn } for a pending apply from the CURRENT
   // card state. Recomputes on every modal open so navigating back later picks
   // up whatever has already been applied to the card.
-  _prepareApply(field, content) {
+  _prepareApply(field, content, opts) {
+    opts = opts || {};
+    // silent: suppress the per-item success toast (used by "Apply all", which
+    // shows a single summary toast instead of stacking N field toasts).
+    const silent = !!opts.silent;
     const { activeCard } = window.AppState;
     if (!activeCard || !content) return null;
+
+    // The model may answer a per-field request with a whole card JSON (see
+    // _extractCard) — every branch below then pulls the requested field's
+    // value out of the card instead of treating the JSON blob as the field.
+    const card = this._extractCard(content);
 
     if (field === 'full') {
       const jsonStr = this._extractJSON(content);
       if (!jsonStr) return null;
       try {
         const parsed = CardEngine.parseJSON(jsonStr, activeCard._filename);
+        // Echoed "{user}"/"{char}" must never land in the card: normalize every
+        // text field of the regenerated card to the {{...}} macro form.
+        this._normalizeCardPlaceholders(parsed);
         return {
           oldVal: CardEngine.toJSON(activeCard),
           newVal: CardEngine.toJSON(parsed),
@@ -686,7 +778,7 @@ const AiChat = {
             Object.assign(activeCard, internal);
             Editor.populateEditor(activeCard);
             Editor.syncEditorToCard();
-            Ui.showToast(I18n.t('toast.cardUpdatedAI'), 'success');
+            if (!silent) Ui.showToast(I18n.t('toast.cardUpdatedAI'), 'success');
           },
         };
       } catch (e) {
@@ -699,7 +791,11 @@ const AiChat = {
     if (field === 'tags') {
       // Parse a JSON array of tag strings and MERGE into the existing tags
       // (dedupe, case-insensitive) — never replace what the user curated.
-      const tags = this._extractJSONArray(content);
+      // Prefer the card's own tags when the model answered with a whole card.
+      const cardValue = this._cardFieldValue(card, 'tags');
+      const tags = (Array.isArray(cardValue) && cardValue.length > 0 && cardValue.every(t => typeof t === 'string'))
+        ? cardValue
+        : this._extractJSONArray(content);
       if (!tags || tags.length === 0) {
         Ui.showToast(I18n.t ? I18n.t('toast.jsonInvalid') : 'Could not parse tags from the response.', 'warning');
         return null;
@@ -719,37 +815,46 @@ const AiChat = {
           Editor.populateEditor(activeCard);
           Editor.syncEditorToCard();
           CardManager.renderCardList();
-          Ui.showToast(I18n.t('toast.tagsUpdated', { count: added }), 'success');
+          if (!silent) Ui.showToast(I18n.t('toast.tagsUpdated', { count: added }), 'success');
         },
       };
     }
 
     if (field === 'alternate_greetings') {
-      // Parse JSON array of greetings
-      const greetings = this._extractJSONArray(content);
+      // Parse JSON array of greetings — from the card's own field when the
+      // model answered with a whole card, else from a bare JSON array.
+      const cardValue = this._cardFieldValue(card, 'alternate_greetings');
+      let greetings = Array.isArray(cardValue) ? cardValue : this._extractJSONArray(content);
+      if (greetings) greetings = greetings.map(g => this._normalizePlaceholders(g));
       if (!greetings || greetings.length === 0) {
         Ui.showToast(I18n.t('toast.greetingsParseFailed'), 'warning');
         return null;
       }
+      const renamedTo = this._pendingRename(card, activeCard);
       return {
         oldVal: JSON.stringify((activeCard.alternate_greetings || []), null, 2),
         newVal: JSON.stringify(greetings, null, 2),
         applyFn: () => {
           // Replace greetings (not append)
           activeCard.alternate_greetings = greetings;
+          if (renamedTo) activeCard.name = renamedTo;
           Editor.renderGreetings(activeCard);
           Editor.syncEditorToCard();
-          Ui.showToast(I18n.t('toast.greetingsUpdated', { count: greetings.length }), 'success');
+          if (renamedTo) CardManager.renderCardList();
+          if (!silent) Ui.showToast(renamedTo ? I18n.t('toast.cardRenamed', { name: renamedTo }) : I18n.t('toast.greetingsUpdated', { count: greetings.length }), 'success');
         },
       };
     }
 
     if (activeCard[field] !== undefined
       || ['description', 'personality', 'first_mes', 'scenario', 'mes_example', 'system_prompt', 'post_history_instructions', 'creator_notes'].includes(field)) {
+      // When the model answered with a whole card JSON, apply ONLY this
+      // field's value — never dump the entire JSON into a single field.
+      const cardValue = this._cardFieldValue(card, field);
+      let clean = cardValue !== undefined ? String(cardValue) : content;
       // Unwrap markdown fences instead of deleting them: models commonly wrap
       // the whole field in ``` which would otherwise make clean === '' and
       // silently abort the apply (no modal, no toast).
-      let clean = content;
       const fence = clean.match(/```(?:json|text|markdown)?\s*\n?([\s\S]*?)```/);
       if (fence) clean = fence[1];
       // Strip only a lone "[Field Label]" echo header the prompt asks for.
@@ -757,20 +862,24 @@ const AiChat = {
       // like "[Name: Yeon-ju] likes cats".
       const fieldLabel = this._applyFieldLabel(field);
       const headerRe = new RegExp('^\\[' + fieldLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\]\\s*\\n?');
-      clean = clean.replace(headerRe, '').trim();
+      clean = this._normalizePlaceholders(clean.replace(headerRe, '')).trim();
       if (!clean) {
         Ui.showToast(I18n.t ? I18n.t('toast.emptyResponse') : 'AI returned empty content — nothing to apply.', 'warning');
         return null;
       }
+      // The model named the card in its JSON (e.g. "rename the card to X"):
+      // honor it as part of the same apply instead of silently dropping it.
+      const renamedTo = this._pendingRename(card, activeCard);
       return {
         oldVal: activeCard[field] || '',
         newVal: clean,
         applyFn: () => {
           activeCard[field] = clean;
+          if (renamedTo) activeCard.name = renamedTo;
           Editor.populateEditor(activeCard);
           Editor.syncEditorToCard();
           CardManager.renderCardList();
-          Ui.showToast(I18n.t('toast.fieldUpdated', { field }), 'success');
+          if (!silent) Ui.showToast(renamedTo ? I18n.t('toast.cardRenamed', { name: renamedTo }) : I18n.t('toast.fieldUpdated', { field }), 'success');
         },
       };
     }
@@ -781,6 +890,138 @@ const AiChat = {
     if (field === 'full') return I18n.t ? I18n.t('ai.target.full') : 'Full Card';
     if (field === 'tags') return I18n.t ? I18n.t('ai.target.tags') : 'Tags';
     return I18n.t ? I18n.t(this.FIELD_DEFS.find(d => d.id === field)?.labelKey || field) : field;
+  },
+
+  // ─── FULL-CARD JSON UNWRAPPING ───────────────────────
+
+  // Fields that identify a real character card, so _extractCard never mistakes
+  // arbitrary JSON (e.g. a description written as JSON) for a whole card.
+  CARD_FIELDS: ['description', 'personality', 'first_mes', 'scenario', 'mes_example',
+    'alternate_greetings', 'system_prompt', 'post_history_instructions', 'creator_notes', 'tags'],
+
+  // Detect a full character card (chara_card_v2 JSON) embedded in a response.
+  // Models sometimes ignore the per-field instruction and return the whole
+  // card — especially for "rename the card…" prompts. Handles the
+  // spec/data wrapper, a bare data wrapper, and flat name/description JSON.
+  _extractCard(text) {
+    if (!text || typeof text !== 'string') return null;
+    const json = this._extractJSON(text);
+    if (!json) return null;
+    let parsed;
+    try { parsed = JSON.parse(json); } catch (_) { return null; }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const data = parsed.data && typeof parsed.data === 'object' ? parsed.data : null;
+    if (parsed.spec === 'chara_card_v2' && data) return parsed;
+    if (data && typeof data.name === 'string' && this.CARD_FIELDS.some(k => data[k] !== undefined)) return parsed;
+    if (!data && typeof parsed.name === 'string' && this.CARD_FIELDS.some(k => parsed[k] !== undefined)) return parsed;
+    return null;
+  },
+
+  // Pull one field's value out of a detected card (spec/data wrapper or flat).
+  _cardFieldValue(card, field) {
+    if (!card) return undefined;
+    const data = card.data && typeof card.data === 'object' ? card.data : card;
+    return data[field];
+  },
+
+  // The name the detected card proposes ('' when absent/empty).
+  _cardName(card) {
+    if (!card) return '';
+    const data = card.data && typeof card.data === 'object' ? card.data : card;
+    return typeof data.name === 'string' ? data.name.trim() : '';
+  },
+
+  // The name to apply when the detected card proposes a different name than
+  // the current card ('' when no rename is warranted). Honours the model's
+  // "rename the card to X" intent carried inside its JSON response.
+  _pendingRename(card, activeCard) {
+    if (!card || !activeCard) return '';
+    const name = this._cardName(card);
+    if (!name || name === (activeCard.name || '').trim()) return '';
+    return name;
+  },
+
+  // Display value for a per-field response: when the model answered with a
+  // whole card JSON, show ONLY this field's value instead of the JSON blob.
+  _fieldDisplayContent(field, content) {
+    const card = this._extractCard(content);
+    if (!card) return content;
+    let value = this._cardFieldValue(card, field);
+    if (value === undefined) return content;
+    if (field === 'alternate_greetings') {
+      if (!Array.isArray(value)) return content;
+      const norm = value.map(g => this._normalizePlaceholders(g));
+      return norm.length ? JSON.stringify(norm, null, 2) : '';
+    }
+    return String(this._normalizePlaceholders(value));
+  },
+
+  // Inline formatting shared by live streaming and the finalize re-render so
+  // both produce identical markup (no flicker when a section swaps a full-card
+  // JSON for the extracted field value).
+  _formatFieldText(text) {
+    return Ui.escapeHtml(text)
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/\n/g, '<br>');
+  },
+
+  // ─── NATURAL-LANGUAGE INTENT & MACRO NORMALIZATION ───
+
+  // Normalize player/character references to the SillyTavern macro form:
+  //   {user}, {User}, {{User}}  →  {{user}}
+  //   {char}, {Char}, {{CHAR}}  →  {{char}}
+  // Other single-brace tokens ({field}, {count}, …) are left untouched.
+  _normalizePlaceholders(text) {
+    if (!text || typeof text !== 'string') return text;
+    // First, canonicalize the case of already-double-braced macros.
+    let out = text.replace(/\{\{(user|char)\}\}/gi, (m, name) => '{{' + name.toLowerCase() + '}}');
+    // Then lift single-braced forms — but never touch a brace that is part of
+    // {{...}}: the lookbehind/lookahead keep {user} → {{user}} while leaving
+    // {{user}} (and {random}/{field}) exactly as they are.
+    out = out.replace(/(?<!\{)\{([^{}\n]{1,40})\}(?!\})/g, (m, name) => {
+      const key = name.trim().toLowerCase();
+      if (key === 'user' || key === 'char') return '{{' + key + '}}';
+      return m;
+    });
+    return out;
+  },
+
+  // Normalize every text field of a parsed card (used by the full-card apply).
+  _normalizeCardPlaceholders(card) {
+    if (!card || typeof card !== 'object') return card;
+    ['name', 'description', 'personality', 'first_mes', 'scenario', 'mes_example',
+      'system_prompt', 'post_history_instructions', 'creator_notes'].forEach(f => {
+      if (typeof card[f] === 'string') card[f] = this._normalizePlaceholders(card[f]);
+    });
+    if (Array.isArray(card.alternate_greetings)) {
+      card.alternate_greetings = card.alternate_greetings.map(g => this._normalizePlaceholders(g));
+    }
+    return card;
+  },
+
+  // Infer which card fields a natural-language request is about. Used when the
+  // user sends a message without picking field chips: "Renomme la carte en X,
+  // elle est … elle dit « … »" → name + description + first_mes + scenario.
+  _inferFields(prompt) {
+    if (!prompt || typeof prompt !== 'string') return [];
+    const p = prompt.toLowerCase();
+    const has = (re) => re.test(p);
+    const fields = new Set();
+    if (has(/(renomme|rename|s'appelle|s’appelle|nom de la carte|card name)/)) fields.add('name');
+    if (has(/(dit\s*[«"“'‘]|premier message|first message|first_mes|salue\s|greet)/)) fields.add('first_mes');
+    if (has(/(personnalit|personality|caract[èe]re)/)) fields.add('personality');
+    if (has(/(sc[ée]nario|scenario|arrive chez|se rend chez|situation|contexte)/)) fields.add('scenario');
+    if (has(/(salutation|greeting|alternatif)/)) fields.add('alternate_greetings');
+    if (has(/(exemple|example)/)) fields.add('mes_example');
+    if (has(/(system prompt|prompt syst[èe]me|instructions? pour l'?ia)/)) fields.add('system_prompt');
+    if (has(/(cr[ée]ateur|creator)/)) fields.add('creator_notes');
+    if (has(/(étudiant|etudiant|fauch|femme de m[ée]nage|housekeeper|est une|est un|est [a-zà-ÿ]+ et|traits|character)/)) fields.add('description');
+    // Description is the catch-all: long character prose almost always rewrites
+    // it, even when no explicit trait keyword appears.
+    if (fields.size > 0 && !fields.has('description') && p.length > 40) fields.add('description');
+    return [...fields];
   },
 
   // Decide which item a request corresponds to and show the modal on it.
@@ -835,29 +1076,94 @@ const AiChat = {
     if (nextBtn) nextBtn.disabled = !showNav;
 
     const acceptBtn = document.querySelector('#btnAcceptAI');
+    const applyAllBtn = document.querySelector('#btnApplyAll');
     if (this._previewCleanup) this._previewCleanup();
 
+    // Apply the current change, then advance to the next unapplied one so a
+    // long multi-field run can be reviewed + applied in a single pass. Closes
+    // once nothing is left (the per-section "Applied" badges stay visible).
     const handler = () => {
       if (item.applied) { modal.hide(); return; }
       this._markApplied(item);
       if (prep.applyFn) prep.applyFn();
-      modal.hide();
+      this._maybeRetireReadyBars();
+      const nextIdx = this._nextUnappliedIndex();
+      if (nextIdx >= 0) this._openApplyAt(nextIdx);
+      else modal.hide();
+    };
+    // Apply every remaining change in the queue in one click.
+    const applyAllHandler = () => {
+      this._applyAllPending(modal);
+    };
+    // Keyboard-first review: Enter applies & advances, A applies everything,
+    // ←/→ move between changes. Bound to the modal element so typing in the
+    // page underneath is never intercepted.
+    const keyHandler = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); handler(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); this._applyNav(-1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); this._applyNav(1); }
+      else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'a') { e.preventDefault(); applyAllHandler(); }
     };
     const cleanup = () => {
       acceptBtn.removeEventListener('click', handler);
+      if (applyAllBtn) applyAllBtn.removeEventListener('click', applyAllHandler);
+      modalEl.removeEventListener('keydown', keyHandler);
       modalEl.removeEventListener('hidden.bs.modal', cleanup);
       if (this._previewCleanup === cleanup) this._previewCleanup = null;
     };
     this._previewCleanup = cleanup;
     acceptBtn.addEventListener('click', handler);
+    if (applyAllBtn) applyAllBtn.addEventListener('click', applyAllHandler);
+    modalEl.addEventListener('keydown', keyHandler);
     modalEl.addEventListener('hidden.bs.modal', cleanup);
     modal.show();
+    // Land focus on Apply so Enter works immediately (the keydown handler
+    // preventDefaults, so the focused button never double-fires).
+    if (acceptBtn) acceptBtn.focus();
   },
 
   _applyNav(delta) {
     const queue = this._applyQueue;
     if (queue.length < 2) return;
     this._openApplyAt((this._applyIndex + delta + queue.length) % queue.length);
+  },
+
+  // Index of the next not-yet-applied change after the current one (-1 when
+  // the queue is exhausted). Applied items stay in the queue (still viewable
+  // via Prev/Next) but are skipped by the apply-and-advance flow.
+  _nextUnappliedIndex() {
+    for (let i = this._applyIndex + 1; i < this._applyQueue.length; i++) {
+      if (!this._applyQueue[i].applied) return i;
+    }
+    return -1;
+  },
+
+  // Apply every remaining pending change in one pass. Per-item success toasts
+  // are suppressed (silent) in favour of a single summary toast, so applying
+  // 9 fields doesn't stack 9 toasts. Items whose response cannot be prepared
+  // already warned at modal-open time — they are skipped, not fatal.
+  _applyAllPending(modal) {
+    const queue = this._applyQueue;
+    let applied = 0;
+    let failed = 0;
+    for (const item of queue) {
+      if (item.applied) continue;
+      const prep = this._prepareApply(item.field, item.content, { silent: true });
+      if (!prep) { failed++; continue; }
+      try {
+        this._markApplied(item);
+        prep.applyFn();
+        applied++;
+      } catch (e) {
+        console.error('aiChat: failed to apply change:', e);
+        failed++;
+      }
+    }
+    if (modal && typeof modal.hide === 'function') modal.hide();
+    this._maybeRetireReadyBars();
+    if (applied > 0) {
+      Ui.showToast(I18n.t('toast.changesApplied', { count: applied }), 'success');
+    }
   },
 
   // Drop queue items whose source message left the DOM (chat cleared, or

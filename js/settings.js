@@ -37,7 +37,7 @@ const Settings = {
     // Non-quick-action chat/system instructions used by buildSystemPrompt and
     // _sendFullCard. Placeholders are substituted at send time.
     fullCardInstr: 'The user wants you to edit or generate the FULL card as JSON.\nRespond with ONLY the updated JSON card. Keep the exact JSON structure.',
-    fieldsEdit: 'The user wants you to edit the "{field}" field of this card.\n\nBelow is the current content of that field:\n[{field}]\n{current}\n\nRespond with ONLY the new content for this field. Do not include explanations, JSON wrapping, or markdown fences unless the original content uses them.',
+    fieldsEdit: 'The user wants you to edit the "{field}" field of this card.\n\nBelow is the current content of that field:\n[{field}]\n{current}\n\nRespond with ONLY the new content for this field. Do not include explanations, JSON wrapping, or markdown fences unless the original content uses them. Never output the whole card as JSON — return only the {field} value.',
     greetingsSystem: 'The user wants you to generate ALTERNATE GREETINGS for this character.\nCurrent greetings: {current}\nGenerate exactly {count} new alternate greeting(s).\nRespond with ONLY a valid JSON array of greeting strings. No explanations, no markdown.\nExample response format: ["Greeting one...", "Greeting two...", "Greeting three..."]\nEach greeting should be an in-character opening message that could start a conversation with {{user}}.',
   },
 

@@ -665,3 +665,29 @@
   height: 10px;
   border-width: 1.5px;
 }
+
+/* Ready-bar: one-click apply-all / review at the bottom of a finished run */
+.multi-field-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-top: 1px solid var(--surface-border);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: rgba(145, 71, 255, 0.06);
+  flex-wrap: wrap;
+}
+.multi-field-footer-count {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-accent);
+  margin-inline-end: auto;
+}
+.multi-field-footer .btn {
+  font-size: 0.68rem;
+  padding: 0.2rem 0.6rem;
+}
+.multi-field-footer .btn.disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}

@@ -45,7 +45,7 @@
           <i class="bi bi-stars"></i>
         </div>
         <span class="brand-text" data-i18n="nav.brand">ST Card Editor</span>
-        <span class="badge bg-purple ms-2">v2.6.2</span>
+        <span class="badge bg-purple ms-2">v2.7.0</span>
       </a>
       
       <div class="d-flex align-items-center gap-2">
@@ -1421,6 +1421,9 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" id="btnDiscardAI" data-i18n="diff.discard">Discard</button>
+          <button type="button" class="btn btn-outline-secondary" id="btnApplyAll">
+            <i class="bi bi-check2-all me-1"></i><span data-i18n="diff.applyAll">Apply all</span>
+          </button>
           <button type="button" class="btn btn-accent" id="btnAcceptAI">
             <i class="bi bi-check-lg me-1"></i><span data-i18n="diff.apply">Apply Changes</span>
           </button>
@@ -1519,6 +1522,6 @@
   <!-- App bundle -- one entry module built by `bun run build` (scripts/build.mjs).
        Replaces the 13 individual <script type="module"> tags; a single ?v= buster
        (derived from package.json version by check-assets) invalidates the cache.) -->
-  <script type="module" src="js/app.js?v=262"></script>
+  <script type="module" src="js/app.js?v=270"></script>
 </body>
 </html>

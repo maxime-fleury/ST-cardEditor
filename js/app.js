@@ -3788,6 +3788,7 @@ ${value}`).join(`
     _contextBarGen: 0,
     MAX_PARALLEL_FIELDS: 20,
     FIELD_DEFS: [
+      { id: "name", labelKey: "ai.target.name", icon: "bi-person-badge" },
       { id: "description", labelKey: "ai.target.description", icon: "bi-card-text" },
       { id: "personality", labelKey: "ai.target.personality", icon: "bi-brain" },
       { id: "first_mes", labelKey: "ai.target.first_mes", icon: "bi-chat-dots" },
@@ -3851,7 +3852,8 @@ ${value}`).join(`
     send(retryPrompt) {
       const $ = Ui.$;
       const input = $("#aiInput");
-      const prompt = retryPrompt || input.value.trim();
+      const rawPrompt = retryPrompt || input.value.trim();
+      const prompt = this._normalizePlaceholders(rawPrompt);
       const { activeCard } = window.AppState;
       if (!prompt || window.AppState.isAiLoading)
         return;
@@ -3859,10 +3861,22 @@ ${value}`).join(`
         Ui.showToast(I18n.t("toast.selectCard"), "warning");
         return;
       }
-      const selectedFields = this.getSelectedFields();
+      let selectedFields = this.getSelectedFields();
       if (selectedFields.length === 0) {
-        Ui.showToast(I18n.t("toast.selectField"), "info");
-        return;
+        const inferred = this._inferFields(prompt);
+        if (inferred.length > 0) {
+          this._selectedFields = new Set(inferred);
+          this._renderFieldChips();
+          selectedFields = inferred;
+          const labels = inferred.map((f) => {
+            const def = this.FIELD_DEFS.find((d) => d.id === f);
+            return def ? I18n.t ? I18n.t(def.labelKey) : def.labelKey : f;
+          });
+          Ui.showToast(I18n.t("toast.fieldsDetected", { fields: labels.join(", ") }), "info");
+        } else {
+          Ui.showToast(I18n.t("toast.selectField"), "info");
+          return;
+        }
       }
       if (selectedFields.length > this.MAX_PARALLEL_FIELDS) {
         Ui.showToast(I18n.t ? I18n.t("toast.tooManyFields", { max: this.MAX_PARALLEL_FIELDS }) : "Too many fields selected. Max " + this.MAX_PARALLEL_FIELDS + " at once.", "warning");
@@ -3883,6 +3897,7 @@ ${value}`).join(`
       }
       if (!retryPrompt) {
         input.value = "";
+        input.focus();
         const userIdx = window.AppState.chatHistory.length;
         this.addChatMessage("user", prompt, null, null, userIdx);
       }
@@ -3918,7 +3933,7 @@ ${value}`).join(`
         const contentEl = section.querySelector(".multi-field-content");
         const history = this._getRecentHistory(10);
         AIService.chatStream(prompt, this.buildSystemPrompt(field, capturedGreetingCount), modelId, (fullText) => {
-          contentEl.innerHTML = Ui.escapeHtml(fullText).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>").replace(/\n/g, "<br>");
+          contentEl.innerHTML = this._formatFieldText(fullText);
           const container = document.querySelector("#aiChatMessages");
           container.scrollTop = container.scrollHeight;
         }, controller.signal, false, history).then((result) => {
@@ -3934,7 +3949,7 @@ ${value}`).join(`
           combinedContent += `
 
 [` + field + `]
-` + result.content;
+` + this._fieldDisplayContent(field, result.content);
           if (completedCount === selectedFields.length) {
             this._finalizeGroupedCard(groupedCard, selectedFields.length);
             window.AppState.chatHistory.push({ role: "assistant", content: combinedContent });
@@ -3993,7 +4008,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         "",
         "Here is the FULL character card for context:",
         "```json",
-        CardEngine.toJSON(cardForPrompt),
+        this._normalizePlaceholders(CardEngine.toJSON(cardForPrompt)),
         "```",
         ""
       ];
@@ -4002,7 +4017,10 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         const greetInstr = (CardStorage.getPrompt("greetingsSystem") || Settings.getDefaultPrompt("greetingsSystem")).split("{count}").join(String(greetingCount)).split("{current}").join(existing.length ? JSON.stringify(existing) : "(none)");
         parts.push(greetInstr);
       } else {
-        const current = activeCard && activeCard[targetField] !== undefined ? activeCard[targetField] || "(empty)" : "(empty)";
+        let current = "(empty)";
+        if (activeCard && typeof activeCard[targetField] === "string" && activeCard[targetField]) {
+          current = this._normalizePlaceholders(activeCard[targetField]);
+        }
         const fieldInstr = (CardStorage.getPrompt("fieldsEdit") || Settings.getDefaultPrompt("fieldsEdit")).split("{field}").join(fieldLabel).split("{current}").join(current);
         parts.push(fieldInstr);
       }
@@ -4044,8 +4062,12 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         if (status)
           status.remove();
       }
+      const display = this._fieldDisplayContent(field, content);
       const contentEl = section.querySelector(".multi-field-content");
-      if (contentEl && content.length > 300) {
+      if (contentEl && display !== content) {
+        contentEl.innerHTML = this._formatFieldText(display);
+      }
+      if (contentEl && display.length > 300) {
         contentEl.classList.add("collapsed");
         contentEl.addEventListener("click", function onClickExpand() {
           this.classList.toggle("collapsed");
@@ -4060,14 +4082,14 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       if (actions) {
         actions.style.display = "flex";
         const self = this;
-        if (content.length > 300) {
+        if (display.length > 300) {
           const viewBtn = document.createElement("button");
           viewBtn.className = "multi-field-expand-btn";
           viewBtn.type = "button";
           viewBtn.innerHTML = '<i class="bi bi-arrows-expand"></i> ' + (I18n.t ? I18n.t("ai.viewFullResult") : "View full result");
           viewBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            self._showResultModal(field, content);
+            self._showResultModal(field, display);
           });
           actions.appendChild(viewBtn);
         }
@@ -4138,6 +4160,46 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
             msg += " · " + errs + " failed";
         }
         header.innerHTML = '<i class="bi bi-robot"></i> ' + Ui.escapeHtml(msg);
+      }
+      const readySections = [...groupedCard.querySelectorAll(".multi-field-section.done")].filter((s) => this._applyElMap.get(s));
+      if (readySections.length > 0) {
+        const footer = document.createElement("div");
+        footer.className = "multi-field-footer";
+        footer.innerHTML = '<span class="multi-field-footer-count">' + (I18n.t ? I18n.t("ai.changesReady", { count: readySections.length }) : readySections.length + " changes ready") + "</span>";
+        const viewBtn = document.createElement("button");
+        viewBtn.type = "button";
+        viewBtn.className = "btn btn-outline-accent btn-sm";
+        viewBtn.innerHTML = '<i class="bi bi-eye me-1"></i> ' + (I18n.t ? I18n.t("ai.reviewApply") : "Review & Apply");
+        viewBtn.addEventListener("click", () => {
+          const idx = this._firstUnappliedIndex();
+          if (idx >= 0)
+            this._openApplyAt(idx);
+        });
+        footer.appendChild(viewBtn);
+        const applyAllBtn = document.createElement("button");
+        applyAllBtn.type = "button";
+        applyAllBtn.className = "btn btn-accent btn-sm";
+        applyAllBtn.innerHTML = '<i class="bi bi-check2-all me-1"></i> ' + (I18n.t ? I18n.t("diff.applyAll") : "Apply all");
+        applyAllBtn.addEventListener("click", () => this._applyAllPending(null));
+        footer.appendChild(applyAllBtn);
+        groupedCard.appendChild(footer);
+      }
+    },
+    _firstUnappliedIndex() {
+      for (let i = 0;i < this._applyQueue.length; i++) {
+        if (!this._applyQueue[i].applied)
+          return i;
+      }
+      return -1;
+    },
+    _maybeRetireReadyBars() {
+      if (typeof document === "undefined")
+        return;
+      if (this._applyQueue.every((it) => it.applied)) {
+        document.querySelectorAll(".multi-field-footer button").forEach((b) => {
+          b.disabled = true;
+          b.classList.add("disabled");
+        });
       }
     },
     _abortAll() {
@@ -4332,16 +4394,20 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       this._applyQueue.push(item);
       return item;
     },
-    _prepareApply(field, content) {
+    _prepareApply(field, content, opts) {
+      opts = opts || {};
+      const silent = !!opts.silent;
       const { activeCard } = window.AppState;
       if (!activeCard || !content)
         return null;
+      const card = this._extractCard(content);
       if (field === "full") {
         const jsonStr = this._extractJSON(content);
         if (!jsonStr)
           return null;
         try {
           const parsed = CardEngine.parseJSON(jsonStr, activeCard._filename);
+          this._normalizeCardPlaceholders(parsed);
           return {
             oldVal: CardEngine.toJSON(activeCard),
             newVal: CardEngine.toJSON(parsed),
@@ -4359,7 +4425,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
               Object.assign(activeCard, internal);
               Editor.populateEditor(activeCard);
               Editor.syncEditorToCard();
-              Ui.showToast(I18n.t("toast.cardUpdatedAI"), "success");
+              if (!silent)
+                Ui.showToast(I18n.t("toast.cardUpdatedAI"), "success");
             }
           };
         } catch (e) {
@@ -4369,7 +4436,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         }
       }
       if (field === "tags") {
-        const tags = this._extractJSONArray(content);
+        const cardValue = this._cardFieldValue(card, "tags");
+        const tags = Array.isArray(cardValue) && cardValue.length > 0 && cardValue.every((t) => typeof t === "string") ? cardValue : this._extractJSONArray(content);
         if (!tags || tags.length === 0) {
           Ui.showToast(I18n.t ? I18n.t("toast.jsonInvalid") : "Could not parse tags from the response.", "warning");
           return null;
@@ -4392,48 +4460,63 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
             Editor.populateEditor(activeCard);
             Editor.syncEditorToCard();
             CardManager.renderCardList();
-            Ui.showToast(I18n.t("toast.tagsUpdated", { count: added }), "success");
+            if (!silent)
+              Ui.showToast(I18n.t("toast.tagsUpdated", { count: added }), "success");
           }
         };
       }
       if (field === "alternate_greetings") {
-        const greetings = this._extractJSONArray(content);
+        const cardValue = this._cardFieldValue(card, "alternate_greetings");
+        let greetings = Array.isArray(cardValue) ? cardValue : this._extractJSONArray(content);
+        if (greetings)
+          greetings = greetings.map((g) => this._normalizePlaceholders(g));
         if (!greetings || greetings.length === 0) {
           Ui.showToast(I18n.t("toast.greetingsParseFailed"), "warning");
           return null;
         }
+        const renamedTo = this._pendingRename(card, activeCard);
         return {
           oldVal: JSON.stringify(activeCard.alternate_greetings || [], null, 2),
           newVal: JSON.stringify(greetings, null, 2),
           applyFn: () => {
             activeCard.alternate_greetings = greetings;
+            if (renamedTo)
+              activeCard.name = renamedTo;
             Editor.renderGreetings(activeCard);
             Editor.syncEditorToCard();
-            Ui.showToast(I18n.t("toast.greetingsUpdated", { count: greetings.length }), "success");
+            if (renamedTo)
+              CardManager.renderCardList();
+            if (!silent)
+              Ui.showToast(renamedTo ? I18n.t("toast.cardRenamed", { name: renamedTo }) : I18n.t("toast.greetingsUpdated", { count: greetings.length }), "success");
           }
         };
       }
       if (activeCard[field] !== undefined || ["description", "personality", "first_mes", "scenario", "mes_example", "system_prompt", "post_history_instructions", "creator_notes"].includes(field)) {
-        let clean = content;
+        const cardValue = this._cardFieldValue(card, field);
+        let clean = cardValue !== undefined ? String(cardValue) : content;
         const fence = clean.match(/```(?:json|text|markdown)?\s*\n?([\s\S]*?)```/);
         if (fence)
           clean = fence[1];
         const fieldLabel = this._applyFieldLabel(field);
         const headerRe = new RegExp("^\\[" + fieldLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\]\\s*\\n?");
-        clean = clean.replace(headerRe, "").trim();
+        clean = this._normalizePlaceholders(clean.replace(headerRe, "")).trim();
         if (!clean) {
           Ui.showToast(I18n.t ? I18n.t("toast.emptyResponse") : "AI returned empty content — nothing to apply.", "warning");
           return null;
         }
+        const renamedTo = this._pendingRename(card, activeCard);
         return {
           oldVal: activeCard[field] || "",
           newVal: clean,
           applyFn: () => {
             activeCard[field] = clean;
+            if (renamedTo)
+              activeCard.name = renamedTo;
             Editor.populateEditor(activeCard);
             Editor.syncEditorToCard();
             CardManager.renderCardList();
-            Ui.showToast(I18n.t("toast.fieldUpdated", { field }), "success");
+            if (!silent)
+              Ui.showToast(renamedTo ? I18n.t("toast.cardRenamed", { name: renamedTo }) : I18n.t("toast.fieldUpdated", { field }), "success");
           }
         };
       }
@@ -4445,6 +4528,141 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       if (field === "tags")
         return I18n.t ? I18n.t("ai.target.tags") : "Tags";
       return I18n.t ? I18n.t(this.FIELD_DEFS.find((d) => d.id === field)?.labelKey || field) : field;
+    },
+    CARD_FIELDS: [
+      "description",
+      "personality",
+      "first_mes",
+      "scenario",
+      "mes_example",
+      "alternate_greetings",
+      "system_prompt",
+      "post_history_instructions",
+      "creator_notes",
+      "tags"
+    ],
+    _extractCard(text) {
+      if (!text || typeof text !== "string")
+        return null;
+      const json = this._extractJSON(text);
+      if (!json)
+        return null;
+      let parsed;
+      try {
+        parsed = JSON.parse(json);
+      } catch (_) {
+        return null;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        return null;
+      const data = parsed.data && typeof parsed.data === "object" ? parsed.data : null;
+      if (parsed.spec === "chara_card_v2" && data)
+        return parsed;
+      if (data && typeof data.name === "string" && this.CARD_FIELDS.some((k) => data[k] !== undefined))
+        return parsed;
+      if (!data && typeof parsed.name === "string" && this.CARD_FIELDS.some((k) => parsed[k] !== undefined))
+        return parsed;
+      return null;
+    },
+    _cardFieldValue(card, field) {
+      if (!card)
+        return;
+      const data = card.data && typeof card.data === "object" ? card.data : card;
+      return data[field];
+    },
+    _cardName(card) {
+      if (!card)
+        return "";
+      const data = card.data && typeof card.data === "object" ? card.data : card;
+      return typeof data.name === "string" ? data.name.trim() : "";
+    },
+    _pendingRename(card, activeCard) {
+      if (!card || !activeCard)
+        return "";
+      const name = this._cardName(card);
+      if (!name || name === (activeCard.name || "").trim())
+        return "";
+      return name;
+    },
+    _fieldDisplayContent(field, content) {
+      const card = this._extractCard(content);
+      if (!card)
+        return content;
+      let value = this._cardFieldValue(card, field);
+      if (value === undefined)
+        return content;
+      if (field === "alternate_greetings") {
+        if (!Array.isArray(value))
+          return content;
+        const norm = value.map((g) => this._normalizePlaceholders(g));
+        return norm.length ? JSON.stringify(norm, null, 2) : "";
+      }
+      return String(this._normalizePlaceholders(value));
+    },
+    _formatFieldText(text) {
+      return Ui.escapeHtml(text).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>").replace(/\n/g, "<br>");
+    },
+    _normalizePlaceholders(text) {
+      if (!text || typeof text !== "string")
+        return text;
+      let out = text.replace(/\{\{(user|char)\}\}/gi, (m, name) => "{{" + name.toLowerCase() + "}}");
+      out = out.replace(/(?<!\{)\{([^{}\n]{1,40})\}(?!\})/g, (m, name) => {
+        const key = name.trim().toLowerCase();
+        if (key === "user" || key === "char")
+          return "{{" + key + "}}";
+        return m;
+      });
+      return out;
+    },
+    _normalizeCardPlaceholders(card) {
+      if (!card || typeof card !== "object")
+        return card;
+      [
+        "name",
+        "description",
+        "personality",
+        "first_mes",
+        "scenario",
+        "mes_example",
+        "system_prompt",
+        "post_history_instructions",
+        "creator_notes"
+      ].forEach((f) => {
+        if (typeof card[f] === "string")
+          card[f] = this._normalizePlaceholders(card[f]);
+      });
+      if (Array.isArray(card.alternate_greetings)) {
+        card.alternate_greetings = card.alternate_greetings.map((g) => this._normalizePlaceholders(g));
+      }
+      return card;
+    },
+    _inferFields(prompt) {
+      if (!prompt || typeof prompt !== "string")
+        return [];
+      const p = prompt.toLowerCase();
+      const has = (re) => re.test(p);
+      const fields = new Set;
+      if (has(/(renomme|rename|s'appelle|s’appelle|nom de la carte|card name)/))
+        fields.add("name");
+      if (has(/(dit\s*[«"“'‘]|premier message|first message|first_mes|salue\s|greet)/))
+        fields.add("first_mes");
+      if (has(/(personnalit|personality|caract[èe]re)/))
+        fields.add("personality");
+      if (has(/(sc[ée]nario|scenario|arrive chez|se rend chez|situation|contexte)/))
+        fields.add("scenario");
+      if (has(/(salutation|greeting|alternatif)/))
+        fields.add("alternate_greetings");
+      if (has(/(exemple|example)/))
+        fields.add("mes_example");
+      if (has(/(system prompt|prompt syst[èe]me|instructions? pour l'?ia)/))
+        fields.add("system_prompt");
+      if (has(/(cr[ée]ateur|creator)/))
+        fields.add("creator_notes");
+      if (has(/(étudiant|etudiant|fauch|femme de m[ée]nage|housekeeper|est une|est un|est [a-zà-ÿ]+ et|traits|character)/))
+        fields.add("description");
+      if (fields.size > 0 && !fields.has("description") && p.length > 40)
+        fields.add("description");
+      return [...fields];
     },
     tryApplyAIResponse(content, targetField, sourceEl) {
       const { activeCard } = window.AppState;
@@ -4502,6 +4720,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       if (nextBtn)
         nextBtn.disabled = !showNav;
       const acceptBtn = document.querySelector("#btnAcceptAI");
+      const applyAllBtn = document.querySelector("#btnApplyAll");
       if (this._previewCleanup)
         this._previewCleanup();
       const handler = () => {
@@ -4512,24 +4731,90 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         this._markApplied(item);
         if (prep.applyFn)
           prep.applyFn();
-        modal.hide();
+        this._maybeRetireReadyBars();
+        const nextIdx = this._nextUnappliedIndex();
+        if (nextIdx >= 0)
+          this._openApplyAt(nextIdx);
+        else
+          modal.hide();
+      };
+      const applyAllHandler = () => {
+        this._applyAllPending(modal);
+      };
+      const keyHandler = (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          handler();
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          this._applyNav(-1);
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          this._applyNav(1);
+        } else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "a") {
+          e.preventDefault();
+          applyAllHandler();
+        }
       };
       const cleanup = () => {
         acceptBtn.removeEventListener("click", handler);
+        if (applyAllBtn)
+          applyAllBtn.removeEventListener("click", applyAllHandler);
+        modalEl.removeEventListener("keydown", keyHandler);
         modalEl.removeEventListener("hidden.bs.modal", cleanup);
         if (this._previewCleanup === cleanup)
           this._previewCleanup = null;
       };
       this._previewCleanup = cleanup;
       acceptBtn.addEventListener("click", handler);
+      if (applyAllBtn)
+        applyAllBtn.addEventListener("click", applyAllHandler);
+      modalEl.addEventListener("keydown", keyHandler);
       modalEl.addEventListener("hidden.bs.modal", cleanup);
       modal.show();
+      if (acceptBtn)
+        acceptBtn.focus();
     },
     _applyNav(delta) {
       const queue = this._applyQueue;
       if (queue.length < 2)
         return;
       this._openApplyAt((this._applyIndex + delta + queue.length) % queue.length);
+    },
+    _nextUnappliedIndex() {
+      for (let i = this._applyIndex + 1;i < this._applyQueue.length; i++) {
+        if (!this._applyQueue[i].applied)
+          return i;
+      }
+      return -1;
+    },
+    _applyAllPending(modal) {
+      const queue = this._applyQueue;
+      let applied = 0;
+      let failed = 0;
+      for (const item of queue) {
+        if (item.applied)
+          continue;
+        const prep = this._prepareApply(item.field, item.content, { silent: true });
+        if (!prep) {
+          failed++;
+          continue;
+        }
+        try {
+          this._markApplied(item);
+          prep.applyFn();
+          applied++;
+        } catch (e) {
+          console.error("aiChat: failed to apply change:", e);
+          failed++;
+        }
+      }
+      if (modal && typeof modal.hide === "function")
+        modal.hide();
+      this._maybeRetireReadyBars();
+      if (applied > 0) {
+        Ui.showToast(I18n.t("toast.changesApplied", { count: applied }), "success");
+      }
     },
     _pruneApplyQueue() {
       this._applyQueue = this._applyQueue.filter((it) => it.el && it.el.isConnected);
@@ -6490,7 +6775,7 @@ Below is the current content of that field:
 [{field}]
 {current}
 
-Respond with ONLY the new content for this field. Do not include explanations, JSON wrapping, or markdown fences unless the original content uses them.`,
+Respond with ONLY the new content for this field. Do not include explanations, JSON wrapping, or markdown fences unless the original content uses them. Never output the whole card as JSON — return only the {field} value.`,
       greetingsSystem: `The user wants you to generate ALTERNATE GREETINGS for this character.
 Current greetings: {current}
 Generate exactly {count} new alternate greeting(s).
@@ -7298,6 +7583,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Target:",
     "ai.target.full": "Full Card",
     "ai.target.description": "Description",
+    "ai.target.name": "Name",
     "ai.target.personality": "Personality",
     "ai.target.first_mes": "First Message",
     "ai.target.scenario": "Scenario",
@@ -7332,6 +7618,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "failed",
     "ai.cancelled": "Cancelled.",
     "ai.doneSummary": "{{done}}/{{total}} done · {{errs}} failed",
+    "ai.changesReady": "{{count}} changes ready",
+    "toast.fieldsDetected": "Detected fields: {{fields}}",
     "ai.viewFullResult": "View full result",
     "ai.showLess": "Show less",
     "ai.reviewApply": "Review & Apply",
@@ -7560,6 +7848,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(empty)",
     "diff.discard": "Discard",
     "diff.apply": "Apply Changes",
+    "diff.applyAll": "Apply all",
     "shortcuts.title": "Shortcuts",
     "shortcuts.save": "Save card",
     "shortcuts.newCard": "New card",
@@ -7604,6 +7893,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI returned empty content — nothing to apply.",
     "toast.jsonInvalid": "AI didn't return valid JSON. The response is in the chat — you can copy it manually.",
     "toast.fieldUpdated": '"{{field}}" updated!',
+    "toast.cardRenamed": "Card renamed to {{name}}!",
+    "toast.changesApplied": "{{count}} changes applied!",
     "toast.greetingsUpdated": "{{count}} greeting(s) generated!",
     "toast.tagsUpdated": "Tags updated — {{count}} new tag(s) added!",
     "toast.greetingsParseFailed": "Could not parse greetings from AI response.",
@@ -7931,6 +8222,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Cible :",
     "ai.target.full": "Carte complète",
     "ai.target.description": "Description",
+    "ai.target.name": "Nom",
     "ai.target.personality": "Personnalité",
     "ai.target.first_mes": "Premier message",
     "ai.target.scenario": "Scénario",
@@ -8165,6 +8457,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(vide)",
     "diff.discard": "Ignorer",
     "diff.apply": "Appliquer les modifications",
+    "diff.applyAll": "Tout appliquer",
     "shortcuts.title": "Raccourcis",
     "shortcuts.save": "Enregistrer la carte",
     "shortcuts.newCard": "Nouvelle carte",
@@ -8209,6 +8502,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "L'IA a retourné un contenu vide — rien à appliquer.",
     "toast.jsonInvalid": "L'IA n'a pas retourné de JSON valide. La réponse est dans la discussion — vous pouvez la copier manuellement.",
     "toast.fieldUpdated": "« {{field}} » mis à jour !",
+    "toast.cardRenamed": "Carte renommée « {{name}} » !",
+    "toast.changesApplied": "{{count}} modifications appliquées !",
     "toast.selectField": "Sélectionnez au moins un champ à modifier",
     "toast.tooManyFields": "Trop de champs sélectionnés. Maximum {{max}} à la fois.",
     "toast.greetingsUpdated": "{{count}} salutation(s) générée(s) !",
@@ -8251,6 +8546,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "échec",
     "ai.cancelled": "Annulé.",
     "ai.doneSummary": "{{done}}/{{total}} terminé · {{errs}} échec(s)",
+    "ai.changesReady": "{{count}} modifications prêtes",
+    "toast.fieldsDetected": "Champs détectés : {{fields}}",
     "ai.viewFullResult": "Voir le résultat complet",
     "ai.showLess": "Afficher moins",
     "ai.reviewApply": "Examiner et appliquer",
@@ -8566,6 +8863,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Objetivo:",
     "ai.target.full": "Tarjeta completa",
     "ai.target.description": "Descripción",
+    "ai.target.name": "Nombre",
     "ai.target.personality": "Personalidad",
     "ai.target.first_mes": "Primer mensaje",
     "ai.target.scenario": "Escenario",
@@ -8800,6 +9098,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(vacío)",
     "diff.discard": "Descartar",
     "diff.apply": "Aplicar cambios",
+    "diff.applyAll": "Aplicar todo",
     "shortcuts.title": "Atajos",
     "shortcuts.save": "Guardar tarjeta",
     "shortcuts.newCard": "Nueva tarjeta",
@@ -8844,6 +9143,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "La IA devolvió contenido vacío — no hay nada que aplicar.",
     "toast.jsonInvalid": "La IA no devolvió JSON válido. La respuesta está en el chat — puedes copiarla manualmente.",
     "toast.fieldUpdated": '¡"{{field}}" actualizado!',
+    "toast.cardRenamed": "¡Tarjeta renombrada a {{name}}!",
+    "toast.changesApplied": "¡{{count}} cambios aplicados!",
     "toast.selectField": "Selecciona al menos un campo para editar",
     "toast.tooManyFields": "Demasiados campos seleccionados. Máximo {{max}} a la vez.",
     "toast.greetingsUpdated": "¡{{count}} saludo(s) generado(s)!",
@@ -8887,6 +9188,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "falló",
     "ai.cancelled": "Cancelado.",
     "ai.doneSummary": "{{done}}/{{total}} hecho · {{errs}} falló",
+    "ai.changesReady": "{{count}} cambios listos",
+    "toast.fieldsDetected": "Campos detectados: {{fields}}",
     "ai.viewFullResult": "Ver resultado completo",
     "ai.showLess": "Mostrar menos",
     "ai.reviewApply": "Revisar y aplicar",
@@ -9201,6 +9504,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Ziel:",
     "ai.target.full": "Vollständige Karte",
     "ai.target.description": "Beschreibung",
+    "ai.target.name": "Name",
     "ai.target.personality": "Persönlichkeit",
     "ai.target.first_mes": "Erste Nachricht",
     "ai.target.scenario": "Szenario",
@@ -9435,6 +9739,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(leer)",
     "diff.discard": "Verwerfen",
     "diff.apply": "Änderungen anwenden",
+    "diff.applyAll": "Alle anwenden",
     "shortcuts.title": "Tastenkürzel",
     "shortcuts.save": "Karte speichern",
     "shortcuts.newCard": "Neue Karte",
@@ -9479,6 +9784,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "Die KI hat leeren Inhalt zurückgegeben — nichts anzuwenden.",
     "toast.jsonInvalid": "KI hat kein gültiges JSON zurückgegeben. Die Antwort ist im Chat — Sie können sie manuell kopieren.",
     "toast.fieldUpdated": '"{{field}}" aktualisiert!',
+    "toast.cardRenamed": "Karte umbenannt in {{name}}!",
+    "toast.changesApplied": "{{count}} Änderungen angewendet!",
     "toast.selectField": "Wählen Sie mindestens ein Feld zum Bearbeiten aus",
     "toast.tooManyFields": "Zu viele Felder ausgewählt. Maximal {{max}} gleichzeitig.",
     "toast.greetingsUpdated": "{{count}} Begrüßung(en) generiert!",
@@ -9522,6 +9829,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "fehlgeschlagen",
     "ai.cancelled": "Abgebrochen.",
     "ai.doneSummary": "{{done}}/{{total}} erledigt · {{errs}} fehlgeschlagen",
+    "ai.changesReady": "{{count}} Änderungen bereit",
+    "toast.fieldsDetected": "Erkannte Felder: {{fields}}",
     "ai.viewFullResult": "Vollständiges Ergebnis anzeigen",
     "ai.showLess": "Weniger anzeigen",
     "ai.reviewApply": "Prüfen übernehmen",
@@ -9836,6 +10145,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Alvo:",
     "ai.target.full": "Carta completa",
     "ai.target.description": "Descrição",
+    "ai.target.name": "Nome",
     "ai.target.personality": "Personalidade",
     "ai.target.first_mes": "Primeira mensagem",
     "ai.target.scenario": "Cenário",
@@ -10070,6 +10380,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(vazio)",
     "diff.discard": "Descartar",
     "diff.apply": "Aplicar alterações",
+    "diff.applyAll": "Aplicar tudo",
     "shortcuts.title": "Atalhos",
     "shortcuts.save": "Salvar carta",
     "shortcuts.newCard": "Nova carta",
@@ -10114,6 +10425,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "A IA retornou conteúdo vazio — nada para aplicar.",
     "toast.jsonInvalid": "A IA não retornou JSON válido. A resposta está no chat — você pode copiá-la manualmente.",
     "toast.fieldUpdated": '"{{field}}" atualizado!',
+    "toast.cardRenamed": "Cartão renomeado para {{name}}!",
+    "toast.changesApplied": "{{count}} alterações aplicadas!",
     "toast.selectField": "Selecione pelo menos um campo para editar",
     "toast.tooManyFields": "Muitos campos selecionados. Máximo de {{max}} por vez.",
     "toast.greetingsUpdated": "{{count}} saudação(ões) gerada(s)!",
@@ -10157,6 +10470,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "falhou",
     "ai.cancelled": "Cancelado.",
     "ai.doneSummary": "{{done}}/{{total}} concluído · {{errs}} falhou",
+    "ai.changesReady": "{{count}} alterações prontas",
+    "toast.fieldsDetected": "Campos detectados: {{fields}}",
     "ai.viewFullResult": "Ver resultado completo",
     "ai.showLess": "Mostrar menos",
     "ai.reviewApply": "Revisar e aplicar",
@@ -10471,6 +10786,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "対象:",
     "ai.target.full": "完全なカード",
     "ai.target.description": "説明",
+    "ai.target.name": "名前",
     "ai.target.personality": "性格",
     "ai.target.first_mes": "最初のメッセージ",
     "ai.target.scenario": "シナリオ",
@@ -10705,6 +11021,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "（空）",
     "diff.discard": "破棄",
     "diff.apply": "変更を適用",
+    "diff.applyAll": "すべて適用",
     "shortcuts.title": "ショートカット",
     "shortcuts.save": "カードを保存",
     "shortcuts.newCard": "新しいカード",
@@ -10749,6 +11066,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AIが空の内容を返しました。適用できるものがありません。",
     "toast.jsonInvalid": "AIが有効なJSONを返しませんでした。応答はチャットにあります — 手動でコピーできます。",
     "toast.fieldUpdated": '"{{field}}"が更新されました！',
+    "toast.cardRenamed": "カードの名前を{{name}}に変更しました！",
+    "toast.changesApplied": "{{count}}件の変更を適用しました！",
     "toast.selectField": "編集するフィールドを少なくとも1つ選択してください",
     "toast.tooManyFields": "フィールドが多すぎます。一度に{{max}}個までです。",
     "toast.greetingsUpdated": "{{count}}件の挨拶を生成しました！",
@@ -10792,6 +11111,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "失敗",
     "ai.cancelled": "キャンセルされました。",
     "ai.doneSummary": "{{done}}/{{total}} 完了 · {{errs}} 失敗",
+    "ai.changesReady": "{{count}}件の変更が準備できました",
+    "toast.fieldsDetected": "検出されたフィールド: {{fields}}",
     "ai.viewFullResult": "結果を全部表示",
     "ai.showLess": "簡略表示",
     "ai.reviewApply": "確認して適用",
@@ -11106,6 +11427,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "目标:",
     "ai.target.full": "完整卡片",
     "ai.target.description": "描述",
+    "ai.target.name": "名称",
     "ai.target.personality": "性格",
     "ai.target.first_mes": "首条消息",
     "ai.target.scenario": "场景",
@@ -11340,6 +11662,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "（空）",
     "diff.discard": "放弃",
     "diff.apply": "应用更改",
+    "diff.applyAll": "全部应用",
     "shortcuts.title": "快捷键",
     "shortcuts.save": "保存卡片",
     "shortcuts.newCard": "新建卡片",
@@ -11384,6 +11707,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI返回了空内容，没有可以应用的内容。",
     "toast.jsonInvalid": "AI未返回有效JSON。回复在聊天中 — 您可以手动复制。",
     "toast.fieldUpdated": '"{{field}}" 已更新！',
+    "toast.cardRenamed": "卡片已重命名为{{name}}！",
+    "toast.changesApplied": "已应用{{count}}项更改！",
     "toast.selectField": "请至少选择一个要编辑的字段",
     "toast.tooManyFields": "选择的字段过多。最多同时{{max}}个。",
     "toast.greetingsUpdated": "已生成 {{count}} 条问候语！",
@@ -11427,6 +11752,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "失败",
     "ai.cancelled": "已取消。",
     "ai.doneSummary": "{{done}}/{{total}} 完成 · {{errs}} 失败",
+    "ai.changesReady": "{{count}}项更改已就绪",
+    "toast.fieldsDetected": "检测到的字段：{{fields}}",
     "ai.viewFullResult": "查看完整结果",
     "ai.showLess": "显示较少",
     "ai.reviewApply": "审查并应用",
@@ -11741,6 +12068,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "대상:",
     "ai.target.full": "전체 카드",
     "ai.target.description": "설명",
+    "ai.target.name": "이름",
     "ai.target.personality": "성격",
     "ai.target.first_mes": "첫 번째 메시지",
     "ai.target.scenario": "시나리오",
@@ -11975,6 +12303,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(비어있음)",
     "diff.discard": "포기",
     "diff.apply": "변경 사항 적용",
+    "diff.applyAll": "모두 적용",
     "shortcuts.title": "단축키",
     "shortcuts.save": "카드 저장",
     "shortcuts.newCard": "새 카드",
@@ -12019,6 +12348,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI가 빈 콘텐츠를 반환했습니다. 적용할 내용이 없습니다.",
     "toast.jsonInvalid": "AI가 유효한 JSON을 반환하지 않았습니다. 응답은 채팅에 있습니다 — 수동으로 복사할 수 있습니다.",
     "toast.fieldUpdated": '"{{field}}" 업데이트됨!',
+    "toast.cardRenamed": "카드 이름을 {{name}}(으)로 변경했습니다!",
+    "toast.changesApplied": "변경 {{count}}개를 적용했습니다!",
     "toast.selectField": "편집할 필드를 하나 이상 선택하세요",
     "toast.tooManyFields": "필드가 너무 많습니다. 한 번에 최대 {{max}}개까지 선택 가능합니다.",
     "toast.greetingsUpdated": "{{count}}개의 인사말이 생성되었습니다!",
@@ -12062,6 +12393,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "실패",
     "ai.cancelled": "취소됨.",
     "ai.doneSummary": "{{done}}/{{total}} 완료 · {{errs}} 실패",
+    "ai.changesReady": "변경 {{count}}개 준비됨",
+    "toast.fieldsDetected": "감지된 필드: {{fields}}",
     "ai.viewFullResult": "전체 결과 보기",
     "ai.showLess": "간략히 보기",
     "ai.reviewApply": "검토 및 적용",
@@ -12376,6 +12709,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Στόχος:",
     "ai.target.full": "Πλήρης κάρτα",
     "ai.target.description": "Περιγραφή",
+    "ai.target.name": "Όνομα",
     "ai.target.personality": "Προσωπικότητα",
     "ai.target.first_mes": "Πρώτο μήνυμα",
     "ai.target.scenario": "Σενάριο",
@@ -12610,6 +12944,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(κενό)",
     "diff.discard": "Απόρριψη",
     "diff.apply": "Εφαρμογή αλλαγών",
+    "diff.applyAll": "Εφαρμογή όλων",
     "shortcuts.title": "Συντομεύσεις",
     "shortcuts.save": "Αποθήκευση κάρτας",
     "shortcuts.newCard": "Νέα κάρτα",
@@ -12654,6 +12989,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "Η AI επέστρεψε κενό περιεχόμενο — τίποτα να εφαρμοστεί.",
     "toast.jsonInvalid": "Το AI δεν επέστρεψε έγκυρο JSON. Η απάντηση είναι στη συνομιλία — μπορείτε να την αντιγράψετε χειροκίνητα.",
     "toast.fieldUpdated": '"{{field}}" ενημερώθηκε!',
+    "toast.cardRenamed": "Η κάρτα μετονομάστηκε σε {{name}}!",
+    "toast.changesApplied": "{{count}} αλλαγές εφαρμόστηκαν!",
     "toast.selectField": "Επιλέξτε τουλάχιστον ένα πεδίο για επεξεργασία",
     "toast.tooManyFields": "Πάρα πολλά πεδία επιλεγμένα. Μέγιστο {{max}} ταυτόχρονα.",
     "toast.greetingsUpdated": "{{count}} χαιρετισμός(οί) δημιουργήθηκε(αν)!",
@@ -12697,6 +13034,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "απέτυχε",
     "ai.cancelled": "Ακυρώθηκε.",
     "ai.doneSummary": "{{done}}/{{total}} έγιναν · {{errs}} απέτυχαν",
+    "ai.changesReady": "{{count}} αλλαγές έτοιμες",
+    "toast.fieldsDetected": "Πεδία που εντοπίστηκαν: {{fields}}",
     "ai.viewFullResult": "Προβολή πλήρους αποτελέσματος",
     "ai.showLess": "Εμφάνιση λιγότερων",
     "ai.reviewApply": "Ανασκόπηση & Εφαρμογή",
@@ -13011,6 +13350,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Цель:",
     "ai.target.full": "Полная карточка",
     "ai.target.description": "Описание",
+    "ai.target.name": "Имя",
     "ai.target.personality": "Характер",
     "ai.target.first_mes": "Первое сообщение",
     "ai.target.scenario": "Сценарий",
@@ -13245,6 +13585,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(пусто)",
     "diff.discard": "Отклонить",
     "diff.apply": "Применить изменения",
+    "diff.applyAll": "Применить все",
     "shortcuts.title": "Горячие клавиши",
     "shortcuts.save": "Сохранить карточку",
     "shortcuts.newCard": "Новая карточка",
@@ -13289,6 +13630,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI вернул пустой контент — нечего применять.",
     "toast.jsonInvalid": "ИИ не вернул корректный JSON. Ответ в чате — вы можете скопировать его вручную.",
     "toast.fieldUpdated": '"{{field}}" обновлено!',
+    "toast.cardRenamed": "Карточка переименована в {{name}}!",
+    "toast.changesApplied": "Применено изменений: {{count}}!",
     "toast.selectField": "Выберите хотя бы одно поле для редактирования",
     "toast.tooManyFields": "Слишком много полей. Максимум {{max}} за раз.",
     "toast.greetingsUpdated": "Сгенерировано {{count}} приветствий!",
@@ -13332,6 +13675,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "ошибка",
     "ai.cancelled": "Отменено.",
     "ai.doneSummary": "{{done}}/{{total}} готово · {{errs}} ошибок",
+    "ai.changesReady": "Готово изменений: {{count}}",
+    "toast.fieldsDetected": "Обнаруженные поля: {{fields}}",
     "ai.viewFullResult": "Посмотреть полный результат",
     "ai.showLess": "Показать меньше",
     "ai.reviewApply": "Просмотр и применение",
@@ -13648,6 +13993,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Destinazione:",
     "ai.target.full": "Scheda completa",
     "ai.target.description": "Descrizione",
+    "ai.target.name": "Nome",
     "ai.target.personality": "Personalità",
     "ai.target.first_mes": "Primo messaggio",
     "ai.target.scenario": "Scenario",
@@ -13682,6 +14028,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "non riuscita",
     "ai.cancelled": "Annullata.",
     "ai.doneSummary": "{{done}}/{{total}} completati · {{errs}} non riusciti",
+    "ai.changesReady": "{{count}} modifiche pronte",
+    "toast.fieldsDetected": "Campi rilevati: {{fields}}",
     "ai.viewFullResult": "Visualizza risultato completo",
     "ai.showLess": "Mostra meno",
     "ai.reviewApply": "Rivedi e applica",
@@ -13910,6 +14258,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(vuoto)",
     "diff.discard": "Scarta",
     "diff.apply": "Applica modifiche",
+    "diff.applyAll": "Applica tutto",
     "shortcuts.title": "Scorciatoie",
     "shortcuts.save": "Salva scheda",
     "shortcuts.newCard": "Nuova scheda",
@@ -13954,6 +14303,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "L'IA ha restituito contenuto vuoto — niente da applicare.",
     "toast.jsonInvalid": "L'AI non ha restituito JSON valido. La risposta è nella chat — puoi copiarla manualmente.",
     "toast.fieldUpdated": '"{{field}}" aggiornato!',
+    "toast.cardRenamed": "Scheda rinominata in {{name}}!",
+    "toast.changesApplied": "{{count}} modifiche applicate!",
     "toast.greetingsUpdated": "Generati {{count}} saluto/i!",
     "toast.tagsUpdated": "Tag aggiornati — {{count}} nuovi aggiunti!",
     "toast.greetingsParseFailed": "Impossibile analizzare i saluti dalla risposta AI.",
@@ -14283,6 +14634,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Cel:",
     "ai.target.full": "Cała karta",
     "ai.target.description": "Opis",
+    "ai.target.name": "Nazwa",
     "ai.target.personality": "Osobowość",
     "ai.target.first_mes": "Pierwsza wiadomość",
     "ai.target.scenario": "Scenariusz",
@@ -14317,6 +14669,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "niepowodzenie",
     "ai.cancelled": "Anulowano.",
     "ai.doneSummary": "{{done}}/{{total}} gotowych · {{errs}} nieudanych",
+    "ai.changesReady": "Gotowych zmian: {{count}}",
+    "toast.fieldsDetected": "Wykryte pola: {{fields}}",
     "ai.viewFullResult": "Zobacz pełny wynik",
     "ai.showLess": "Pokaż mniej",
     "ai.reviewApply": "Przejrzyj i zastosuj",
@@ -14545,6 +14899,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(puste)",
     "diff.discard": "Odrzuć",
     "diff.apply": "Zastosuj zmiany",
+    "diff.applyAll": "Zastosuj wszystko",
     "shortcuts.title": "Skróty",
     "shortcuts.save": "Zapisz kartę",
     "shortcuts.newCard": "Nowa karta",
@@ -14589,6 +14944,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI zwróciła pustą zawartość — nie ma nic do zastosowania.",
     "toast.jsonInvalid": "AI nie zwróciło prawidłowego JSON. Odpowiedź znajduje się w czacie — możesz ją skopiować ręcznie.",
     "toast.fieldUpdated": 'Zaktualizowano "{{field}}"!',
+    "toast.cardRenamed": "Karta przemianowana na {{name}}!",
+    "toast.changesApplied": "Zastosowano zmian: {{count}}!",
     "toast.greetingsUpdated": "Wygenerowano {{count}} powitań!",
     "toast.tagsUpdated": "Tagi zaktualizowane — dodano {{count}} nowych!",
     "toast.greetingsParseFailed": "Nie można sparsować powitań z odpowiedzi AI.",
@@ -14918,6 +15275,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Hedef:",
     "ai.target.full": "Tüm Kart",
     "ai.target.description": "Açıklama",
+    "ai.target.name": "İsim",
     "ai.target.personality": "Kişilik",
     "ai.target.first_mes": "İlk Mesaj",
     "ai.target.scenario": "Senaryo",
@@ -14952,6 +15310,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "başarısız",
     "ai.cancelled": "İptal edildi.",
     "ai.doneSummary": "{{done}}/{{total}} tamam · {{errs}} başarısız",
+    "ai.changesReady": "{{count}} değişiklik hazır",
+    "toast.fieldsDetected": "Algılanan alanlar: {{fields}}",
     "ai.viewFullResult": "Tam sonucu görüntüle",
     "ai.showLess": "Daha az göster",
     "ai.reviewApply": "İncele ve Uygula",
@@ -15180,6 +15540,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(boş)",
     "diff.discard": "Vazgeç",
     "diff.apply": "Değişiklikleri Uygula",
+    "diff.applyAll": "Tümünü uygula",
     "shortcuts.title": "Kısayollar",
     "shortcuts.save": "Kartı kaydet",
     "shortcuts.newCard": "Yeni kart",
@@ -15224,6 +15585,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI boş içerik döndürdü — uygulanacak bir şey yok.",
     "toast.jsonInvalid": "AI geçerli JSON döndürmedi. Yanıt sohbette — elle kopyalayabilirsiniz.",
     "toast.fieldUpdated": '"{{field}}" güncellendi!',
+    "toast.cardRenamed": "Kartın adı {{name}} olarak değiştirildi!",
+    "toast.changesApplied": "{{count}} değişiklik uygulandı!",
     "toast.greetingsUpdated": "{{count}} karşılama oluşturuldu!",
     "toast.tagsUpdated": "Etiketler güncellendi — {{count}} yeni eklendi!",
     "toast.greetingsParseFailed": "Karşılamalar AI yanıtından ayrıştırılamadı.",
@@ -15553,6 +15916,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Doel:",
     "ai.target.full": "Volledige kaart",
     "ai.target.description": "Beschrijving",
+    "ai.target.name": "Naam",
     "ai.target.personality": "Persoonlijkheid",
     "ai.target.first_mes": "Eerste bericht",
     "ai.target.scenario": "Scenario",
@@ -15587,6 +15951,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "mislukt",
     "ai.cancelled": "Geannuleerd.",
     "ai.doneSummary": "{{done}}/{{total}} klaar · {{errs}} mislukt",
+    "ai.changesReady": "{{count}} wijzigingen klaar",
+    "toast.fieldsDetected": "Gedetecteerde velden: {{fields}}",
     "ai.viewFullResult": "Volledig resultaat bekijken",
     "ai.showLess": "Minder tonen",
     "ai.reviewApply": "Controleren en toepassen",
@@ -15815,6 +16181,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(leeg)",
     "diff.discard": "Verwerpen",
     "diff.apply": "Wijzigingen toepassen",
+    "diff.applyAll": "Alles toepassen",
     "shortcuts.title": "Sneltoetsen",
     "shortcuts.save": "Kaart opslaan",
     "shortcuts.newCard": "Nieuwe kaart",
@@ -15859,6 +16226,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "De AI gaf lege inhoud terug — niets om toe te passen.",
     "toast.jsonInvalid": "AI heeft geen geldige JSON geretourneerd. Het antwoord staat in de chat — u kunt het handmatig kopiëren.",
     "toast.fieldUpdated": '"{{field}}" bijgewerkt!',
+    "toast.cardRenamed": "Kaart hernoemd naar {{name}}!",
+    "toast.changesApplied": "{{count}} wijzigingen toegepast!",
     "toast.greetingsUpdated": "{{count}} begroeting(en) gegenereerd!",
     "toast.tagsUpdated": "Tags bijgewerkt — {{count}} nieuwe toegevoegd!",
     "toast.greetingsParseFailed": "Begroetingen konden niet uit het AI-antwoord worden geparseerd.",
@@ -16188,6 +16557,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Ціль:",
     "ai.target.full": "Уся картка",
     "ai.target.description": "Опис",
+    "ai.target.name": "Ім’я",
     "ai.target.personality": "Особистість",
     "ai.target.first_mes": "Перше повідомлення",
     "ai.target.scenario": "Сценарій",
@@ -16222,6 +16592,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "помилка",
     "ai.cancelled": "Скасовано.",
     "ai.doneSummary": "{{done}}/{{total}} готово · {{errs}} помилок",
+    "ai.changesReady": "Змін готово: {{count}}",
+    "toast.fieldsDetected": "Виявлені поля: {{fields}}",
     "ai.viewFullResult": "Переглянути повний результат",
     "ai.showLess": "Показати менше",
     "ai.reviewApply": "Переглянути та застосувати",
@@ -16450,6 +16822,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(порожньо)",
     "diff.discard": "Відхилити",
     "diff.apply": "Застосувати зміни",
+    "diff.applyAll": "Застосувати все",
     "shortcuts.title": "Гарячі клавіші",
     "shortcuts.save": "Зберегти картку",
     "shortcuts.newCard": "Нова картка",
@@ -16494,6 +16867,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI повернув порожній вміст — застосувати нічого.",
     "toast.jsonInvalid": "AI не повернув дійсний JSON. Відповідь у чаті — ви можете скопіювати її вручну.",
     "toast.fieldUpdated": '"{{field}}" оновлено!',
+    "toast.cardRenamed": "Картку перейменовано на {{name}}!",
+    "toast.changesApplied": "Застосовано змін: {{count}}!",
     "toast.greetingsUpdated": "Згенеровано {{count}} привітань!",
     "toast.tagsUpdated": "Теги оновлено — додано {{count}} нових!",
     "toast.greetingsParseFailed": "Не вдалося розібрати привітання з відповіді AI.",
@@ -16823,6 +17198,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Mục tiêu:",
     "ai.target.full": "Toàn bộ thẻ",
     "ai.target.description": "Mô tả",
+    "ai.target.name": "Tên",
     "ai.target.personality": "Tính cách",
     "ai.target.first_mes": "Tin nhắn đầu tiên",
     "ai.target.scenario": "Bối cảnh",
@@ -16857,6 +17233,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "thất bại",
     "ai.cancelled": "Đã hủy.",
     "ai.doneSummary": "{{done}}/{{total}} xong · {{errs}} thất bại",
+    "ai.changesReady": "{{count}} thay đổi đã sẵn sàng",
+    "toast.fieldsDetected": "Các trường được phát hiện: {{fields}}",
     "ai.viewFullResult": "Xem kết quả đầy đủ",
     "ai.showLess": "Hiển thị ít hơn",
     "ai.reviewApply": "Xem lại và áp dụng",
@@ -17085,6 +17463,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(trống)",
     "diff.discard": "Hủy bỏ",
     "diff.apply": "Áp dụng thay đổi",
+    "diff.applyAll": "Áp dụng tất cả",
     "shortcuts.title": "Phím tắt",
     "shortcuts.save": "Lưu thẻ",
     "shortcuts.newCard": "Thẻ mới",
@@ -17129,6 +17508,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI trả về nội dung trống — không có gì để áp dụng.",
     "toast.jsonInvalid": "AI không trả về JSON hợp lệ. Phản hồi nằm trong cuộc trò chuyện — bạn có thể sao chép thủ công.",
     "toast.fieldUpdated": 'Đã cập nhật "{{field}}"!',
+    "toast.cardRenamed": "Đã đổi tên thẻ thành {{name}}!",
+    "toast.changesApplied": "Đã áp dụng {{count}} thay đổi!",
     "toast.greetingsUpdated": "Đã tạo {{count}} lời chào!",
     "toast.tagsUpdated": "Đã cập nhật thẻ — thêm {{count}} thẻ mới!",
     "toast.greetingsParseFailed": "Không thể phân tích lời chào từ phản hồi AI.",
@@ -17458,6 +17839,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Target:",
     "ai.target.full": "Kartu Lengkap",
     "ai.target.description": "Deskripsi",
+    "ai.target.name": "Nama",
     "ai.target.personality": "Kepribadian",
     "ai.target.first_mes": "Pesan Pertama",
     "ai.target.scenario": "Skenario",
@@ -17492,6 +17874,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "gagal",
     "ai.cancelled": "Dibatalkan.",
     "ai.doneSummary": "{{done}}/{{total}} selesai · {{errs}} gagal",
+    "ai.changesReady": "{{count}} perubahan siap",
+    "toast.fieldsDetected": "Bidang terdeteksi: {{fields}}",
     "ai.viewFullResult": "Lihat hasil lengkap",
     "ai.showLess": "Tampilkan lebih sedikit",
     "ai.reviewApply": "Tinjau & Terapkan",
@@ -17720,6 +18104,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(kosong)",
     "diff.discard": "Buang",
     "diff.apply": "Terapkan Perubahan",
+    "diff.applyAll": "Terapkan semua",
     "shortcuts.title": "Pintasan",
     "shortcuts.save": "Simpan kartu",
     "shortcuts.newCard": "Kartu baru",
@@ -17764,6 +18149,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI mengembalikan konten kosong — tidak ada yang bisa diterapkan.",
     "toast.jsonInvalid": "AI tidak mengembalikan JSON valid. Responsnya ada di obrolan — Anda dapat menyalinnya secara manual.",
     "toast.fieldUpdated": '"{{field}}" diperbarui!',
+    "toast.cardRenamed": "Kartu diubah namanya menjadi {{name}}!",
+    "toast.changesApplied": "{{count}} perubahan diterapkan!",
     "toast.greetingsUpdated": "{{count}} sapaan dibuat!",
     "toast.tagsUpdated": "Tag diperbarui — {{count}} tag baru ditambahkan!",
     "toast.greetingsParseFailed": "Tidak dapat mengurai sapaan dari respons AI.",
@@ -18093,6 +18480,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "लक्ष्य:",
     "ai.target.full": "पूरा कार्ड",
     "ai.target.description": "विवरण",
+    "ai.target.name": "नाम",
     "ai.target.personality": "व्यक्तित्व",
     "ai.target.first_mes": "पहला संदेश",
     "ai.target.scenario": "परिदृश्य",
@@ -18127,6 +18515,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "विफल",
     "ai.cancelled": "रद्द किया गया।",
     "ai.doneSummary": "{{done}}/{{total}} पूर्ण · {{errs}} विफल",
+    "ai.changesReady": "{{count}} परिवर्तन तैयार",
+    "toast.fieldsDetected": "पहचाने गए फ़ील्ड: {{fields}}",
     "ai.viewFullResult": "पूरा परिणाम देखें",
     "ai.showLess": "कम दिखाएं",
     "ai.reviewApply": "समीक्षा करें और लागू करें",
@@ -18355,6 +18745,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(खाली)",
     "diff.discard": "त्यागें",
     "diff.apply": "परिवर्तन लागू करें",
+    "diff.applyAll": "सभी लागू करें",
     "shortcuts.title": "शॉर्टकट",
     "shortcuts.save": "कार्ड सहेजें",
     "shortcuts.newCard": "नया कार्ड",
@@ -18399,6 +18790,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI ने खाली सामग्री लौटाई — लागू करने के लिए कुछ नहीं।",
     "toast.jsonInvalid": "AI ने मान्य JSON नहीं लौटाया। प्रतिक्रिया चैट में है — आप इसे मैन्युअल रूप से कॉपी कर सकते हैं।",
     "toast.fieldUpdated": '"{{field}}" अद्यतन हुआ!',
+    "toast.cardRenamed": "कार्ड का नाम बदलकर {{name}} कर दिया गया!",
+    "toast.changesApplied": "{{count}} परिवर्तन लागू किए गए!",
     "toast.greetingsUpdated": "{{count}} अभिवादन बनाए गए!",
     "toast.tagsUpdated": "टैग अपडेट — {{count}} नए जोड़े गए!",
     "toast.greetingsParseFailed": "AI प्रतिक्रिया से अभिवादन पार्स नहीं किए जा सके।",
@@ -18728,6 +19121,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "الهدف:",
     "ai.target.full": "البطاقة كاملة",
     "ai.target.description": "الوصف",
+    "ai.target.name": "الاسم",
     "ai.target.personality": "الشخصية",
     "ai.target.first_mes": "الرسالة الأولى",
     "ai.target.scenario": "السيناريو",
@@ -18762,6 +19156,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "فشل",
     "ai.cancelled": "تم الإلغاء.",
     "ai.doneSummary": "{{done}}/{{total}} اكتمل · {{errs}} فشل",
+    "ai.changesReady": "{{count}} تغييرات جاهزة",
+    "toast.fieldsDetected": "الحقول المكتشفة: {{fields}}",
     "ai.viewFullResult": "عرض النتيجة الكاملة",
     "ai.showLess": "عرض أقل",
     "ai.reviewApply": "مراجعة وتطبيق",
@@ -18990,6 +19386,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(فارغ)",
     "diff.discard": "تجاهل",
     "diff.apply": "تطبيق التغييرات",
+    "diff.applyAll": "تطبيق الكل",
     "shortcuts.title": "الاختصارات",
     "shortcuts.save": "حفظ البطاقة",
     "shortcuts.newCard": "بطاقة جديدة",
@@ -19034,6 +19431,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "أعادت AI محتوى فارغ — لا شيء لتطبيقه.",
     "toast.jsonInvalid": "لم يُرجع الذكاء الاصطناعي JSON صالحًا. الرد موجود في المحادثة — يمكنك نسخه يدويًا.",
     "toast.fieldUpdated": 'تم تحديث "{{field}}"!',
+    "toast.cardRenamed": "تمت إعادة تسمية البطاقة إلى {{name}}!",
+    "toast.changesApplied": "تم تطبيق {{count}} تغييرًا!",
     "toast.greetingsUpdated": "تم توليد {{count}} تحية!",
     "toast.tagsUpdated": "تم تحديث الوسوم — أُضيف {{count}} وسم جديد!",
     "toast.greetingsParseFailed": "تعذر تحليل التحيات من رد الذكاء الاصطناعي.",
@@ -19363,6 +19762,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "יעד:",
     "ai.target.full": "כל הכרטיס",
     "ai.target.description": "תיאור",
+    "ai.target.name": "שם",
     "ai.target.personality": "אישיות",
     "ai.target.first_mes": "הודעה ראשונה",
     "ai.target.scenario": "תרחיש",
@@ -19397,6 +19797,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "נכשל",
     "ai.cancelled": "בוטל.",
     "ai.doneSummary": "{{done}}/{{total}} הושלמו · {{errs}} נכשלו",
+    "ai.changesReady": "{{count}} שינויים מוכנים",
+    "toast.fieldsDetected": "שדות שזוהו: {{fields}}",
     "ai.viewFullResult": "הצגת התוצאה המלאה",
     "ai.showLess": "הצגה פחותה",
     "ai.reviewApply": "סקירה והחלה",
@@ -19625,6 +20027,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(ריק)",
     "diff.discard": "ביטול",
     "diff.apply": "החלת שינויים",
+    "diff.applyAll": "החל הכל",
     "shortcuts.title": "קיצורי דרך",
     "shortcuts.save": "שמירת כרטיס",
     "shortcuts.newCard": "כרטיס חדש",
@@ -19669,6 +20072,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI החזירה תוכן ריק — אין מה להחיל.",
     "toast.jsonInvalid": "ה-AI לא החזיר JSON תקין. התשובה בצ'אט — תוכלו להעתיק אותה ידנית.",
     "toast.fieldUpdated": '"{{field}}" עודכן!',
+    "toast.cardRenamed": "הכרטיס שונה לשם {{name}}!",
+    "toast.changesApplied": "הוחלו {{count}} שינויים!",
     "toast.greetingsUpdated": "נוצרו {{count}} ברכות!",
     "toast.tagsUpdated": "התגיות עודכנו — נוספו {{count}} תגיות חדשות!",
     "toast.greetingsParseFailed": "לא ניתן היה לנתח את הברכות מתשובת ה-AI.",
@@ -19998,6 +20403,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "هدف:",
     "ai.target.full": "کل کارت",
     "ai.target.description": "توضیحات",
+    "ai.target.name": "نام",
     "ai.target.personality": "شخصیت",
     "ai.target.first_mes": "اولین پیام",
     "ai.target.scenario": "سناریو",
@@ -20032,6 +20438,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "ناموفق",
     "ai.cancelled": "لغو شد.",
     "ai.doneSummary": "{{done}}/{{total}} انجام شد · {{errs}} ناموفق",
+    "ai.changesReady": "{{count}} تغییر آماده است",
+    "toast.fieldsDetected": "فیلدهای شناساییشده: {{fields}}",
     "ai.viewFullResult": "مشاهده نتیجه کامل",
     "ai.showLess": "نمایش کمتر",
     "ai.reviewApply": "بررسی و اعمال",
@@ -20260,6 +20668,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(خالی)",
     "diff.discard": "رد کردن",
     "diff.apply": "اعمال تغییرات",
+    "diff.applyAll": "اعمال همه",
     "shortcuts.title": "میان‌برها",
     "shortcuts.save": "ذخیره کارت",
     "shortcuts.newCard": "کارت جدید",
@@ -20304,6 +20713,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI محتوای خالی بازگرداند — جزئی برای اعمال وجود ندارد.",
     "toast.jsonInvalid": "هوش مصنوعی JSON معتبری برنگرداند. پاسخ در گفتگو است — می‌توانید آن را دستی کپی کنید.",
     "toast.fieldUpdated": '"{{field}}" به‌روزرسانی شد!',
+    "toast.cardRenamed": "نام کارت به {{name}} تغییر یافت!",
+    "toast.changesApplied": "{{count}} تغییر اعمال شد!",
     "toast.greetingsUpdated": "{{count}} سلام تولید شد!",
     "toast.tagsUpdated": "برچسب‌ها به‌روزرسانی شدند — {{count}} برچسب جدید اضافه شد!",
     "toast.greetingsParseFailed": "سلام‌ها از پاسخ هوش مصنوعی قابل تجزیه نبودند.",
@@ -20633,6 +21044,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Ținta:",
     "ai.target.full": "Card complet",
     "ai.target.description": "Descriere",
+    "ai.target.name": "Nume",
     "ai.target.personality": "Personalitate",
     "ai.target.first_mes": "Primul mesaj",
     "ai.target.scenario": "Scenariu",
@@ -20667,6 +21079,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "eșuat",
     "ai.cancelled": "Anulat.",
     "ai.doneSummary": "{{done}}/{{total}} finalizate · {{errs}} eșuate",
+    "ai.changesReady": "{{count}} modificări gata",
+    "toast.fieldsDetected": "Câmpuri detectate: {{fields}}",
     "ai.viewFullResult": "Vezi rezultatul complet",
     "ai.showLess": "Afișează mai puțin",
     "ai.reviewApply": "Revizuiește și aplică",
@@ -20895,6 +21309,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(gol)",
     "diff.discard": "Anulează",
     "diff.apply": "Aplică modificările",
+    "diff.applyAll": "Aplică tot",
     "shortcuts.title": "Scurtături",
     "shortcuts.save": "Salvează cardul",
     "shortcuts.newCard": "Card nou",
@@ -20939,6 +21354,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI a returnat conținut gol — nimic de aplicat.",
     "toast.jsonInvalid": "AI nu a returnat JSON valid. Răspunsul se află în conversație — îl poți copia manual.",
     "toast.fieldUpdated": '„{{field}}" actualizat!',
+    "toast.cardRenamed": "Cardul a fost redenumit în {{name}}!",
+    "toast.changesApplied": "{{count}} modificări aplicate!",
     "toast.greetingsUpdated": "{{count}} salutare(i) generate!",
     "toast.tagsUpdated": "Etichete actualizate — {{count}} etichetă(e) nouă(i) adăugată(e)!",
     "toast.greetingsParseFailed": "Salutările nu au putut fi parsate din răspunsul AI.",
@@ -21268,6 +21685,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Cíl:",
     "ai.target.full": "Celá karta",
     "ai.target.description": "Popis",
+    "ai.target.name": "Jméno",
     "ai.target.personality": "Osobnost",
     "ai.target.first_mes": "První zpráva",
     "ai.target.scenario": "Scénář",
@@ -21302,6 +21720,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "selhalo",
     "ai.cancelled": "Zrušeno.",
     "ai.doneSummary": "{{done}}/{{total}} hotovo · {{errs}} selhalo",
+    "ai.changesReady": "Připraveno změn: {{count}}",
+    "toast.fieldsDetected": "Zjištěná pole: {{fields}}",
     "ai.viewFullResult": "Zobrazit celý výsledek",
     "ai.showLess": "Zobrazit méně",
     "ai.reviewApply": "Zkontrolovat a použít",
@@ -21530,6 +21950,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(prázdné)",
     "diff.discard": "Zahodit",
     "diff.apply": "Použít změny",
+    "diff.applyAll": "Použít vše",
     "shortcuts.title": "Zkratky",
     "shortcuts.save": "Uložit kartu",
     "shortcuts.newCard": "Nová karta",
@@ -21574,6 +21995,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI vrátilo prázdný obsah — nic k použití.",
     "toast.jsonInvalid": "AI nevrátilo platný JSON. Odpověď je v chatu — můžete ji zkopírovat ručně.",
     "toast.fieldUpdated": '"{{field}}" aktualizováno!',
+    "toast.cardRenamed": "Karta přejmenována na {{name}}!",
+    "toast.changesApplied": "Použito změn: {{count}}!",
     "toast.greetingsUpdated": "{{count}} pozdravů vygenerováno!",
     "toast.tagsUpdated": "Štítky aktualizovány — přidáno {{count}} nových štítků!",
     "toast.greetingsParseFailed": "Nepodařilo se zpracovat pozdravy z odpovědi AI.",
@@ -21903,6 +22326,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Mål:",
     "ai.target.full": "Hela kortet",
     "ai.target.description": "Beskrivning",
+    "ai.target.name": "Namn",
     "ai.target.personality": "Personlighet",
     "ai.target.first_mes": "Första meddelande",
     "ai.target.scenario": "Scenario",
@@ -21937,6 +22361,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "misslyckades",
     "ai.cancelled": "Avbruten.",
     "ai.doneSummary": "{{done}}/{{total}} klart · {{errs}} misslyckade",
+    "ai.changesReady": "{{count}} ändringar redo",
+    "toast.fieldsDetected": "Identifierade fält: {{fields}}",
     "ai.viewFullResult": "Visa hela resultatet",
     "ai.showLess": "Visa mindre",
     "ai.reviewApply": "Granska och tillämpa",
@@ -22165,6 +22591,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(tomt)",
     "diff.discard": "Ta bort",
     "diff.apply": "Tillämpa ändringar",
+    "diff.applyAll": "Tillämpa alla",
     "shortcuts.title": "Genvägar",
     "shortcuts.save": "Spara kort",
     "shortcuts.newCard": "Nytt kort",
@@ -22209,6 +22636,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI returnerade tomt innehåll — inget att tillämpa.",
     "toast.jsonInvalid": "AI returnerade inte giltigt JSON. Svaret finns i chatten — du kan kopiera det manuellt.",
     "toast.fieldUpdated": '"{{field}}" uppdaterat!',
+    "toast.cardRenamed": "Kortet döptes om till {{name}}!",
+    "toast.changesApplied": "{{count}} ändringar tillämpade!",
     "toast.greetingsUpdated": "{{count}} hälsning(ar) genererade!",
     "toast.tagsUpdated": "Taggar uppdaterade — {{count}} ny(a) tagg(ar) tillagda!",
     "toast.greetingsParseFailed": "Kunde inte tolka hälsningar från AI-svaret.",
@@ -22538,6 +22967,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "เป้าหมาย:",
     "ai.target.full": "การ์ดทั้งหมด",
     "ai.target.description": "คำอธิบาย",
+    "ai.target.name": "ชื่อ",
     "ai.target.personality": "บุคลิกภาพ",
     "ai.target.first_mes": "ข้อความแรก",
     "ai.target.scenario": "สถานการณ์",
@@ -22572,6 +23002,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "ล้มเหลว",
     "ai.cancelled": "ยกเลิกแล้ว",
     "ai.doneSummary": "{{done}}/{{total}} เสร็จสิ้น · {{errs}} ล้มเหลว",
+    "ai.changesReady": "การเปลี่ยนแปลง {{count}} รายการพร้อม",
+    "toast.fieldsDetected": "ฟิลด์ที่ตรวจพบ: {{fields}}",
     "ai.viewFullResult": "ดูผลลัพธ์ทั้งหมด",
     "ai.showLess": "แสดงน้อยลง",
     "ai.reviewApply": "ตรวจสอบและใช้",
@@ -22800,6 +23232,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(ว่าง)",
     "diff.discard": "ทิ้ง",
     "diff.apply": "ใช้การเปลี่ยนแปลง",
+    "diff.applyAll": "ใช้ทั้งหมด",
     "shortcuts.title": "ทางลัด",
     "shortcuts.save": "บันทึกการ์ด",
     "shortcuts.newCard": "การ์ดใหม่",
@@ -22844,6 +23277,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "AI ส่งคืนเนื้อหาว่าง — ไม่มีอะไรให้ใช้",
     "toast.jsonInvalid": "AI ไม่ได้ส่งคืน JSON ที่ถูกต้อง การตอบสนองอยู่ในแชท — คุณสามารถคัดลอกได้ด้วยตนเอง",
     "toast.fieldUpdated": 'อัปเดต "{{field}}" แล้ว!',
+    "toast.cardRenamed": "เปลี่ยนชื่อการ์ดเป็น {{name}} แล้ว!",
+    "toast.changesApplied": "ใช้การเปลี่ยนแปลง {{count}} รายการแล้ว!",
     "toast.greetingsUpdated": "สร้างคำทักทาย {{count}} คำแล้ว!",
     "toast.tagsUpdated": "อัปเดตแท็กแล้ว — เพิ่มแท็กใหม่ {{count}} แท็ก!",
     "toast.greetingsParseFailed": "ไม่สามารถแยกวิเคราะห์คำทักทายจากการตอบสนอง AI ได้",
@@ -23173,6 +23608,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Alvo:",
     "ai.target.full": "Cartão completo",
     "ai.target.description": "Descrição",
+    "ai.target.name": "Nome",
     "ai.target.personality": "Personalidade",
     "ai.target.first_mes": "Primeira mensagem",
     "ai.target.scenario": "Cenário",
@@ -23207,6 +23643,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "falhou",
     "ai.cancelled": "Cancelado.",
     "ai.doneSummary": "{{done}}/{{total}} concluído(s) · {{errs}} falhado(s)",
+    "ai.changesReady": "{{count}} alterações prontas",
+    "toast.fieldsDetected": "Campos detetados: {{fields}}",
     "ai.viewFullResult": "Ver resultado completo",
     "ai.showLess": "Mostrar menos",
     "ai.reviewApply": "Rever e aplicar",
@@ -23435,6 +23873,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(vazio)",
     "diff.discard": "Descartar",
     "diff.apply": "Aplicar alterações",
+    "diff.applyAll": "Aplicar tudo",
     "shortcuts.title": "Atalhos",
     "shortcuts.save": "Guardar cartão",
     "shortcuts.newCard": "Novo cartão",
@@ -23479,6 +23918,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "A IA devolveu conteúdo vazio — nada a aplicar.",
     "toast.jsonInvalid": "A IA não devolveu JSON válido. A resposta encontra-se na conversa — pode copiá-la manualmente.",
     "toast.fieldUpdated": '„{{field}}" atualizado!',
+    "toast.cardRenamed": "Cartão renomeado para {{name}}!",
+    "toast.changesApplied": "{{count}} alterações aplicadas!",
     "toast.greetingsUpdated": "{{count}} saudação(ões) gerada(s)!",
     "toast.tagsUpdated": "Etiquetas atualizadas — {{count}} etiqueta(s) nova(s) adicionada(s)!",
     "toast.greetingsParseFailed": "Não foi possível processar as saudações da resposta da IA.",
@@ -23808,6 +24249,7 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.target": "Layunin:",
     "ai.target.full": "Buong Kard",
     "ai.target.description": "Paglalarawan",
+    "ai.target.name": "Pangalan",
     "ai.target.personality": "Personalidad",
     "ai.target.first_mes": "Unang Mensahe",
     "ai.target.scenario": "Senaryo",
@@ -23842,6 +24284,8 @@ Each greeting should be an in-character opening message that could start a conve
     "ai.failed": "nabigo",
     "ai.cancelled": "Kanselado.",
     "ai.doneSummary": "{{done}}/{{total}} tapos · {{errs}} nabigo",
+    "ai.changesReady": "{{count}} pagbabago handa na",
+    "toast.fieldsDetected": "Mga field na natukoy: {{fields}}",
     "ai.viewFullResult": "Tingnan ang buong resulta",
     "ai.showLess": "Ipakita ang mas kaunti",
     "ai.reviewApply": "Suriin at I-apply",
@@ -24070,6 +24514,7 @@ Each greeting should be an in-character opening message that could start a conve
     "diff.empty": "(walang laman)",
     "diff.discard": "Iwasan",
     "diff.apply": "I-apply ang mga Pagbabago",
+    "diff.applyAll": "I-apply lahat",
     "shortcuts.title": "Mga Shortcut",
     "shortcuts.save": "I-save ang kard",
     "shortcuts.newCard": "Bagong kard",
@@ -24114,6 +24559,8 @@ Each greeting should be an in-character opening message that could start a conve
     "toast.emptyResponse": "Nagbalik ang AI ng walang laman — walang i-a-apply.",
     "toast.jsonInvalid": "Hindi nagbalik ng valid na JSON ang AI. Nasa chat ang tugon — maaari mo itong kopyahin nang mano-mano.",
     "toast.fieldUpdated": '"{{field}}" na-update na!',
+    "toast.cardRenamed": "Pinalitan ang pangalan ng kard sa {{name}}!",
+    "toast.changesApplied": "{{count}} pagbabago ang na-apply!",
     "toast.greetingsUpdated": "Na-generate ang {{count}} na pagbati!",
     "toast.tagsUpdated": "Na-update na ang mga tag — {{count}} na bagong tag ang naidagdag!",
     "toast.greetingsParseFailed": "Hindi ma-parse ang mga pagbati mula sa tugon ng AI.",

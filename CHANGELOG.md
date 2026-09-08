@@ -6,6 +6,51 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-09-08
+
+### Added
+- **Natural-language AI editing** — send a request in plain language without
+  picking field chips and the chat detects what you want: “Renomme la carte en
+  Elodie, elle est étudiante fauchée… elle dit “Bonjour, c'est Elodie”…”
+  automatically selects **Name + Description + Scenario + First message** (and
+  more via keyword rules), with a “Detected fields: …” toast confirming the
+  selection.
+- **`name` field in the AI chat** — a new “Name” chip (first position, so it
+  is part of “All fields”) lets the model rename the card directly; the
+  requested rename is also honoured when the model answers a field request
+  with a whole card JSON (`data.name` is applied with a “Card renamed” toast).
+- **Apply & next / Apply all in Review & Apply** — the Apply button now
+  applies the current change and advances to the next unapplied one; a new
+  **“Apply all”** button applies every pending change in one click with a
+  single summary toast (per-field success toasts are suppressed). Keyboard
+  shortcuts: **Enter** apply & next, **A** apply all, **←/→** navigate; the
+  Apply button is focused automatically when the modal opens.
+- **Ready-bar on finished runs** — a sticky footer under the multi-field
+  result shows “N changes ready” with **Review & Apply** and **Apply all**
+  buttons; once everything is applied the buttons retire automatically.
+- **`{{user}}`/`{{char}}` macro normalization** — `{user}`, `{User}`, `{{User}}`
+  (and the same for `char`) are normalized to the SillyTavern `{{user}}` /
+  `{{char}}` form in the sent prompt, the card context sent to the model, and
+  in every applied response (single fields, alternate greetings, full card);
+  other `{…}` tokens are left untouched.
+- **Full-card JSON unwrapping** — when the model answers a per-field request
+  with a whole character card (very common for “rename the card…” prompts),
+  each section shows and applies only its own field instead of dumping the
+  JSON blob everywhere; tags/greetings are read from the card's own arrays.
+- **Translations** — the new toast/button/ready-bar keys are translated in all
+  26 non-English locales (French included); the previously copy-Englushed
+  `cardRenamed`, `changesApplied`, `applyAll` and `changesReady` keys are now
+  properly localized in every language.
+
+### Fixed
+- The field-editing system prompt now explicitly forbids returning the whole
+  card as JSON (`fieldsEdit` default), reducing the JSON-dump responses at the
+  source.
+- `{{User}}`/`{{CHAR}}` inside responses can no longer be double-encoded into
+  `{{{user}}}` by the macro normalizer (lookbehind/lookahead guards).
+
+## [2.6.2] - 2026-09-06
+
 ### Added
 - **Mini card preview** — an eye button on each library row opens a modal with
   the card's full markdown-rendered description and first message (plus
@@ -23,8 +68,6 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - **Localization** — the 8 new preview/collapse/paste keys are translated in
   all 26 non-English locales (208 new translations; English copyover dropped
   from 2,195 to 1,987 keys).
-
-## [2.6.2] - 2026-09-06
 
 ## [2.6.1] - 2026-09-06
 
@@ -193,7 +236,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   with a white popup in dark mode — fixed via `color-scheme` plus dark
   `form-select`/`option` styling across all browsers.
 
-[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.6.2...HEAD
+[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.7.0...HEAD
+[2.7.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.7.0
 [2.6.2]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.6.2
 [2.6.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.6.1
 [2.6.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.6.0
