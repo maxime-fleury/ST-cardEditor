@@ -1,9 +1,13 @@
-import { test, expect, beforeAll } from 'bun:test';
+import { test, expect, beforeAll, beforeEach } from 'bun:test';
 
 // aiChat.js is a plain object literal (browser-glued methods run only when
 // called), so importing it is safe without DOM stubs. _prepareApply touches
 // window.AppState / Editor / CardManager / Ui / I18n at call time only.
+// The apply-queue state lives in ChatState (see chatState.js) — tests must
+// poke ChatState directly, and reset it between tests so no queue/session
+// bleeds across cases (that isolation is exactly what the store guarantees).
 let AiChat;
+let ChatState;
 const toasts = [];
 
 beforeAll(async () => {
@@ -32,6 +36,13 @@ beforeAll(async () => {
   };
   globalThis.CardManager = { renderCardList: () => {} };
   AiChat = (await import('../../js/aiChat.js')).AiChat;
+  ChatState = (await import('../../js/chatState.js')).ChatState;
+});
+
+beforeEach(() => {
+  toasts.length = 0;
+  ChatState.resetChat();
+  ChatState.selectedFields.clear();
 });
 
 // A model that ignores the per-field instruction and answers a field request
@@ -226,17 +237,17 @@ test('_prepareApply silent option suppresses the per-item success toast', () => 
 });
 
 test('_nextUnappliedIndex skips already-applied changes', () => {
-  AiChat._applyQueue = [
+  ChatState.applyQueue = [
     { applied: true },
     { applied: false },
     { applied: true },
     { applied: false },
   ];
-  AiChat._applyIndex = 0;
+  ChatState.applyIndex = 0;
   expect(AiChat._nextUnappliedIndex()).toBe(1);
-  AiChat._applyIndex = 1;
+  ChatState.applyIndex = 1;
   expect(AiChat._nextUnappliedIndex()).toBe(3);
-  AiChat._applyIndex = 3;
+  ChatState.applyIndex = 3;
   expect(AiChat._nextUnappliedIndex()).toBe(-1); // exhausted
 });
 
@@ -245,7 +256,7 @@ test('_applyAllPending applies every remaining change, renames the card and show
   const activeCard = baseCard();
   window.AppState = { activeCard };
   const hidden = { hidden: false };
-  AiChat._applyQueue = [
+  ChatState.applyQueue = [
     { el: null, field: 'description', content: elodieCard, applied: false },
     { el: null, field: 'personality', content: elodieCard, applied: false },
     { el: null, field: 'description', content: 'déjà appliqué', applied: true }, // skipped
@@ -257,7 +268,7 @@ test('_applyAllPending applies every remaining change, renames the card and show
   expect(activeCard.description).toBe(data.description);
   expect(activeCard.personality).toBe(data.personality);
   expect(activeCard.name).toBe('Elodie'); // rename carried by the card JSON
-  expect(AiChat._applyQueue.map((it) => it.applied)).toEqual([true, true, true]);
+  expect(ChatState.applyQueue.map((it) => it.applied)).toEqual([true, true, true]);
   expect(hidden.hidden).toBe(true);
   // ONE summary toast (not one per field)
   expect(toasts).toHaveLength(1);
@@ -268,7 +279,7 @@ test('_applyAllPending handles items whose response cannot be prepared without c
   toasts.length = 0;
   const activeCard = baseCard();
   window.AppState = { activeCard };
-  AiChat._applyQueue = [
+  ChatState.applyQueue = [
     { el: null, field: 'description', content: elodieCard, applied: false },
     { el: null, field: 'description', content: '', applied: false }, // unparseable → skipped
   ];
@@ -276,21 +287,21 @@ test('_applyAllPending handles items whose response cannot be prepared without c
   AiChat._applyAllPending({ hide: () => {} });
 
   expect(activeCard.description).toBe(JSON.parse(elodieCard).data.description);
-  expect(AiChat._applyQueue[0].applied).toBe(true);
-  expect(AiChat._applyQueue[1].applied).toBe(false); // skipped, still marked unapplied
+  expect(ChatState.applyQueue[0].applied).toBe(true);
+  expect(ChatState.applyQueue[1].applied).toBe(false); // skipped, still marked unapplied
   expect(toasts).toHaveLength(1); // summary counts only the applied one
 });
 
 // ─── Ready-bar (footer) ───────────────────────────────────────────────────
 
 test('_firstUnappliedIndex finds the first pending change', () => {
-  AiChat._applyQueue = [
+  ChatState.applyQueue = [
     { applied: true },
     { applied: false },
     { applied: true },
   ];
   expect(AiChat._firstUnappliedIndex()).toBe(1);
-  AiChat._applyQueue = [{ applied: true }];
+  ChatState.applyQueue = [{ applied: true }];
   expect(AiChat._firstUnappliedIndex()).toBe(-1);
 });
 
@@ -318,12 +329,12 @@ test('_finalizeGroupedCard appends a ready-bar whose Apply-all applies every cha
     },
     appendChild(el) { this.footer = el; },
   };
-  AiChat._applyQueue = [
+  ChatState.applyQueue = [
     { el: sections[0], field: 'description', content: elodieCard, applied: false },
     { el: sections[1], field: 'personality', content: elodieCard, applied: false },
   ];
-  AiChat._applyElMap.set(sections[0], AiChat._applyQueue[0]);
-  AiChat._applyElMap.set(sections[1], AiChat._applyQueue[1]);
+  ChatState.applyElMap.set(sections[0], ChatState.applyQueue[0]);
+  ChatState.applyElMap.set(sections[1], ChatState.applyQueue[1]);
 
   AiChat._finalizeGroupedCard(groupedCard, 2);
 
@@ -338,7 +349,7 @@ test('_finalizeGroupedCard appends a ready-bar whose Apply-all applies every cha
   expect(activeCard.description).toBe(data.description);
   expect(activeCard.personality).toBe(data.personality);
   expect(activeCard.name).toBe('Elodie');
-  expect(AiChat._applyQueue.every((it) => it.applied)).toBe(true);
+  expect(ChatState.applyQueue.every((it) => it.applied)).toBe(true);
   expect(toasts).toHaveLength(1); // single summary toast
 });
 

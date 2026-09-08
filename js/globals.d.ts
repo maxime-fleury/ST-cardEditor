@@ -266,7 +266,6 @@ declare const AIService: {
 declare const AiChat: {
   FIELD_DEFS: FieldDef[];
   MAX_PARALLEL_FIELDS: number;
-  _gen: number;
   send(retryPrompt?: string): void;
   clearChat(): void;
   toggleHistory(force?: boolean): void;
@@ -276,11 +275,46 @@ declare const AiChat: {
   renderChatHistory(): void;
   _abortAll(): void;
   _resetApplyQueue(): void;
+  _bumpGen(): number;
+  _resetChat(): void;
+  _setCurrentSession(id: string | null): void;
   _renderDiff(...args: unknown[]): void;
   _renderFieldChips(): void;
   _inferFields(text: string): string[];
   _normalizePlaceholders(text: string): string;
   [k: string]: any;
+};
+
+/**
+ * Single source of truth for the AI chat's mutable state (see chatState.js):
+ * the apply queue, chip selection, session pointer, generation tokens and
+ * abort controllers. Everything else must read/write through this store — no
+ * caller may bypass it by mutating AiChat fields.
+ */
+declare const ChatState: {
+  selectedFields: Set<string>;
+  greetingCount: number;
+  historyRendered: boolean;
+  currentSessionId: string | null;
+  gen: number;
+  contextBarGen: number;
+  abortControllers: AbortController[];
+  applyQueue: ApplyItem[];
+  applyStore: Map<string, { content: string; field: string }>;
+  applyElMap: WeakMap<object, ApplyItem>;
+  applyIndex: number;
+  bumpGen(): number;
+  bumpContextBarGen(): number;
+  addController(controller: AbortController): void;
+  releaseController(controller: AbortController): void;
+  abortAll(): void;
+  registerApply(el: unknown, field: string, content: string): ApplyItem | null;
+  firstUnappliedIndex(): number;
+  nextUnappliedIndex(): number;
+  allApplied(): boolean;
+  pruneDetached(): void;
+  resetApply(): void;
+  resetChat(): void;
 };
 
 declare const ExportUtils: {
@@ -317,6 +351,7 @@ interface Window {
   ExportUtils: typeof ExportUtils;
   AIService: typeof AIService;
   Wizard: typeof Wizard;
+  ChatState: typeof ChatState;
   syncFloatingLabels?: () => void;
   [k: string]: unknown;
 }

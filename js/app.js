@@ -3445,7 +3445,7 @@ ${value}`).join(`
       const { activeCard, isAiLoading } = window.AppState;
       if (isAiLoading) {
         AiChat._abortAll();
-        AiChat._gen++;
+        AiChat._bumpGen();
         window.AppState.isAiLoading = false;
         AiChat.updateSendButton();
       }
@@ -3456,8 +3456,7 @@ ${value}`).join(`
         return;
       window.AppState.activeCard = fullCard;
       CardStorage.setActiveCardId(fullCard._id);
-      AiChat._resetApplyQueue();
-      AiChat._currentSessionId = null;
+      AiChat._resetChat();
       try {
         const b64 = await CardStorage.getImage(fullCard._id);
         if (b64)
@@ -3473,13 +3472,12 @@ ${value}`).join(`
         const sessionMessages = CardStorage.getSessionMessages(fullCard._id, latestSession.id);
         if (sessionMessages.length > 0) {
           window.AppState.chatHistory = sessionMessages;
-          AiChat._currentSessionId = latestSession.id;
+          AiChat._setCurrentSession(latestSession.id);
         } else {
-          AiChat._currentSessionId = latestSession.id;
+          AiChat._setCurrentSession(latestSession.id);
           CardStorage.saveSessionMessages(fullCard._id, latestSession.id, cardHistory);
         }
       }
-      AiChat._historyRendered = false;
       AiChat.renderChatHistory();
       Editor.populateEditor(fullCard);
       this.renderCardList();
@@ -3775,19 +3773,161 @@ ${value}`).join(`
   if (typeof window !== "undefined")
     window.CardManager = CardManager2;
 
+  // js/chatState.js
+  var selectedFields = new Set;
+  var greetingCount = 3;
+  var historyRendered = false;
+  var currentSessionId = null;
+  var gen = 0;
+  var contextBarGen = 0;
+  var abortControllers = [];
+  var applyQueue = [];
+  var applyStore = new Map;
+  var applyElMap = new WeakMap;
+  var applyIndex = 0;
+  var ChatState = {
+    get selectedFields() {
+      return selectedFields;
+    },
+    set selectedFields(v) {
+      selectedFields = v;
+    },
+    get greetingCount() {
+      return greetingCount;
+    },
+    set greetingCount(v) {
+      greetingCount = v;
+    },
+    get historyRendered() {
+      return historyRendered;
+    },
+    set historyRendered(v) {
+      historyRendered = v;
+    },
+    get currentSessionId() {
+      return currentSessionId;
+    },
+    set currentSessionId(v) {
+      currentSessionId = v;
+    },
+    get gen() {
+      return gen;
+    },
+    set gen(v) {
+      gen = v;
+    },
+    get contextBarGen() {
+      return contextBarGen;
+    },
+    set contextBarGen(v) {
+      contextBarGen = v;
+    },
+    get abortControllers() {
+      return abortControllers;
+    },
+    set abortControllers(v) {
+      abortControllers = v;
+    },
+    get applyQueue() {
+      return applyQueue;
+    },
+    set applyQueue(v) {
+      applyQueue = v;
+    },
+    get applyStore() {
+      return applyStore;
+    },
+    set applyStore(v) {
+      applyStore = v;
+    },
+    get applyElMap() {
+      return applyElMap;
+    },
+    set applyElMap(v) {
+      applyElMap = v;
+    },
+    get applyIndex() {
+      return applyIndex;
+    },
+    set applyIndex(v) {
+      applyIndex = v;
+    },
+    bumpGen() {
+      return ++gen;
+    },
+    bumpContextBarGen() {
+      return ++contextBarGen;
+    },
+    addController(controller) {
+      abortControllers.push(controller);
+    },
+    releaseController(controller) {
+      const idx = abortControllers.indexOf(controller);
+      if (idx >= 0)
+        abortControllers.splice(idx, 1);
+    },
+    abortAll() {
+      abortControllers.forEach((c) => c.abort());
+      abortControllers = [];
+    },
+    registerApply(el, field, content) {
+      if (!el)
+        return null;
+      let item = applyElMap.get(el);
+      if (item) {
+        item.field = field;
+        item.content = content;
+        return item;
+      }
+      item = { el, field, content, applied: false };
+      applyElMap.set(el, item);
+      applyQueue.push(item);
+      return item;
+    },
+    firstUnappliedIndex() {
+      for (let i = 0;i < applyQueue.length; i++) {
+        if (!applyQueue[i].applied)
+          return i;
+      }
+      return -1;
+    },
+    nextUnappliedIndex() {
+      for (let i = applyIndex + 1;i < applyQueue.length; i++) {
+        if (!applyQueue[i].applied)
+          return i;
+      }
+      return -1;
+    },
+    allApplied() {
+      return applyQueue.every((it) => it.applied);
+    },
+    pruneDetached() {
+      applyQueue = applyQueue.filter((it) => {
+        const el = it.el;
+        return !!el && el.isConnected === true;
+      });
+      if (applyIndex >= applyQueue.length)
+        applyIndex = Math.max(0, applyQueue.length - 1);
+    },
+    resetApply() {
+      applyQueue = [];
+      applyIndex = 0;
+      applyElMap = new WeakMap;
+      applyStore.clear();
+    },
+    resetChat() {
+      this.abortAll();
+      this.bumpGen();
+      this.resetApply();
+      currentSessionId = null;
+      historyRendered = false;
+    }
+  };
+  if (typeof window !== "undefined")
+    window.ChatState = ChatState;
+
   // js/aiChat.js
   var AiChat2 = {
-    _abortControllers: [],
-    _historyRendered: false,
-    _selectedFields: new Set,
-    _greetingCount: 3,
-    _applyStore: new Map,
-    _applyQueue: [],
-    _applyElMap: new WeakMap,
-    _applyIndex: 0,
-    _currentSessionId: null,
-    _gen: 0,
-    _contextBarGen: 0,
     MAX_PARALLEL_FIELDS: 20,
     FIELD_DEFS: [
       { id: "name", labelKey: "ai.target.name", icon: "bi-person-badge" },
@@ -3807,11 +3947,11 @@ ${value}`).join(`
       if (!container)
         return;
       const chipHtml = this.FIELD_DEFS.map((f) => {
-        const isActive = this._selectedFields.has(f.id);
+        const isActive = ChatState.selectedFields.has(f.id);
         const label = I18n.t ? I18n.t(f.labelKey) : f.id;
         return '<span class="ai-field-chip' + (isActive ? " active" : "") + '" data-field="' + f.id + '">' + '<i class="bi ' + f.icon + '"></i>' + Ui.escapeHtml(label) + "</span>";
       }).join("");
-      const allActive = this._selectedFields.size >= this.FIELD_DEFS.length;
+      const allActive = ChatState.selectedFields.size >= this.FIELD_DEFS.length;
       const allChip = '<span class="ai-field-chip all-fields' + (allActive ? " active" : "") + '" data-field="__all__">' + '<i class="bi bi-stars"></i>' + (I18n.t ? I18n.t("ai.target.full") : "All Fields") + "</span>";
       container.innerHTML = allChip + chipHtml;
       const self = this;
@@ -3825,31 +3965,31 @@ ${value}`).join(`
       });
       const countWrap = document.querySelector("#aiGreetingCount");
       if (countWrap) {
-        countWrap.style.display = this._selectedFields.has("alternate_greetings") ? "flex" : "none";
+        countWrap.style.display = ChatState.selectedFields.has("alternate_greetings") ? "flex" : "none";
       }
       const countInput = document.querySelector("#aiGreetingCountInput");
       if (countInput) {
-        this._greetingCount = parseInt(countInput.value) || 3;
+        ChatState.greetingCount = parseInt(countInput.value) || 3;
       }
     },
     _toggleFieldChip(field) {
       if (field === "__all__") {
-        const allSelected = this._selectedFields.size >= this.FIELD_DEFS.length;
+        const allSelected = ChatState.selectedFields.size >= this.FIELD_DEFS.length;
         if (allSelected) {
-          this._selectedFields.clear();
+          ChatState.selectedFields.clear();
         } else {
-          this.FIELD_DEFS.forEach((f) => this._selectedFields.add(f.id));
+          this.FIELD_DEFS.forEach((f) => ChatState.selectedFields.add(f.id));
         }
         return;
       }
-      if (this._selectedFields.has(field)) {
-        this._selectedFields.delete(field);
+      if (ChatState.selectedFields.has(field)) {
+        ChatState.selectedFields.delete(field);
       } else {
-        this._selectedFields.add(field);
+        ChatState.selectedFields.add(field);
       }
     },
     getSelectedFields() {
-      return [...this._selectedFields];
+      return [...ChatState.selectedFields];
     },
     send(retryPrompt) {
       const $ = Ui.$;
@@ -3863,13 +4003,13 @@ ${value}`).join(`
         Ui.showToast(I18n.t("toast.selectCard"), "warning");
         return;
       }
-      let selectedFields = this.getSelectedFields();
-      if (selectedFields.length === 0) {
+      let selectedFields2 = this.getSelectedFields();
+      if (selectedFields2.length === 0) {
         const inferred = this._inferFields(prompt);
         if (inferred.length > 0) {
-          this._selectedFields = new Set(inferred);
+          ChatState.selectedFields = new Set(inferred);
           this._renderFieldChips();
-          selectedFields = inferred;
+          selectedFields2 = inferred;
           const labels = inferred.map((f) => {
             const def = this.FIELD_DEFS.find((d) => d.id === f);
             return def ? I18n.t ? I18n.t(def.labelKey) : def.labelKey : f;
@@ -3880,7 +4020,7 @@ ${value}`).join(`
           return;
         }
       }
-      if (selectedFields.length > this.MAX_PARALLEL_FIELDS) {
+      if (selectedFields2.length > this.MAX_PARALLEL_FIELDS) {
         Ui.showToast(I18n.t ? I18n.t("toast.tooManyFields", { max: this.MAX_PARALLEL_FIELDS }) : "Too many fields selected. Max " + this.MAX_PARALLEL_FIELDS + " at once.", "warning");
         return;
       }
@@ -3908,7 +4048,7 @@ ${value}`).join(`
       window.AppState.chatHistory.push({ role: "user", content: prompt });
       CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
       const cardId = window.AppState.activeCard?._id || "global";
-      if (!this._currentSessionId) {
+      if (!ChatState.currentSessionId) {
         const now = Date.now();
         const session = {
           id: "ses_" + now + "_" + Math.random().toString(36).slice(2, 7),
@@ -3917,20 +4057,20 @@ ${value}`).join(`
           preview: prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt,
           messageCount: 1
         };
-        this._currentSessionId = session.id;
+        ChatState.currentSessionId = session.id;
         CardStorage.saveChatSession(cardId, session);
       }
-      CardStorage.saveSessionMessages(cardId, this._currentSessionId, window.AppState.chatHistory);
-      const groupedCard = this._createGroupedCard(selectedFields);
+      CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, window.AppState.chatHistory);
+      const groupedCard = this._createGroupedCard(selectedFields2);
       this._abortAll();
-      const gen = ++this._gen;
-      const capturedGreetingCount = this._greetingCount;
+      const gen2 = ChatState.bumpGen();
+      const capturedGreetingCount = ChatState.greetingCount;
       const fieldLabel = (f) => I18n.t ? I18n.t(this.FIELD_DEFS.find((d) => d.id === f)?.labelKey || "") : f;
       let completedCount = 0;
       let combinedContent = "";
-      selectedFields.forEach((field) => {
+      selectedFields2.forEach((field) => {
         const controller = new AbortController;
-        this._abortControllers.push(controller);
+        ChatState.abortControllers.push(controller);
         const section = this._addFieldSection(groupedCard, field, fieldLabel(field));
         const contentEl = section.querySelector(".multi-field-content");
         const history = this._getRecentHistory(10);
@@ -3939,7 +4079,7 @@ ${value}`).join(`
           const container = document.querySelector("#aiChatMessages");
           container.scrollTop = container.scrollHeight;
         }, controller.signal, false, history).then((result) => {
-          if (gen !== this._gen)
+          if (gen2 !== ChatState.gen)
             return;
           this._releaseController(controller);
           try {
@@ -3952,8 +4092,8 @@ ${value}`).join(`
 
 [` + field + `]
 ` + this._fieldDisplayContent(field, result.content);
-          if (completedCount === selectedFields.length) {
-            this._finalizeGroupedCard(groupedCard, selectedFields.length);
+          if (completedCount === selectedFields2.length) {
+            this._finalizeGroupedCard(groupedCard, selectedFields2.length);
             window.AppState.chatHistory.push({ role: "assistant", content: combinedContent });
             CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
             this._updateSession();
@@ -3962,7 +4102,7 @@ ${value}`).join(`
             Settings.refreshCredits();
           }
         }).catch((err) => {
-          if (gen !== this._gen)
+          if (gen2 !== ChatState.gen)
             return;
           this._releaseController(controller);
           try {
@@ -3974,9 +4114,9 @@ ${value}`).join(`
             contentEl.textContent = err.name === "AbortError" ? I18n.t ? I18n.t("ai.cancelled") : "Cancelled." : (I18n.t ? I18n.t("ai.errorPrefix") : "Error: ") + err.message;
           } catch (_) {}
           completedCount++;
-          if (completedCount === selectedFields.length) {
+          if (completedCount === selectedFields2.length) {
             try {
-              this._finalizeGroupedCard(groupedCard, selectedFields.length);
+              this._finalizeGroupedCard(groupedCard, selectedFields2.length);
             } catch (e) {
               console.error("aiChat: failed to finalize grouped card:", e);
             }
@@ -3994,7 +4134,7 @@ ${value}`).join(`
     },
     buildSystemPrompt(targetField, greetingCountOverride) {
       const { activeCard } = window.AppState;
-      const greetingCount = greetingCountOverride || this._greetingCount;
+      const greetingCount2 = greetingCountOverride || ChatState.greetingCount;
       const fieldLabel = I18n.t ? I18n.t(this.FIELD_DEFS.find((d) => d.id === targetField)?.labelKey || targetField) : targetField;
       const cardForPrompt = activeCard ? { ...activeCard } : CardEngine.createEmptyCard();
       delete cardForPrompt._id;
@@ -4016,7 +4156,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       ];
       if (targetField === "alternate_greetings") {
         const existing = activeCard && activeCard.alternate_greetings || [];
-        const greetInstr = (CardStorage.getPrompt("greetingsSystem") || Settings.getDefaultPrompt("greetingsSystem")).split("{count}").join(String(greetingCount)).split("{current}").join(existing.length ? JSON.stringify(existing) : "(none)");
+        const greetInstr = (CardStorage.getPrompt("greetingsSystem") || Settings.getDefaultPrompt("greetingsSystem")).split("{count}").join(String(greetingCount2)).split("{current}").join(existing.length ? JSON.stringify(existing) : "(none)");
         parts.push(greetInstr);
       } else {
         let current = "(empty)";
@@ -4163,7 +4303,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         }
         header.innerHTML = '<i class="bi bi-robot"></i> ' + Ui.escapeHtml(msg);
       }
-      const readySections = [...groupedCard.querySelectorAll(".multi-field-section.done")].filter((s) => this._applyElMap.get(s));
+      const readySections = [...groupedCard.querySelectorAll(".multi-field-section.done")].filter((s) => ChatState.applyElMap.get(s));
       if (readySections.length > 0) {
         const footer = document.createElement("div");
         footer.className = "multi-field-footer";
@@ -4188,16 +4328,12 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       }
     },
     _firstUnappliedIndex() {
-      for (let i = 0;i < this._applyQueue.length; i++) {
-        if (!this._applyQueue[i].applied)
-          return i;
-      }
-      return -1;
+      return ChatState.firstUnappliedIndex();
     },
     _maybeRetireReadyBars() {
       if (typeof document === "undefined")
         return;
-      if (this._applyQueue.every((it) => it.applied)) {
+      if (ChatState.allApplied()) {
         document.querySelectorAll(".multi-field-footer button").forEach((b) => {
           b.disabled = true;
           b.classList.add("disabled");
@@ -4205,19 +4341,22 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       }
     },
     _abortAll() {
-      this._abortControllers.forEach((c) => c.abort());
-      this._abortControllers = [];
+      ChatState.abortAll();
     },
     _resetApplyQueue() {
-      this._applyQueue = [];
-      this._applyIndex = 0;
-      this._applyElMap = new WeakMap;
-      this._applyStore.clear();
+      ChatState.resetApply();
+    },
+    _bumpGen() {
+      return ChatState.bumpGen();
+    },
+    _resetChat() {
+      ChatState.resetChat();
+    },
+    _setCurrentSession(id) {
+      ChatState.currentSessionId = id;
     },
     _releaseController(controller) {
-      const idx = this._abortControllers.indexOf(controller);
-      if (idx >= 0)
-        this._abortControllers.splice(idx, 1);
+      ChatState.releaseController(controller);
     },
     _getRecentHistory(maxMessages = 10, includeLast = false) {
       const { chatHistory } = window.AppState;
@@ -4252,14 +4391,14 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       }
       input.value = "";
       this._abortAll();
-      const gen = ++this._gen;
+      const gen2 = ChatState.bumpGen();
       window.AppState.isAiLoading = true;
       this.updateSendButton();
       this.addChatMessage("user", prompt, null, null, window.AppState.chatHistory.length);
       window.AppState.chatHistory.push({ role: "user", content: prompt });
       CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
       const cardId = activeCard?._id || "global";
-      if (!this._currentSessionId) {
+      if (!ChatState.currentSessionId) {
         const now = Date.now();
         const session = {
           id: "ses_" + now + "_" + Math.random().toString(36).slice(2, 7),
@@ -4268,10 +4407,10 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
           preview: prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt,
           messageCount: 1
         };
-        this._currentSessionId = session.id;
+        ChatState.currentSessionId = session.id;
         CardStorage.saveChatSession(cardId, session);
       }
-      CardStorage.saveSessionMessages(cardId, this._currentSessionId, window.AppState.chatHistory);
+      CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, window.AppState.chatHistory);
       const streamingEl = this.createStreamingMessage();
       let shimmerGone = false;
       const startedAt = Date.now();
@@ -4307,7 +4446,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       ].join(`
 `);
       const controller = new AbortController;
-      this._abortControllers.push(controller);
+      ChatState.abortControllers.push(controller);
       AIService.chatStream(prompt, systemPrompt, modelId, (fullText) => {
         lastOut = fullText;
         if (!shimmerGone && fullText) {
@@ -4321,7 +4460,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         container.scrollTop = container.scrollHeight;
       }, controller.signal, true, this._getRecentHistory(10)).then((result) => {
         clearInterval(liveTimer);
-        if (gen !== this._gen) {
+        if (gen2 !== ChatState.gen) {
           streamingEl.remove();
           return;
         }
@@ -4336,7 +4475,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         Settings.refreshCredits();
       }).catch((err) => {
         clearInterval(liveTimer);
-        if (gen !== this._gen) {
+        if (gen2 !== ChatState.gen) {
           streamingEl.remove();
           return;
         }
@@ -4349,7 +4488,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         }
       }).finally(() => {
         this._releaseController(controller);
-        if (gen !== this._gen)
+        if (gen2 !== ChatState.gen)
           return;
         window.AppState.isAiLoading = false;
         this.updateSendButton();
@@ -4383,18 +4522,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       newEl.innerHTML = newHtml || '<span class="diff-empty">' + (I18n.t ? I18n.t("gen.empty") : "(empty)") + "</span>";
     },
     _registerApply(el, field, content) {
-      if (!el)
-        return null;
-      let item = this._applyElMap.get(el);
-      if (item) {
-        item.field = field;
-        item.content = content;
-        return item;
-      }
-      item = { el, field, content, applied: false };
-      this._applyElMap.set(el, item);
-      this._applyQueue.push(item);
-      return item;
+      return ChatState.registerApply(el, field, content);
     },
     _prepareApply(field, content, opts) {
       opts = opts || {};
@@ -4672,30 +4800,30 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         return;
       let item = null;
       if (sourceEl) {
-        item = this._applyElMap.get(sourceEl);
+        item = ChatState.applyElMap.get(sourceEl);
         if (item) {
           item.field = targetField;
           item.content = content;
         }
       } else {
-        item = this._applyQueue.find((it) => it.content === content && it.field === targetField) || null;
+        item = ChatState.applyQueue.find((it) => it.content === content && it.field === targetField) || null;
       }
       if (!item) {
         item = this._registerApply(sourceEl || null, targetField, content);
       }
       if (!item)
         return;
-      this._applyIndex = this._applyQueue.indexOf(item);
-      this._openApplyAt(this._applyIndex);
+      ChatState.applyIndex = ChatState.applyQueue.indexOf(item);
+      this._openApplyAt(ChatState.applyIndex);
     },
     _openApplyAt(index) {
-      const queue = this._applyQueue;
+      const queue = ChatState.applyQueue;
       if (!queue.length)
         return;
       const n = queue.length;
       const i = (index % n + n) % n;
       const item = queue[i];
-      this._applyIndex = i;
+      ChatState.applyIndex = i;
       const modalEl = document.querySelector("#aiPreviewModal");
       if (!modalEl)
         return;
@@ -4778,20 +4906,16 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         acceptBtn.focus();
     },
     _applyNav(delta) {
-      const queue = this._applyQueue;
+      const queue = ChatState.applyQueue;
       if (queue.length < 2)
         return;
-      this._openApplyAt((this._applyIndex + delta + queue.length) % queue.length);
+      this._openApplyAt((ChatState.applyIndex + delta + queue.length) % queue.length);
     },
     _nextUnappliedIndex() {
-      for (let i = this._applyIndex + 1;i < this._applyQueue.length; i++) {
-        if (!this._applyQueue[i].applied)
-          return i;
-      }
-      return -1;
+      return ChatState.nextUnappliedIndex();
     },
     _applyAllPending(modal) {
-      const queue = this._applyQueue;
+      const queue = ChatState.applyQueue;
       let applied = 0;
       let failed = 0;
       for (const item of queue) {
@@ -4819,9 +4943,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       }
     },
     _pruneApplyQueue() {
-      this._applyQueue = this._applyQueue.filter((it) => it.el && it.el.isConnected);
-      if (this._applyIndex >= this._applyQueue.length)
-        this._applyIndex = Math.max(0, this._applyQueue.length - 1);
+      ChatState.pruneDetached();
     },
     _markApplied(item) {
       item.applied = true;
@@ -5011,7 +5133,7 @@ Current:
       const aiPrompt = action === "translate" ? prompts.translate : prompts[action];
       if (!aiPrompt)
         return;
-      this._selectedFields.clear();
+      ChatState.selectedFields.clear();
       const fieldMap = {
         translate: null,
         personality: "personality",
@@ -5032,7 +5154,7 @@ Current:
         this._sendFullCard(aiPrompt);
         return;
       } else if (fieldMap[action]) {
-        this._selectedFields.add(fieldMap[action]);
+        ChatState.selectedFields.add(fieldMap[action]);
       }
       this._renderFieldChips();
       const inp = $("#aiInput");
@@ -5064,10 +5186,10 @@ Current:
         actionsWrap.className = "ai-message-actions";
         const msgId = "msg_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
         if (applyData && applyData.content) {
-          this._applyStore.set(msgId, applyData);
-          if (this._applyStore.size > 50) {
-            const oldest = this._applyStore.keys().next().value;
-            this._applyStore.delete(oldest);
+          ChatState.applyStore.set(msgId, applyData);
+          if (ChatState.applyStore.size > 50) {
+            const oldest = ChatState.applyStore.keys().next().value;
+            ChatState.applyStore.delete(oldest);
           }
           el.setAttribute("data-apply-id", msgId);
           this._registerApply(el, applyData.field, applyData.content);
@@ -5077,7 +5199,7 @@ Current:
           reapplyBtn.title = I18n.t ? I18n.t("ai.applyTitle") : "Apply these changes to the card";
           reapplyBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            const stored = this._applyStore.get(msgId);
+            const stored = ChatState.applyStore.get(msgId);
             if (stored) {
               this.tryApplyAIResponse(stored.content, stored.field, el);
             }
@@ -5123,14 +5245,14 @@ Current:
         return;
       const lastUserPrompt = chatHistory[targetUserIdx].content;
       this._abortAll();
-      this._gen++;
+      ChatState.bumpGen();
       chatHistory.splice(targetUserIdx);
       window.AppState.isAiLoading = false;
       this.updateSendButton();
       CardStorage.saveChatHistory(chatHistory, window.AppState.activeCard?._id);
-      if (this._currentSessionId) {
+      if (ChatState.currentSessionId) {
         const cardId = window.AppState.activeCard?._id || "global";
-        CardStorage.saveSessionMessages(cardId, this._currentSessionId, chatHistory);
+        CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, chatHistory);
       }
       const $ = Ui.$;
       const container = $("#aiChatMessages");
@@ -5174,19 +5296,19 @@ Current:
       return el;
     },
     renderChatHistory() {
-      if (this._historyRendered)
+      if (ChatState.historyRendered)
         return;
       const { chatHistory } = window.AppState;
       const $ = Ui.$;
       const container = $("#aiChatMessages");
       if (chatHistory.length === 0) {
-        this._historyRendered = true;
+        ChatState.historyRendered = true;
         this._showWelcome();
         return;
       }
       container.innerHTML = "";
       chatHistory.forEach((msg, i) => this.addChatMessage(msg.role, msg.content, null, null, i));
-      this._historyRendered = true;
+      ChatState.historyRendered = true;
     },
     _updateSession() {
       const { chatHistory, activeCard } = window.AppState;
@@ -5198,12 +5320,12 @@ Current:
       const preview = firstUser ? firstUser.content.length > 80 ? firstUser.content.slice(0, 80) + "..." : firstUser.content : I18n.t ? I18n.t("ai.chatSession") : "Chat session";
       const now = Date.now();
       const SESSION_TIMEOUT = 30 * 60 * 1000;
-      let currentSession = this._currentSessionId ? sessions.find((s) => s.id === this._currentSessionId) : sessions.length > 0 ? sessions[0] : null;
+      let currentSession = ChatState.currentSessionId ? sessions.find((s) => s.id === ChatState.currentSessionId) : sessions.length > 0 ? sessions[0] : null;
       if (currentSession && now - (currentSession.lastUpdated || currentSession.created) < SESSION_TIMEOUT) {
         currentSession.lastUpdated = now;
         currentSession.preview = preview;
         currentSession.messageCount = chatHistory.length;
-        this._currentSessionId = currentSession.id;
+        ChatState.currentSessionId = currentSession.id;
         CardStorage.saveChatSession(cardId, currentSession);
         CardStorage.saveSessionMessages(cardId, currentSession.id, chatHistory);
       } else {
@@ -5214,7 +5336,7 @@ Current:
           preview,
           messageCount: chatHistory.length
         };
-        this._currentSessionId = session.id;
+        ChatState.currentSessionId = session.id;
         CardStorage.saveChatSession(cardId, session);
         CardStorage.saveSessionMessages(cardId, session.id, chatHistory);
       }
@@ -5262,8 +5384,8 @@ Current:
         return;
       const sessionMessages = CardStorage.getSessionMessages(cardId, sessionId);
       window.AppState.chatHistory = sessionMessages;
-      this._currentSessionId = sessionId;
-      this._historyRendered = false;
+      ChatState.currentSessionId = sessionId;
+      ChatState.historyRendered = false;
       this._resetApplyQueue();
       const $ = Ui.$;
       const container = $("#aiChatMessages");
@@ -5298,16 +5420,10 @@ Current:
       }
     },
     clearChat() {
-      this._abortAll();
-      this._gen++;
+      ChatState.resetChat();
+      ChatState.selectedFields.clear();
       window.AppState.isAiLoading = false;
       this.updateSendButton();
-      this._historyRendered = false;
-      this._selectedFields.clear();
-      this._applyStore.clear();
-      this._applyQueue = [];
-      this._applyIndex = 0;
-      this._currentSessionId = null;
       this._renderFieldChips();
       window.AppState.chatHistory = [];
       CardStorage.clearChatHistory(window.AppState.activeCard?._id);
@@ -5338,7 +5454,7 @@ Current:
       const modelId = modelSelect.value;
       const prompt = input.value || "";
       const { activeCard } = window.AppState;
-      const gen = ++this._contextBarGen;
+      const gen2 = ChatState.bumpContextBarGen();
       if (!modelId) {
         bar.style.width = "0%";
         bar.classList.remove("warn", "danger");
@@ -5371,7 +5487,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       } catch (_) {
         inputTokens = 0;
       }
-      if (gen !== this._contextBarGen)
+      if (gen2 !== ChatState.contextBarGen)
         return;
       if (!inputTokens) {
         inputTokens = Tokenizer.syncCount(inputText + `
@@ -5385,7 +5501,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       const historyMsgs = history.map((m) => ({ role: m.role, content: m.content || "" }));
       const allMessages = [{ role: "system", content: inputText }, ...historyMsgs, { role: "user", content: prompt }];
       const resolvedMax = await AIService.resolveMaxTokens(modelId, allMessages);
-      if (gen !== this._contextBarGen)
+      if (gen2 !== ChatState.contextBarGen)
         return;
       const actualMaxOut = Math.min(outputCap, resolvedMax);
       const total = inputTokens + actualMaxOut;

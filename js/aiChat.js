@@ -3,22 +3,13 @@
    aiChat.js — AI Chat UI, Multi-Field Parallel Requests
    ============================================================ */
 
+// Mutable chat state (apply queue, selection, sessions, generation tokens)
+// lives in ChatState — see chatState.js. AiChat only holds static config
+// (FIELD_DEFS, limits) and methods; every `ChatState.applyQueue`-style field of
+// old is now `ChatState.applyQueue`.
+import { ChatState } from './chatState.js';
+
 const AiChat = {
-  _abortControllers: [],      // per-field controllers for parallel requests
-  _historyRendered: false,
-  _selectedFields: new Set(), // fields selected for editing
-  _greetingCount: 3,
-  _applyStore: new Map(),     // msgId → { content, field } for re-apply
-  _applyQueue: [],            // every pending apply-able response { el, field, content, applied }
-  _applyElMap: new WeakMap(), // element → apply item (dup-free registration)
-  _applyIndex: 0,             // active item index in _applyQueue
-  _currentSessionId: null,    // active session ID for per-session storage
-  _gen: 0,                    // generation token: bumped on every send/clear so
-                              // stale aborted callbacks bail out instead of
-                              // clobbering the new run's state
-  _contextBarGen: 0,          // generation token for updateContextBar: each new
-                              // call supersedes in-flight ones so the bar can
-                              // never show a stale estimate after a newer call
   MAX_PARALLEL_FIELDS: 20,    // cap parallel API requests
 
   FIELD_DEFS: [
@@ -40,14 +31,14 @@ const AiChat = {
     if (!container) return;
 
     const chipHtml = this.FIELD_DEFS.map(f => {
-      const isActive = this._selectedFields.has(f.id);
+      const isActive = ChatState.selectedFields.has(f.id);
       const label = I18n.t ? I18n.t(f.labelKey) : f.id;
       return '<span class="ai-field-chip' + (isActive ? ' active' : '') + '" data-field="' + f.id + '">'
         + '<i class="bi ' + f.icon + '"></i>' + Ui.escapeHtml(label)
         + '</span>';
     }).join('');
 
-    const allActive = this._selectedFields.size >= this.FIELD_DEFS.length;
+    const allActive = ChatState.selectedFields.size >= this.FIELD_DEFS.length;
     const allChip = '<span class="ai-field-chip all-fields' + (allActive ? ' active' : '') + '" data-field="__all__">'
       + '<i class="bi bi-stars"></i>' + (I18n.t ? I18n.t('ai.target.full') : 'All Fields')
       + '</span>';
@@ -67,37 +58,37 @@ const AiChat = {
     // Show/hide greeting count input
     const countWrap = document.querySelector('#aiGreetingCount');
     if (countWrap) {
-      countWrap.style.display = this._selectedFields.has('alternate_greetings') ? 'flex' : 'none';
+      countWrap.style.display = ChatState.selectedFields.has('alternate_greetings') ? 'flex' : 'none';
     }
 
     // Sync greeting count from DOM
     const countInput = document.querySelector('#aiGreetingCountInput');
     if (countInput) {
-      this._greetingCount = parseInt(countInput.value) || 3;
+      ChatState.greetingCount = parseInt(countInput.value) || 3;
     }
   },
 
   _toggleFieldChip(field) {
     if (field === '__all__') {
-      const allSelected = this._selectedFields.size >= this.FIELD_DEFS.length;
+      const allSelected = ChatState.selectedFields.size >= this.FIELD_DEFS.length;
       if (allSelected) {
-        this._selectedFields.clear();
+        ChatState.selectedFields.clear();
       } else {
-        this.FIELD_DEFS.forEach(f => this._selectedFields.add(f.id));
+        this.FIELD_DEFS.forEach(f => ChatState.selectedFields.add(f.id));
       }
       return;
     }
-    if (this._selectedFields.has(field)) {
-      this._selectedFields.delete(field);
+    if (ChatState.selectedFields.has(field)) {
+      ChatState.selectedFields.delete(field);
     } else {
-      this._selectedFields.add(field);
+      ChatState.selectedFields.add(field);
     }
   },
 
   getSelectedFields() {
     // Return the empty set as-is: the callers (send) check selectedFields.length
     // === 0 to warn, so this guard must be reachable.
-    return [...this._selectedFields];
+    return [...ChatState.selectedFields];
   },
 
   send(retryPrompt) {
@@ -119,7 +110,7 @@ const AiChat = {
       // request is about and select them automatically.
       const inferred = this._inferFields(prompt);
       if (inferred.length > 0) {
-        this._selectedFields = new Set(inferred);
+        ChatState.selectedFields = new Set(inferred);
         this._renderFieldChips();
         selectedFields = inferred;
         const labels = inferred.map(f => {
@@ -164,7 +155,7 @@ const AiChat = {
     CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
     // Create a new session if none exists
     const cardId = window.AppState.activeCard?._id || 'global';
-    if (!this._currentSessionId) {
+    if (!ChatState.currentSessionId) {
       const now = Date.now();
       const session = {
         id: 'ses_' + now + '_' + Math.random().toString(36).slice(2, 7),
@@ -173,17 +164,17 @@ const AiChat = {
         preview: prompt.length > 80 ? prompt.slice(0, 80) + '...' : prompt,
         messageCount: 1,
       };
-      this._currentSessionId = session.id;
+      ChatState.currentSessionId = session.id;
       CardStorage.saveChatSession(cardId, session);
     }
-    CardStorage.saveSessionMessages(cardId, this._currentSessionId, window.AppState.chatHistory);
+    CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, window.AppState.chatHistory);
 
     const groupedCard = this._createGroupedCard(selectedFields);
     this._abortAll();
-    const gen = ++this._gen; // generation token — stale callbacks bail below
+    const gen = ChatState.bumpGen(); // generation token — stale callbacks bail below
 
     // Capture greeting count now to prevent TOCTOU
-    const capturedGreetingCount = this._greetingCount;
+    const capturedGreetingCount = ChatState.greetingCount;
 
     const fieldLabel = (f) => I18n.t ? I18n.t(this.FIELD_DEFS.find(d => d.id === f)?.labelKey || '') : f;
     let completedCount = 0;
@@ -191,7 +182,7 @@ const AiChat = {
 
     selectedFields.forEach(field => {
       const controller = new AbortController();
-      this._abortControllers.push(controller);
+      ChatState.abortControllers.push(controller);
 
       const section = this._addFieldSection(groupedCard, field, fieldLabel(field));
       const contentEl = section.querySelector('.multi-field-content');
@@ -208,7 +199,7 @@ const AiChat = {
         history
       )
         .then(result => {
-          if (gen !== this._gen) return; // stale run aborted by retry/clear
+          if (gen !== ChatState.gen) return; // stale run aborted by retry/clear
           this._releaseController(controller);
           try {
             this._finalizeFieldSection(section, field, result.content);
@@ -227,7 +218,7 @@ const AiChat = {
           }
         })
         .catch(err => {
-          if (gen !== this._gen) return; // stale run aborted by retry/clear
+          if (gen !== ChatState.gen) return; // stale run aborted by retry/clear
           this._releaseController(controller);
           try {
             section.classList.add('error');
@@ -260,7 +251,7 @@ const AiChat = {
 
   buildSystemPrompt(targetField, greetingCountOverride) {
     const { activeCard } = window.AppState;
-    const greetingCount = greetingCountOverride || this._greetingCount;
+    const greetingCount = greetingCountOverride || ChatState.greetingCount;
     const fieldLabel = I18n.t
       ? I18n.t(this.FIELD_DEFS.find(d => d.id === targetField)?.labelKey || targetField)
       : targetField;
@@ -471,7 +462,7 @@ const AiChat = {
     // Sticky action bar: every completed section is a ready change — apply all
     // in one click, or open the review modal (Enter/A/←/→ shortcuts inside).
     const readySections = [...groupedCard.querySelectorAll('.multi-field-section.done')]
-      .filter(s => this._applyElMap.get(s));
+      .filter(s => ChatState.applyElMap.get(s));
     if (readySections.length > 0) {
       const footer = document.createElement('div');
       footer.className = 'multi-field-footer';
@@ -499,17 +490,14 @@ const AiChat = {
 
   // Index of the first not-yet-applied change in the queue (-1 when all done).
   _firstUnappliedIndex() {
-    for (let i = 0; i < this._applyQueue.length; i++) {
-      if (!this._applyQueue[i].applied) return i;
-    }
-    return -1;
+    return ChatState.firstUnappliedIndex();
   },
 
   // Once nothing is pending anywhere, retire every ready-bar so its buttons
   // can't be clicked a second time (they stay visible as a summary).
   _maybeRetireReadyBars() {
     if (typeof document === 'undefined') return;
-    if (this._applyQueue.every(it => it.applied)) {
+    if (ChatState.allApplied()) {
       document.querySelectorAll('.multi-field-footer button').forEach(b => {
         b.disabled = true;
         b.classList.add('disabled');
@@ -518,23 +506,28 @@ const AiChat = {
   },
 
   _abortAll() {
-    this._abortControllers.forEach(c => c.abort());
-    this._abortControllers = [];
+    ChatState.abortAll();
   },
 
   // Drop all pending apply-able responses (queue, index, DOM-element map and
   // re-apply store). Called when switching cards so a response generated for
   // one card can never be applied to another via Prev/Next or a stale entry.
   _resetApplyQueue() {
-    this._applyQueue = [];
-    this._applyIndex = 0;
-    this._applyElMap = new WeakMap();
-    this._applyStore.clear();
+    ChatState.resetApply();
   },
 
+  // External state transitions (called by cardManager and tests) — routed
+  // through ChatState so no caller can bypass the store.
+  _bumpGen() { return ChatState.bumpGen(); },
+
+  // Full card-switch reset: abort in-flight requests, invalidate stale
+  // callbacks, drop pending applies + session pointer, force re-render.
+  _resetChat() { ChatState.resetChat(); },
+
+  _setCurrentSession(id) { ChatState.currentSessionId = id; },
+
   _releaseController(controller) {
-    const idx = this._abortControllers.indexOf(controller);
-    if (idx >= 0) this._abortControllers.splice(idx, 1);
+    ChatState.releaseController(controller);
   },
 
   /**
@@ -567,7 +560,7 @@ const AiChat = {
 
     input.value = '';
     this._abortAll();
-    const gen = ++this._gen; // generation token for stale-callback bailout
+    const gen = ChatState.bumpGen(); // generation token for stale-callback bailout
     window.AppState.isAiLoading = true;
     this.updateSendButton();
 
@@ -576,7 +569,7 @@ const AiChat = {
     CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
     // Create a new session if none exists
     const cardId = activeCard?._id || 'global';
-    if (!this._currentSessionId) {
+    if (!ChatState.currentSessionId) {
       const now = Date.now();
       const session = {
         id: 'ses_' + now + '_' + Math.random().toString(36).slice(2, 7),
@@ -585,10 +578,10 @@ const AiChat = {
         preview: prompt.length > 80 ? prompt.slice(0, 80) + '...' : prompt,
         messageCount: 1,
       };
-      this._currentSessionId = session.id;
+      ChatState.currentSessionId = session.id;
       CardStorage.saveChatSession(cardId, session);
     }
-    CardStorage.saveSessionMessages(cardId, this._currentSessionId, window.AppState.chatHistory);
+    CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, window.AppState.chatHistory);
 
     const streamingEl = this.createStreamingMessage();
     let shimmerGone = false;
@@ -632,7 +625,7 @@ const AiChat = {
     ].join('\n');
 
     const controller = new AbortController();
-    this._abortControllers.push(controller);
+    ChatState.abortControllers.push(controller);
 
     AIService.chatStream(prompt, systemPrompt, modelId,
       (fullText) => {
@@ -659,7 +652,7 @@ const AiChat = {
     )
       .then(result => {
         clearInterval(liveTimer);
-        if (gen !== this._gen) { streamingEl.remove(); return; }
+        if (gen !== ChatState.gen) { streamingEl.remove(); return; }
         streamingEl.remove();
         const asstIdx = window.AppState.chatHistory.length;
         const applyTarget = opts.applyTarget || 'full';
@@ -672,7 +665,7 @@ const AiChat = {
       })
       .catch(err => {
         clearInterval(liveTimer);
-        if (gen !== this._gen) { streamingEl.remove(); return; }
+        if (gen !== ChatState.gen) { streamingEl.remove(); return; }
         streamingEl.remove();
         if (err && err.name === 'AbortError') {
           this.addChatMessage('system', I18n.t ? I18n.t('toast.genStopped') : 'Generation stopped.');
@@ -683,7 +676,7 @@ const AiChat = {
       })
       .finally(() => {
         this._releaseController(controller);
-        if (gen !== this._gen) return;
+        if (gen !== ChatState.gen) return;
         window.AppState.isAiLoading = false; this.updateSendButton();
       });
   },
@@ -726,13 +719,7 @@ const AiChat = {
   // pending change in the transcript. Duplicate registration for the same DOM
   // element just updates content/field (retries regenerate the response).
   _registerApply(el, field, content) {
-    if (!el) return null;
-    let item = this._applyElMap.get(el);
-    if (item) { item.field = field; item.content = content; return item; }
-    item = { el, field, content, applied: false };
-    this._applyElMap.set(el, item);
-    this._applyQueue.push(item);
-    return item;
+    return ChatState.registerApply(el, field, content);
   },
 
   // Build { oldVal, newVal, applyFn } for a pending apply from the CURRENT
@@ -1031,26 +1018,26 @@ const AiChat = {
     if (!activeCard || !content) return;
     let item = null;
     if (sourceEl) {
-      item = this._applyElMap.get(sourceEl);
+      item = ChatState.applyElMap.get(sourceEl);
       if (item) { item.field = targetField; item.content = content; }
     } else {
-      item = this._applyQueue.find(it => it.content === content && it.field === targetField) || null;
+      item = ChatState.applyQueue.find(it => it.content === content && it.field === targetField) || null;
     }
     // Fallback: register an item so the response is still navigable.
     if (!item) { item = this._registerApply(sourceEl || null, targetField, content); }
     if (!item) return;
-    this._applyIndex = this._applyQueue.indexOf(item);
-    this._openApplyAt(this._applyIndex);
+    ChatState.applyIndex = ChatState.applyQueue.indexOf(item);
+    this._openApplyAt(ChatState.applyIndex);
   },
 
   // Open the diff modal at a queue index with Prev/Next navigation.
   _openApplyAt(index) {
-    const queue = this._applyQueue;
+    const queue = ChatState.applyQueue;
     if (!queue.length) return;
     const n = queue.length;
     const i = ((index % n) + n) % n;
     const item = queue[i];
-    this._applyIndex = i;
+    ChatState.applyIndex = i;
 
     const modalEl = document.querySelector('#aiPreviewModal');
     if (!modalEl) return;
@@ -1124,19 +1111,16 @@ const AiChat = {
   },
 
   _applyNav(delta) {
-    const queue = this._applyQueue;
+    const queue = ChatState.applyQueue;
     if (queue.length < 2) return;
-    this._openApplyAt((this._applyIndex + delta + queue.length) % queue.length);
+    this._openApplyAt((ChatState.applyIndex + delta + queue.length) % queue.length);
   },
 
   // Index of the next not-yet-applied change after the current one (-1 when
   // the queue is exhausted). Applied items stay in the queue (still viewable
   // via Prev/Next) but are skipped by the apply-and-advance flow.
   _nextUnappliedIndex() {
-    for (let i = this._applyIndex + 1; i < this._applyQueue.length; i++) {
-      if (!this._applyQueue[i].applied) return i;
-    }
-    return -1;
+    return ChatState.nextUnappliedIndex();
   },
 
   // Apply every remaining pending change in one pass. Per-item success toasts
@@ -1144,7 +1128,7 @@ const AiChat = {
   // 9 fields doesn't stack 9 toasts. Items whose response cannot be prepared
   // already warned at modal-open time — they are skipped, not fatal.
   _applyAllPending(modal) {
-    const queue = this._applyQueue;
+    const queue = ChatState.applyQueue;
     let applied = 0;
     let failed = 0;
     for (const item of queue) {
@@ -1170,8 +1154,7 @@ const AiChat = {
   // Drop queue items whose source message left the DOM (chat cleared, or
   // removed by retry) so the Prev/Next nav never lists stale changes.
   _pruneApplyQueue() {
-    this._applyQueue = this._applyQueue.filter(it => it.el && it.el.isConnected);
-    if (this._applyIndex >= this._applyQueue.length) this._applyIndex = Math.max(0, this._applyQueue.length - 1);
+    ChatState.pruneDetached();
   },
 
   // Mark an item applied: badge on the chat message + disable its apply buttons.
@@ -1353,7 +1336,7 @@ const AiChat = {
     const aiPrompt = action === 'translate' ? prompts.translate : prompts[action];
     if (!aiPrompt) return;
 
-    this._selectedFields.clear();
+    ChatState.selectedFields.clear();
     const fieldMap = {
       translate: null,
       personality: 'personality',
@@ -1374,7 +1357,7 @@ const AiChat = {
       this._sendFullCard(aiPrompt);
       return;
     } else if (fieldMap[action]) {
-      this._selectedFields.add(fieldMap[action]);
+      ChatState.selectedFields.add(fieldMap[action]);
     }
 
     this._renderFieldChips();
@@ -1423,11 +1406,11 @@ const AiChat = {
       // Re-apply button — appears when there is pending apply data for this message
       const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
       if (applyData && applyData.content) {
-        this._applyStore.set(msgId, applyData);
+        ChatState.applyStore.set(msgId, applyData);
         // Evict oldest entries if store exceeds limit
-        if (this._applyStore.size > 50) {
-          const oldest = this._applyStore.keys().next().value;
-          this._applyStore.delete(oldest);
+        if (ChatState.applyStore.size > 50) {
+          const oldest = ChatState.applyStore.keys().next().value;
+          ChatState.applyStore.delete(oldest);
         }
         el.setAttribute('data-apply-id', msgId);
         this._registerApply(el, applyData.field, applyData.content);
@@ -1437,7 +1420,7 @@ const AiChat = {
         reapplyBtn.title = I18n.t ? I18n.t('ai.applyTitle') : 'Apply these changes to the card';
         reapplyBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          const stored = this._applyStore.get(msgId);
+          const stored = ChatState.applyStore.get(msgId);
           if (stored) {
             this.tryApplyAIResponse(stored.content, stored.field, el);
           }
@@ -1486,15 +1469,15 @@ const AiChat = {
     const lastUserPrompt = chatHistory[targetUserIdx].content;
     // Abort any in-flight generation so stale callbacks don't mutate the UI.
     this._abortAll();
-    this._gen++; // also invalidate the aborted run's .then/.catch
+    ChatState.bumpGen(); // also invalidate the aborted run's .then/.catch
     // Remove the user message being retried and everything after it.
     chatHistory.splice(targetUserIdx);
     window.AppState.isAiLoading = false;
     this.updateSendButton();
     CardStorage.saveChatHistory(chatHistory, window.AppState.activeCard?._id);
-    if (this._currentSessionId) {
+    if (ChatState.currentSessionId) {
       const cardId = window.AppState.activeCard?._id || 'global';
-      CardStorage.saveSessionMessages(cardId, this._currentSessionId, chatHistory);
+      CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, chatHistory);
     }
 
     // Clean up DOM: remove the retried user bubble and EVERYTHING after it.
@@ -1550,7 +1533,7 @@ const AiChat = {
   },
 
   renderChatHistory() {
-    if (this._historyRendered) return;
+    if (ChatState.historyRendered) return;
     const { chatHistory } = window.AppState;
     const $ = Ui.$;
     const container = $('#aiChatMessages');
@@ -1558,7 +1541,7 @@ const AiChat = {
       // Card has no chat: never leave a previous card's messages on screen,
       // and still latch the flag so re-selecting a card with history cannot
       // append duplicates on top of the still-visible DOM.
-      this._historyRendered = true;
+      ChatState.historyRendered = true;
       this._showWelcome();
       return;
     }
@@ -1566,7 +1549,7 @@ const AiChat = {
     // scratch instead of appending below a previous card's messages.
     container.innerHTML = '';
     chatHistory.forEach((msg, i) => this.addChatMessage(msg.role, msg.content, null, null, i));
-    this._historyRendered = true;
+    ChatState.historyRendered = true;
   },
 
   _updateSession() {
@@ -1583,15 +1566,15 @@ const AiChat = {
     const now = Date.now();
     const SESSION_TIMEOUT = 30 * 60 * 1000;
 
-    let currentSession = this._currentSessionId
-      ? sessions.find(s => s.id === this._currentSessionId)
+    let currentSession = ChatState.currentSessionId
+      ? sessions.find(s => s.id === ChatState.currentSessionId)
       : (sessions.length > 0 ? sessions[0] : null);
 
     if (currentSession && (now - (currentSession.lastUpdated || currentSession.created)) < SESSION_TIMEOUT) {
       currentSession.lastUpdated = now;
       currentSession.preview = preview;
       currentSession.messageCount = chatHistory.length;
-      this._currentSessionId = currentSession.id;
+      ChatState.currentSessionId = currentSession.id;
       CardStorage.saveChatSession(cardId, currentSession);
       CardStorage.saveSessionMessages(cardId, currentSession.id, chatHistory);
     } else {
@@ -1606,7 +1589,7 @@ const AiChat = {
         preview: preview,
         messageCount: chatHistory.length,
       };
-      this._currentSessionId = session.id;
+      ChatState.currentSessionId = session.id;
       CardStorage.saveChatSession(cardId, session);
       CardStorage.saveSessionMessages(cardId, session.id, chatHistory);
     }
@@ -1677,8 +1660,8 @@ const AiChat = {
     // Load this session's messages into chatHistory
     const sessionMessages = CardStorage.getSessionMessages(cardId, sessionId);
     window.AppState.chatHistory = sessionMessages;
-    this._currentSessionId = sessionId;
-    this._historyRendered = false;
+    ChatState.currentSessionId = sessionId;
+    ChatState.historyRendered = false;
     // Pending AI responses belong to the conversation that generated them:
     // loading a different session must drop the previous transcript's apply
     // queue exactly like switching cards does (clearChat resets it too —
@@ -1723,17 +1706,14 @@ const AiChat = {
 
   clearChat() {
     // Abort any in-flight generation first so its .then/.catch can't push an
-    // orphan message into the freshly-emptied history (#25).
-    this._abortAll();
-    this._gen++; // invalidate stale run callbacks
+    // orphan message into the freshly-emptied history (#25). resetChat also
+    // bumps the generation token, drops pending applies + session pointer and
+    // forces the transcript to re-render. Selection (chips) is reset here —
+    // unlike a card switch, which keeps it.
+    ChatState.resetChat();
+    ChatState.selectedFields.clear();
     window.AppState.isAiLoading = false;
     this.updateSendButton();
-    this._historyRendered = false;
-    this._selectedFields.clear();
-    this._applyStore.clear();
-    this._applyQueue = [];
-    this._applyIndex = 0;
-    this._currentSessionId = null;
     this._renderFieldChips();
     window.AppState.chatHistory = [];
     CardStorage.clearChatHistory(window.AppState.activeCard?._id);
@@ -1768,7 +1748,7 @@ const AiChat = {
     // Capture AFTER the element guards so only real invocations supersede
     // in-flight ones; a stale call that finishes later must not overwrite the
     // bar with older text (async Tokenizer.count / resolveMaxTokens).
-    const gen = ++this._contextBarGen;
+    const gen = ChatState.bumpContextBarGen();
 
     if (!modelId) {
       bar.style.width = '0%';
@@ -1801,7 +1781,7 @@ const AiChat = {
     } catch (_) {
       inputTokens = 0;
     }
-    if (gen !== this._contextBarGen) return; // superseded by a newer call
+    if (gen !== ChatState.contextBarGen) return; // superseded by a newer call
     if (!inputTokens) {
       // Shared estimator: real BPE once the CDN lib is loaded (even when the
       // async count above failed), heuristic before — always the same number
@@ -1826,7 +1806,7 @@ const AiChat = {
     const historyMsgs = history.map(m => ({ role: m.role, content: m.content || '' }));
     const allMessages = [{ role: 'system', content: inputText }, ...historyMsgs, { role: 'user', content: prompt }];
     const resolvedMax = await AIService.resolveMaxTokens(modelId, allMessages);
-    if (gen !== this._contextBarGen) return; // superseded by a newer call
+    if (gen !== ChatState.contextBarGen) return; // superseded by a newer call
     // The actual usable output is the smaller of the request cap and available context
     const actualMaxOut = Math.min(outputCap, resolvedMax);
 

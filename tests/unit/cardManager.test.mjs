@@ -87,13 +87,14 @@ const baseCardStorage = () => ({
   saveSessionMessages: noop,
 });
 
+// AiChat's mutable state lives in ChatState (see chatState.js); _doSelect only
+// drives it through the accessor methods below, so the mock records calls.
 const baseAiChat = () => ({
   _abortAll: noop,
-  _gen: 0,
+  _bumpGen: noop,
   updateSendButton: noop,
-  _resetApplyQueue: noop,
-  _currentSessionId: null,
-  _historyRendered: true,
+  _resetChat: noop,
+  _setCurrentSession: noop,
   renderChatHistory: noop,
   updateContextBar: noop,
 });
@@ -113,10 +114,10 @@ test('switching cards aborts AI and clears the apply queue and session id', asyn
   };
   globalThis.AiChat = {
     ...baseAiChat(),
-    _gen: 7,
-    _currentSessionId: 'stale',
     _abortAll: () => { rendered.aborted = true; },
-    _resetApplyQueue: () => { rendered.applyReset = true; },
+    _bumpGen: () => { rendered.genBumped = true; return 8; },
+    _resetChat: () => { rendered.resetChat = true; }, // clears queue + session + render flag
+    _setCurrentSession: () => { rendered.sessionSet = true; },
     renderChatHistory: () => { rendered.history = true; },
   };
   const populated = [];
@@ -125,10 +126,9 @@ test('switching cards aborts AI and clears the apply queue and session id', asyn
   await CardManager._doSelect({ _id: 'B' });
 
   expect(rendered.aborted).toBe(true);
-  expect(rendered.applyReset).toBe(true);
-  expect(AiChat._gen).toBe(8);          // aborted run's callbacks invalidated
-  expect(AiChat._currentSessionId).toBeNull(); // stale session never survives a switch
-  expect(AiChat._historyRendered).toBe(false);
+  expect(rendered.genBumped).toBe(true); // aborted run's callbacks invalidated
+  expect(rendered.resetChat).toBe(true); // stale apply queue never survives a switch
+  expect(rendered.sessionSet).toBeUndefined(); // no sessions: session stays cleared
   expect(rendered.history).toBe(true);
   expect(rendered.list).toBe(true);
   expect(window.AppState.isAiLoading).toBe(false);
@@ -147,12 +147,16 @@ test('restores the latest session messages and keeps its session id', async () =
     getSessionMessages: () => ['msg-a', 'msg-b'],
     saveSessionMessages: (...args) => saves.push(args),
   };
-  globalThis.AiChat = { ...baseAiChat(), _currentSessionId: 'stale' };
+  const session = { id: null };
+  globalThis.AiChat = {
+    ...baseAiChat(),
+    _setCurrentSession: (id) => { session.id = id; },
+  };
 
   await CardManager._doSelect({ _id: 'B' });
 
   expect(window.AppState.chatHistory).toEqual(['msg-a', 'msg-b']);
-  expect(AiChat._currentSessionId).toBe('s9');
+  expect(session.id).toBe('s9');
   expect(saves).toHaveLength(0); // nothing migrated: real messages exist
 });
 
@@ -166,7 +170,11 @@ test('session fallback migrates only the new card\'s own history', async () => {
     getSessionMessages: () => [],
     saveSessionMessages: (...args) => saves.push(args),
   };
-  globalThis.AiChat = { ...baseAiChat(), _currentSessionId: 'stale' };
+  const session = { id: null };
+  globalThis.AiChat = {
+    ...baseAiChat(),
+    _setCurrentSession: (id) => { session.id = id; },
+  };
   window.AppState.chatHistory = ['history for A']; // stale leftover from the previous card
 
   await CardManager._doSelect({ _id: 'B' });
@@ -174,7 +182,7 @@ test('session fallback migrates only the new card\'s own history', async () => {
   // The fallback must write B's own history into B's session — never A's.
   expect(saves).toEqual([['B', 's1', ['history for B']]]);
   expect(window.AppState.chatHistory).toEqual(['history for B']);
-  expect(AiChat._currentSessionId).toBe('s1');
+  expect(session.id).toBe('s1');
 });
 
 // ─── HARDENED TAG PATHS ───────────────────────────────────────────────────

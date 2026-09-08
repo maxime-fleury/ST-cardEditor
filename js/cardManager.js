@@ -615,7 +615,7 @@ const CardManager = {
     // Abort any ongoing AI generation when switching cards
     if (isAiLoading) {
       AiChat._abortAll();
-      AiChat._gen++; // invalidate the aborted run's callbacks (mirror retry/clear)
+      AiChat._bumpGen(); // invalidate the aborted run's callbacks (mirror retry/clear)
       window.AppState.isAiLoading = false;
       AiChat.updateSendButton();
     }
@@ -626,9 +626,9 @@ const CardManager = {
     CardStorage.setActiveCardId(fullCard._id);
 
     // Pending AI responses and chat sessions belong to a single card: never
-    // let a stale apply-queue entry or session ID bleed into the new card.
-    AiChat._resetApplyQueue();
-    AiChat._currentSessionId = null;
+    // let a stale apply-queue entry, session ID, callback or rendered flag
+    // bleed into the new card. _resetChat is the single full reset.
+    AiChat._resetChat();
 
     try {
       const b64 = await CardStorage.getImage(fullCard._id);
@@ -646,17 +646,16 @@ const CardManager = {
       const sessionMessages = CardStorage.getSessionMessages(fullCard._id, latestSession.id);
       if (sessionMessages.length > 0) {
         window.AppState.chatHistory = sessionMessages;
-        AiChat._currentSessionId = latestSession.id;
+        AiChat._setCurrentSession(latestSession.id);
       } else {
         // Fallback: migrate THIS card's own chat history into a session. The
         // history above was re-read for fullCard._id, so a previous card's
         // conversation can never be copied into this card's session.
-        AiChat._currentSessionId = latestSession.id;
+        AiChat._setCurrentSession(latestSession.id);
         CardStorage.saveSessionMessages(fullCard._id, latestSession.id, cardHistory);
       }
     }
-    AiChat._historyRendered = false;
-    AiChat.renderChatHistory();
+    AiChat.renderChatHistory(); // _resetChat already cleared the rendered flag
     Editor.populateEditor(fullCard);
     this.renderCardList();
     Ui.setDirty(false);

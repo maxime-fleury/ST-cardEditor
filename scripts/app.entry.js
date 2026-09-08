@@ -18,6 +18,7 @@ import "../js/storage.js";
 import "../js/exportUtils.js";
 import "../js/editor.js";
 import "../js/cardManager.js";
+import "../js/chatState.js";
 import "../js/aiChat.js";
 import "../js/wizard.js";
 import "../js/waifuTab.js";
