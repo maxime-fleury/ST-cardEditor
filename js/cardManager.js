@@ -12,6 +12,7 @@ import { CardEngine } from './cardEngine.js';
 import { Editor } from './editor.js';
 import { ExportUtils } from './exportUtils.js';
 import { AiChat } from './aiChat.js';
+import { CardState } from './cardState.js';
 
 // Same debounce delay as ui.js's DEBOUNCE_SEARCH_MS. Kept as a local copy
 // instead of an import: index.html loads the modules with ?v= cache-busters,
@@ -35,7 +36,7 @@ const CardManager = {
         console.error('Image migration failed for', full._id, e);
       }
     }
-    window.AppState.cards = CardStorage.getCards();
+    CardState.cards = CardStorage.getCards();
   },
 
   handleFileSelect(e) {
@@ -82,10 +83,10 @@ const CardManager = {
     }
 
     if (loaded > 0) {
-      window.AppState.cards = CardStorage.getCards();
+      CardState.cards = CardStorage.getCards();
       this.renderCardList();
       if (loaded === 1 && lastCardId) {
-        const meta = window.AppState.cards.find(c => c._id === lastCardId);
+        const meta = CardState.cards.find(c => c._id === lastCardId);
         if (meta) await this.selectCard(meta);
       }
       Ui.showToast(I18n.t('toast.loaded', { count: loaded }), 'success');
@@ -185,10 +186,10 @@ const CardManager = {
     for (const id of this._selectedIds) await CardStorage.deleteCard(id);
     this._selectedIds.clear();
     this._updateBatchToolbar();
-    window.AppState.cards = CardStorage.getCards();
-    const activeCard = window.AppState.activeCard;
-    if (activeCard && !window.AppState.cards.find(c => c._id === activeCard._id)) {
-      window.AppState.activeCard = null;
+    CardState.cards = CardStorage.getCards();
+    const activeCard = CardState.activeCard;
+    if (activeCard && !CardState.cards.find(c => c._id === activeCard._id)) {
+      CardState.activeCard = null;
       Editor.hideEditor();
     }
     this.renderCardList();
@@ -315,7 +316,7 @@ const CardManager = {
     if (!tagCloudEl) return;
 
     const tagCounts = {};
-    (window.AppState.cards || []).forEach(c => {
+    (CardState.cards || []).forEach(c => {
       (c.tags || []).forEach(t => {
         tagCounts[t] = (tagCounts[t] || 0) + 1;
       });
@@ -407,7 +408,7 @@ const CardManager = {
     const el = document.querySelector('#tagChipStrip');
     if (!el) return;
     const counts = {};
-    (window.AppState.cards || []).forEach(c => (c.tags || []).forEach(t => counts[t] = (counts[t] || 0) + 1));
+    (CardState.cards || []).forEach(c => (c.tags || []).forEach(t => counts[t] = (counts[t] || 0) + 1));
     const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 12);
     if (sorted.length === 0) { el.style.display = 'none'; el.innerHTML = ''; return; }
     el.style.display = '';
@@ -427,7 +428,7 @@ const CardManager = {
 
   renderCardList() {
     const $ = Ui.$;
-    const { cards, activeCard } = window.AppState;
+    const { cards, activeCard } = CardState;
     const container = $('#cardList');
     const emptyState = $('#emptyState');
     const searchWrap = $('#cardSearchWrap');
@@ -555,7 +556,7 @@ const CardManager = {
         }
         const item = e.target.closest('.card-list-item');
         if (!item) return;
-        const card = window.AppState.cards.find(c => c._id === item.dataset.cardId);
+        const card = CardState.cards.find(c => c._id === item.dataset.cardId);
         if (card) CardManager.selectCard(card);
       });
       const searchInput = $('#cardSearchInput');
@@ -610,7 +611,7 @@ const CardManager = {
         }
         const dropId = item.dataset.cardId;
         if (dragId === dropId) return;
-        const dropCards = window.AppState.cards;
+        const dropCards = CardState.cards;
         const fromIdx = dropCards.findIndex(c => c._id === dragId);
         const toIdx = dropCards.findIndex(c => c._id === dropId);
         if (fromIdx < 0 || toIdx < 0) return;
@@ -640,7 +641,8 @@ const CardManager = {
   },
 
   async _doSelect(cardMeta) {
-    const { activeCard, isAiLoading } = window.AppState;
+    const { activeCard } = CardState;
+    const { isAiLoading } = window.AppState;
     // Abort any ongoing AI generation when switching cards
     if (isAiLoading) {
       AiChat._abortAll();
@@ -672,7 +674,7 @@ const CardManager = {
         console.error('cardManager: failed to persist repaired card:', e);
       }
     }
-    window.AppState.activeCard = fullCard;
+    CardState.activeCard = fullCard;
     CardStorage.setActiveCardId(fullCard._id);
 
     // Pending AI responses and chat sessions belong to a single card: never
@@ -682,7 +684,11 @@ const CardManager = {
 
     try {
       const b64 = await CardStorage.getImage(fullCard._id);
-      if (b64 && activeCard) activeCard._imageBase64 = b64;
+      // Re-read the CURRENT active card: the destructured `activeCard` above
+      // predates the `CardState.activeCard = fullCard` reassignment, so mutating
+      // it would attach the image to the previous card (or drop it).
+      const imgCard = CardState.activeCard;
+      if (b64 && imgCard) imgCard._imageBase64 = b64;
     } catch (e) {
       console.error('Failed to load image from IndexedDB:', e);
     }
@@ -719,11 +725,11 @@ const CardManager = {
   },
 
   async createNewCard() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (activeCard) await Editor.syncEditorToCard();
     const card = CardEngine.createEmptyCard();
     await CardStorage.upsertCard(card);
-    window.AppState.cards = CardStorage.getCards();
+    CardState.cards = CardStorage.getCards();
     this.renderCardList();
     await this.selectCard(card);
     const nameEl = document.querySelector('#editName');
@@ -732,10 +738,10 @@ const CardManager = {
   },
 
   async saveCurrentCard() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) { Ui.showToast(I18n.t('toast.noCardSave'), 'warning'); return; }
     await Editor.syncEditorToCard();
-    window.AppState._dirty = false;
+    CardState.clearDirty();
     Ui.setDirty(false);
     Ui.flashSaved();
     this.renderCardList();
@@ -743,7 +749,7 @@ const CardManager = {
   },
 
   async duplicateCard() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) { Ui.showToast(I18n.t('toast.noCardDup'), 'warning'); return; }
     await Editor.syncEditorToCard();
     const clone = JSON.parse(JSON.stringify(activeCard));
@@ -751,14 +757,14 @@ const CardManager = {
     clone.name = (clone.name || (I18n.t ? I18n.t('gen.unnamed') : 'Unnamed')) + (I18n.t ? I18n.t('gen.copySuffix') : ' (Copy)');
     await CardStorage.upsertCard(clone);
     if (clone._imageBase64) await CardStorage.saveImage(clone._id, clone._imageBase64);
-    window.AppState.cards = CardStorage.getCards();
+    CardState.cards = CardStorage.getCards();
     this.renderCardList();
     await this.selectCard(clone);
     Ui.showToast(I18n.t('toast.cardDup'), 'success');
   },
 
   async deleteActiveCard() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     await Editor.syncEditorToCard();
     const snapshot = { ...activeCard };
@@ -775,11 +781,11 @@ const CardManager = {
       Ui.showToast(I18n.t ? (I18n.t('toast.deleteFailed') || 'Failed to delete card') : 'Failed to delete card', 'danger');
       return;
     }
-    window.AppState.cards = CardStorage.getCards();
-    window.AppState.activeCard = null;
+    CardState.cards = CardStorage.getCards();
+    CardState.activeCard = null;
     Editor.hideEditor();
     this.renderCardList();
-    if (window.AppState.cards.length > 0) await this.selectCard(window.AppState.cards[0]);
+    if (CardState.cards.length > 0) await this.selectCard(CardState.cards[0]);
 
     let undone = false;
     const DURATION = 8000;
@@ -835,7 +841,7 @@ const CardManager = {
         await CardStorage.saveImage(snapshot._id, snapshot._imageBase64);
         snapshot._hasImage = true;
       }
-      window.AppState.cards = CardStorage.getCards();
+      CardState.cards = CardStorage.getCards();
       this.renderCardList();
       await this.selectCard(snapshot);
       Ui.showToast(I18n.t('toast.cardRestored'), 'success');
@@ -947,7 +953,7 @@ const CardManager = {
   },
 
   async _pasteAsAvatar(file) {
-    if (!window.AppState.activeCard) {
+    if (!CardState.activeCard) {
       Ui.showToast(I18n.t ? I18n.t('toast.pasteAvatarNoCard') : 'Select a card first, then paste the image as its avatar', 'warning');
       return;
     }

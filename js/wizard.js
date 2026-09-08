@@ -12,6 +12,7 @@ import { CardEngine } from './cardEngine.js';
 import { CardManager } from './cardManager.js';
 import { Editor } from './editor.js';
 import { AiChat } from './aiChat.js';
+import { CardState } from './cardState.js';
 
 const Wizard = {
   _step: 1,
@@ -703,7 +704,7 @@ const Wizard = {
 
   async _useFetchedImage() {
     if (this._selectedImageIdx < 0 || !this._fetchedImages[this._selectedImageIdx]) return;
-    const card = window.AppState.activeCard;
+    const card = CardState.activeCard;
     if (!card) {
       Ui.showToast(I18n.t('toast.createCardFirst'), 'warning');
       return;
@@ -762,7 +763,7 @@ const Wizard = {
     card.creator = this._answers.creator || '';
 
     await CardStorage.upsertCard(card);
-    window.AppState.cards = CardStorage.getCards();
+    CardState.cards = CardStorage.getCards();
     await CardManager.selectCard(card);
     if (chosenImage) {
       try { await Editor.setAvatar(chosenImage); } catch (_) {}
@@ -802,7 +803,7 @@ const Wizard = {
     card.tags = a.tags || [];
     card.creator = a.creator || '';
     await CardStorage.upsertCard(card);
-    window.AppState.cards = CardStorage.getCards();
+    CardState.cards = CardStorage.getCards();
     await CardManager.selectCard(card);
     if (chosenImage) {
       try { await Editor.setAvatar(chosenImage); } catch (_) {}

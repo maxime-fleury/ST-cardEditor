@@ -10,6 +10,7 @@ import { CardStorage } from './storage.js';
 import { CardEngine } from './cardEngine.js';
 import { Tokenizer } from './tokenizer.js';
 import { AiChat } from './aiChat.js';
+import { CardState } from './cardState.js';
 
 const Editor = {
   /** @type {Array<{ field: string, prop: string, oldValue: any, newValue?: any }>} */
@@ -45,7 +46,7 @@ const Editor = {
   },
 
   _snapshot(field) {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     const prop = this._toCardProp(field);
     const val = activeCard[prop];
@@ -70,7 +71,7 @@ const Editor = {
   },
 
   _snapshotSub(kind) {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     const prop = this._SUB_MAP[kind];
     if (!prop) return;
@@ -88,7 +89,7 @@ const Editor = {
   },
 
   _applySubEntry(entry, newValue) {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     if (entry.prop === 'alternate_greetings') {
       activeCard.alternate_greetings = newValue;
@@ -104,7 +105,7 @@ const Editor = {
 
   async undo() {
     if (!this._undoStack.length) return;
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     this._lastSnapField = null;
     const entry = this._undoStack.pop();
@@ -133,7 +134,7 @@ const Editor = {
 
   async redo() {
     if (!this._redoStack.length) return;
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     this._lastSnapField = null;
     const entry = this._redoStack.pop();
@@ -192,7 +193,7 @@ const Editor = {
     $('#editTags').value = (card.tags || []).join(', ');
 
     const allTags = new Set();
-    (window.AppState.cards || []).forEach(c => (c.tags || []).forEach(t => allTags.add(t)));
+    (CardState.cards || []).forEach(c => (c.tags || []).forEach(t => allTags.add(t)));
     const datalist = document.querySelector('#tagSuggestions');
     if (datalist) datalist.innerHTML = [...allTags].map(t => '<option value="' + Ui.escapeAttr(t) + '">').join('');
 
@@ -269,7 +270,7 @@ const Editor = {
   },
 
   async syncEditorToCard() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     // Serialize concurrent writes: if a save is already in flight, chain this
     // one after it so IndexedDB writes never interleave and reorder.
@@ -293,13 +294,13 @@ const Editor = {
       this._nameWarned = false;
     }
     await CardStorage.upsertCard(activeCard);
-    window.AppState.cards = CardStorage.getCards();
-    window.AppState._dirty = true;
+    CardState.cards = CardStorage.getCards();
+    CardState.markDirty();
     Ui.setDirty(true);
   },
 
   syncEditorToCardSync() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     // Same guard as _doSync so a stray debounced flush during a card switch
     // can't write the wrong card's DOM values (#75).
@@ -316,7 +317,7 @@ const Editor = {
     const meta = CardStorage._extractMeta(activeCard);
     if (idx >= 0) { index[idx] = meta; } else { index.unshift(meta); }
     try { localStorage.setItem(CardStorage.PREFIX + CardStorage._keys.cardIndex, JSON.stringify(index)); } catch (_) {}
-    window.AppState._dirty = true;
+    CardState.markDirty();
   },
 
   showEditor() {
@@ -327,7 +328,7 @@ const Editor = {
 
   async setAvatar(file) {
     const $ = Ui.$;
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
     try {
       const b64 = await CardEngine._blobToBase64(file);
@@ -523,7 +524,7 @@ const Editor = {
   },
 
   syncGreetings() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     const $ = Ui.$;
     const greetings = [];
@@ -537,7 +538,7 @@ const Editor = {
   },
 
   async addGreeting() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     const $ = Ui.$;
     if (!activeCard.alternate_greetings) activeCard.alternate_greetings = [];
@@ -566,7 +567,7 @@ const Editor = {
   // JSON is surfaced inline and left unsaved (the last valid value is kept), so
   // a broken object can never be written to the card or exported.
   async _applyExtensionsFromDom() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     const el = document.querySelector('#editExtensions');
     const st = document.querySelector('#extensionsStatus');
     if (!activeCard || !el) return false;
@@ -864,7 +865,7 @@ const Editor = {
   },
 
   async addLorebookEntry() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     if (!activeCard.character_book) activeCard.character_book = { entries: [] };
     if (!activeCard.character_book.entries) activeCard.character_book.entries = [];

@@ -8,8 +8,11 @@ import { defineConfig } from '@playwright/test';
 //
 // Port: defaults to 8182 everywhere except Windows, where the 8182-8205 range
 // can be reserved by the OS (Hyper-V/WinNAT) and the server fails to bind with
-// EACCES — there the suite uses 8300. A PORT env var always wins (e.g. CI).
-const PORT = process.env.PORT || (process.platform === 'win32' ? '8300' : '8182');
+// EACCES — there the suite uses 8300. A PORT env var always wins (e.g. CI) —
+// but the ambient shell exports PORT=0 ("random port"), which must be treated
+// as unset or the server binds somewhere the suite can never find it.
+const ambientPort = process.env.PORT && process.env.PORT !== '0' ? process.env.PORT : '';
+const PORT = ambientPort || (process.platform === 'win32' ? '8300' : '8182');
 const BASE = `http://localhost:${PORT}`;
 
 export default defineConfig({

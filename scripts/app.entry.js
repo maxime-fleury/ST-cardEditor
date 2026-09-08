@@ -16,6 +16,7 @@ import "../js/animations.js";
 import "../js/aiService.js";
 import "../js/storage.js";
 import "../js/exportUtils.js";
+import "../js/cardState.js";
 import "../js/editor.js";
 import "../js/cardManager.js";
 import "../js/chatState.js";

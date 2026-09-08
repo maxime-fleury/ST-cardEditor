@@ -15,6 +15,7 @@ import { Wizard } from './wizard.js';
 import { Editor } from './editor.js';
 import { Settings } from './settings.js';
 import { Tokenizer } from './tokenizer.js';
+import { CardState } from './cardState.js';
 
 // Mutable chat state (apply queue, selection, sessions, generation tokens)
 // lives in ChatState — see chatState.js. AiChat only holds static config
@@ -113,7 +114,7 @@ const AiChat = {
     // all become {{user}} (same for {char}), so references to the player or
     // character always reach the model in the form the card actually needs.
     const prompt = this._normalizePlaceholders(rawPrompt);
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!prompt || window.AppState.isAiLoading) return;
 
     if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
@@ -172,9 +173,9 @@ const AiChat = {
     this.updateSendButton();
 
     window.AppState.chatHistory.push({ role: 'user', content: prompt });
-    CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
+    CardStorage.saveChatHistory(window.AppState.chatHistory, CardState.activeCard?._id);
     // Create a new session if none exists
-    const cardId = window.AppState.activeCard?._id || 'global';
+    const cardId = CardState.activeCard?._id || 'global';
     if (!ChatState.currentSessionId) {
       const now = Date.now();
       const session = {
@@ -231,7 +232,7 @@ const AiChat = {
           if (completedCount === selectedFields.length) {
             this._finalizeGroupedCard(groupedCard, selectedFields.length);
             window.AppState.chatHistory.push({ role: 'assistant', content: combinedContent });
-            CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
+            CardStorage.saveChatHistory(window.AppState.chatHistory, CardState.activeCard?._id);
             this._updateSession();
             window.AppState.isAiLoading = false;
             this.updateSendButton();
@@ -254,7 +255,7 @@ const AiChat = {
             try { this._finalizeGroupedCard(groupedCard, selectedFields.length); } catch (e) { console.error('aiChat: failed to finalize grouped card:', e); }
             if (combinedContent.trim()) {
               window.AppState.chatHistory.push({ role: 'assistant', content: combinedContent.trim() });
-              CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
+              CardStorage.saveChatHistory(window.AppState.chatHistory, CardState.activeCard?._id);
             }
             // _updateSession() must run for partial AND complete failure alike:
             // if any field produced content the history already changed; if none
@@ -271,7 +272,7 @@ const AiChat = {
   },
 
   buildSystemPrompt(targetField, greetingCountOverride) {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     const greetingCount = greetingCountOverride || ChatState.greetingCount;
     const fieldLabel = I18n.t
       ? I18n.t(this.FIELD_DEFS.find(d => d.id === targetField)?.labelKey || targetField)
@@ -570,7 +571,7 @@ const AiChat = {
   _sendFullCard(prompt, opts) {
     opts = opts || {};
     const $ = Ui.$;
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (window.AppState.isAiLoading) return;
     if (!AIService.hasApiKey()) { Ui.showToast(I18n.t('toast.apiKey'), 'warning'); return; }
     if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
@@ -753,7 +754,7 @@ const AiChat = {
     // silent: suppress the per-item success toast (used by "Apply all", which
     // shows a single summary toast instead of stacking N field toasts).
     const silent = !!opts.silent;
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard || !content) return null;
 
     // The model may answer a per-field request with a whole card JSON (see
@@ -1161,7 +1162,7 @@ const AiChat = {
 
   // Decide which item a request corresponds to and show the modal on it.
   tryApplyAIResponse(content, targetField, sourceEl) {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard || !content) return;
     let item;
     if (sourceEl) {
@@ -1401,7 +1402,7 @@ const AiChat = {
 
   async handleQuickAction(action) {
     const $ = Ui.$;
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (action === 'newcard') {
       Wizard.show();
       return;
@@ -1624,9 +1625,9 @@ const AiChat = {
     chatHistory.splice(targetUserIdx);
     window.AppState.isAiLoading = false;
     this.updateSendButton();
-    CardStorage.saveChatHistory(chatHistory, window.AppState.activeCard?._id);
+    CardStorage.saveChatHistory(chatHistory, CardState.activeCard?._id);
     if (ChatState.currentSessionId) {
-      const cardId = window.AppState.activeCard?._id || 'global';
+      const cardId = CardState.activeCard?._id || 'global';
       CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, chatHistory);
     }
 
@@ -1749,7 +1750,7 @@ const AiChat = {
     const $ = Ui.$;
     const list = $('#aiHistoryList');
     if (!list) return;
-    const cardId = window.AppState.activeCard?._id || 'global';
+    const cardId = CardState.activeCard?._id || 'global';
     const sessions = CardStorage.getChatSessions(cardId);
 
     if (sessions.length === 0) {
@@ -1802,7 +1803,7 @@ const AiChat = {
   },
 
   _loadSession(sessionId) {
-    const cardId = window.AppState.activeCard?._id || 'global';
+    const cardId = CardState.activeCard?._id || 'global';
     const sessions = CardStorage.getChatSessions(cardId);
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
@@ -1866,7 +1867,7 @@ const AiChat = {
     this.updateSendButton();
     this._renderFieldChips();
     window.AppState.chatHistory = [];
-    CardStorage.clearChatHistory(window.AppState.activeCard?._id);
+    CardStorage.clearChatHistory(CardState.activeCard?._id);
     this._showWelcome();
     Ui.showToast(I18n.t('toast.chatCleared'), 'info');
   },
@@ -1893,7 +1894,7 @@ const AiChat = {
 
     const modelId = modelSelect.value;
     const prompt = input.value || '';
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
 
     // Capture AFTER the element guards so only real invocations supersede
     // in-flight ones; a stale call that finishes later must not overwrite the

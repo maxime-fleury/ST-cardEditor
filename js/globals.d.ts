@@ -327,6 +327,20 @@ declare const ChatState: {
   resetChat(): void;
 };
 
+/**
+ * Single source of truth for the card collection state (see cardState.js):
+ * the card list, the active card and the dirty flag. window.AppState exposes
+ * these same three fields as delegating accessors so legacy callers and the
+ * e2e suite keep working against this store.
+ */
+declare const CardState: {
+  cards: CardShape[];
+  activeCard: CardShape | null;
+  dirty: boolean;
+  markDirty(): void;
+  clearDirty(): void;
+};
+
 declare const ExportUtils: {
   injectCopyright(card: CardShape): void;
   embedCharaChunk(pngBytes: unknown, jsonStr: string): unknown;
@@ -362,6 +376,7 @@ interface Window {
   AIService: typeof AIService;
   Wizard: typeof Wizard;
   ChatState: typeof ChatState;
+  CardState: typeof CardState;
   syncFloatingLabels?: () => void;
   [k: string]: unknown;
 }

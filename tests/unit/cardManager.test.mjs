@@ -4,6 +4,7 @@ import { test, expect, beforeAll, beforeEach, afterEach, mock } from 'bun:test';
 // so this suite mocks every one of them with mock.module and mutates the
 // stub objects per-test (window/document/localStorage remain free globals).
 let CardManager;
+let CardState;
 // Tests that exercise _doSelect stub out renderCardList (it needs a real DOM);
 // restore the original afterwards so the tag-path tests run it for real.
 let realRenderCardList;
@@ -74,12 +75,15 @@ beforeAll(async () => {
   globalThis.document = makeDom([]);
   CardManager = (await import('../../js/cardManager.js')).CardManager;
   realRenderCardList = CardManager.renderCardList;
+  CardState = (await import('../../js/cardState.js')).CardState;
 });
 
 const LIST_DOM = ['#cardList', '#emptyState', '#cardSearchWrap', '#libraryControls', '#cardCount'];
 
 beforeEach(() => {
   window.AppState = { cards: [], activeCard: null, isAiLoading: false, chatHistory: [] };
+  CardState.cards = [];
+  CardState.activeCard = null;
   CardManager._searchQuery = '';
   CardManager._activeTagFilters = new Set();
   CardManager._selectedIds = new Set();
@@ -122,7 +126,7 @@ const baseAiChat = () => ({
 test('switching cards aborts AI and clears the apply queue and session id', async () => {
   const rendered = { list: false, history: false };
   CardManager.renderCardList = () => { rendered.list = true; };
-  window.AppState.activeCard = { _id: 'A' };
+  CardState.activeCard = { _id: 'A' };
   window.AppState.isAiLoading = true;
 
   Object.assign(stubs.CardStorage, baseCardStorage(), {
@@ -148,7 +152,7 @@ test('switching cards aborts AI and clears the apply queue and session id', asyn
   expect(rendered.history).toBe(true);
   expect(rendered.list).toBe(true);
   expect(window.AppState.isAiLoading).toBe(false);
-  expect(window.AppState.activeCard._id).toBe('B');
+  expect(CardState.activeCard._id).toBe('B');
   expect(window.AppState.chatHistory).toEqual(['history for B']); // THIS card's history
   expect(populated[0]._id).toBe('B');
 });
@@ -265,8 +269,8 @@ test('_doSelect does not re-save a clean card', async () => {
 
   await CardManager._doSelect({ _id: 'B' }); // must not reject
 
-  expect(window.AppState.activeCard._id).toBe('B');
-  expect(window.AppState.activeCard.description).toBe('Clean here');
+  expect(CardState.activeCard._id).toBe('B');
+  expect(CardState.activeCard.description).toBe('Clean here');
 });
 
 test('_doSelect does not re-save a clean card', async () => {
@@ -281,7 +285,7 @@ test('_doSelect does not re-save a clean card', async () => {
   await CardManager._doSelect({ _id: 'B' });
 
   expect(saved).toHaveLength(0);
-  expect(window.AppState.activeCard.description).toBe('clean');
+  expect(CardState.activeCard.description).toBe('clean');
 });
 
 // ─── BATCH COMPARE: read-only modal must not trigger an apply ────────────
@@ -364,7 +368,7 @@ test('_cardSignature is stable across tag case/whitespace and normalizes malform
 
 test('search matches malformed tags without crashing', () => {
   globalThis.document = makeDom(LIST_DOM);
-  window.AppState.cards = [
+  CardState.cards = [
     { _id: '1', name: 'Elara', tags: ['Fantasy', 'Elf'] },
     { _id: '2', name: 'Grom', tags: [42, null, undefined, '', ['orc']] },
     { _id: '3', name: 'Mira', tags: [{}] },
@@ -392,7 +396,7 @@ test('search matches malformed tags without crashing', () => {
 
 test('tag filter is case-insensitive and matches numeric tags', () => {
   globalThis.document = makeDom(LIST_DOM);
-  window.AppState.cards = [
+  CardState.cards = [
     { _id: '1', name: 'Elara', tags: ['Fantasy', 'Elf'] },
     { _id: '2', name: 'Grom', tags: [42] },
   ];
@@ -412,7 +416,7 @@ test('tag filter is case-insensitive and matches numeric tags', () => {
 
 test('tag filter requires every selected tag and renders the no-match state', () => {
   globalThis.document = makeDom(LIST_DOM);
-  window.AppState.cards = [
+  CardState.cards = [
     { _id: '1', name: 'Elara', tags: ['fantasy', 'elf'] },
     { _id: '2', name: 'Mira', tags: ['fantasy'] },
   ];
@@ -432,7 +436,7 @@ test('tag filter requires every selected tag and renders the no-match state', ()
 
 test('search and tag filter compose', () => {
   globalThis.document = makeDom(LIST_DOM);
-  window.AppState.cards = [
+  CardState.cards = [
     { _id: '1', name: 'Elara', tags: ['fantasy', 'elf'] },
     { _id: '2', name: 'Mira', tags: ['fantasy'] },
   ];

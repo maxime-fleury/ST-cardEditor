@@ -12,6 +12,7 @@ import { CardEngine } from './cardEngine.js';
 import { CardManager } from './cardManager.js';
 import { Editor } from './editor.js';
 import { AiChat } from './aiChat.js';
+import { CardState } from './cardState.js';
 
 const Settings = {
   // Canonical order of editable AI prompts. Drives auto-building the Settings
@@ -503,8 +504,8 @@ const Settings = {
       buttonLabel: I18n.t ? I18n.t('settings.clearAll') : 'Clear All Data',
     })) return;
     await CardStorage.clearAll();
-    window.AppState.cards = [];
-    window.AppState.activeCard = null;
+    CardState.cards = [];
+    CardState.activeCard = null;
     window.AppState.chatHistory = [];
     window.AppState.models = [];
     // Wipe the AI chat's in-memory runtime state too: apply queue, current
@@ -709,7 +710,7 @@ const Settings = {
         const imported = await this._importWorkspaceCards(workspace.cards);
         // Restore settings if present
         if (workspace.settings) this._applyWorkspaceSettings(workspace.settings);
-        window.AppState.cards = CardStorage.getCards();
+        CardState.cards = CardStorage.getCards();
         CardManager.renderCardList();
         Settings.applyAppearance();
         Settings.refreshModelsList();

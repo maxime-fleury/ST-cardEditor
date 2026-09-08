@@ -14,12 +14,24 @@ import { Settings } from './settings.js';
 import { AiChat } from './aiChat.js';
 import { Wizard } from './wizard.js';
 import { WaifuTab } from './waifuTab.js';
+import { CardState } from './cardState.js';
 
 // ─── Shared State ───────────────────────────────────────
 // Guarded so the module is importable in non-browser runtimes (unit tests);
 // in the browser this always runs and is what the other modules read as
-// `window.AppState` at call time.
-if (typeof window !== 'undefined') window.AppState = { cards: [], activeCard: null, models: [], chatHistory: [], isAiLoading: false, _dirty: false };
+// `window.AppState` at call time. cards/activeCard/_dirty now live in
+// CardState (see cardState.js); the fields below delegate to it so legacy
+// callers and the e2e suite keep a single source of truth. The remaining
+// fields (models, chatHistory, isAiLoading) stay here for now.
+if (typeof window !== 'undefined') window.AppState = {
+  get cards() { return CardState.cards; },
+  set cards(v) { CardState.cards = v; },
+  get activeCard() { return CardState.activeCard; },
+  set activeCard(v) { CardState.activeCard = v; },
+  get _dirty() { return CardState.dirty; },
+  set _dirty(v) { CardState.dirty = v; },
+  models: [], chatHistory: [], isAiLoading: false,
+};
 
 // ─── Utilities ──────────────────────────────────────────
 const Ui = {
@@ -164,16 +176,16 @@ const Ui = {
   },
 
   updateUIState() {
-    const h = !!window.AppState.activeCard;
+    const h = !!CardState.activeCard;
     document.querySelector('#btnSaveCard').disabled = !h;
     document.querySelector('#btnExportJson').disabled = !h;
     document.querySelector('#btnExportPng').disabled = !h;
     document.querySelector('#btnDeleteCard').disabled = !h;
-    this.setDirty(window.AppState._dirty);
+    this.setDirty(CardState.dirty);
   },
 
   setDirty(dirty) {
-    window.AppState._dirty = dirty;
+    CardState.dirty = dirty;
     // Once the local save completes (dirty cleared), re-load a remote update
     // that arrived while we were editing, so cross-tab changes aren't lost.
     if (dirty === false && this._pendingRemoteReload) {
@@ -213,20 +225,20 @@ const Ui = {
   // Reload the currently-active card from IndexedDB (used to surface a card
   // updated from another tab without clobbering unsaved local edits).
   async _reloadActiveCard(expectedCardId) {
-    const ac = window.AppState.activeCard;
+    const ac = CardState.activeCard;
     if (!ac) return;
     if (expectedCardId && ac._id !== expectedCardId) return; // user switched cards
     try {
       const updated = await CardStorage.getCard(ac._id);
       if (updated) {
-        window.AppState.activeCard = updated;
+        CardState.activeCard = updated;
         try {
           const b64 = await CardStorage.getImage(updated._id);
-          if (b64) window.AppState.activeCard._imageBase64 = b64;
+          if (b64) CardState.activeCard._imageBase64 = b64;
         } catch (err) {
           console.error('Failed to load image from IndexedDB:', err);
         }
-        Editor.populateEditor(window.AppState.activeCard);
+        Editor.populateEditor(CardState.activeCard);
       }
     } catch (err) {
       console.error('Failed to reload active card:', err);
@@ -242,7 +254,7 @@ const Ui = {
     this._pendingRemoteCardId = null;
     this._pendingRemoteSnapshot = null;
     this._pendingRemoteTouched = null;
-    const ac = window.AppState.activeCard;
+    const ac = CardState.activeCard;
     if (!ac) return;
     if (expectedCardId && ac._id !== expectedCardId) return; // user switched cards
     // The remote snapshot may still be in flight when the local save settles.
@@ -269,22 +281,22 @@ const Ui = {
       }
     }
     if (!changed) { this._reloadActiveCard(id); return; }
-    window.AppState.activeCard = merged;
+    CardState.activeCard = merged;
     try {
       const b64 = await CardStorage.getImage(merged._id);
-      if (b64) window.AppState.activeCard._imageBase64 = b64;
+      if (b64) CardState.activeCard._imageBase64 = b64;
     } catch (err) {
       console.error('Failed to load image from IndexedDB:', err);
     }
     try {
-      await CardStorage.upsertCard(window.AppState.activeCard);
-      window.AppState.cards = CardStorage.getCards();
+      await CardStorage.upsertCard(CardState.activeCard);
+      CardState.cards = CardStorage.getCards();
       CardManager.renderCardList();
     } catch (err) {
       console.error('Failed to persist merged card:', err);
     }
-    Editor.populateEditor(window.AppState.activeCard);
-    if (localB64) window.AppState.activeCard._imageBase64 = localB64; // keep local avatar
+    Editor.populateEditor(CardState.activeCard);
+    if (localB64) CardState.activeCard._imageBase64 = localB64; // keep local avatar
   },
 
   // ─── Markdown Renderer (lazy-loads marked + DOMPurify) ───
@@ -418,7 +430,7 @@ const Ui = {
       this._savedOrigHTML = null;
       // Re-apply the dirty state: if the user typed during the flash, the
       // innerHTML restore above wiped the .dirty-dot again (#76).
-      if (window.AppState._dirty) this.setDirty(true);
+      if (CardState.dirty) this.setDirty(true);
     }, 1500);
   },
 };
@@ -490,7 +502,7 @@ async function init() {
   // Decrypt (and auto-migrate) any stored API keys before the UI reads them.
   await CardStorage._unlockKeys();
 
-  window.AppState.cards = CardStorage.getCards();
+  CardState.cards = CardStorage.getCards();
   window.AppState.chatHistory = [];
   const apiKey = CardStorage.getApiKey();
 
@@ -574,7 +586,7 @@ Wizard.init();
       });
     });
   window.addEventListener('beforeunload', (_) => {
-    if (window.AppState.activeCard) {
+    if (CardState.activeCard) {
       // Data is already persisted on every debounced keystroke (_doSync writes
       // to IndexedDB then sets _dirty), so this is just a best-effort flush.
       // Prompting here would nag on every close despite the data being safe (#14).
@@ -591,7 +603,7 @@ Wizard.init();
     if (!(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable))) return;
     const cardId = Ui._pendingBlurCardId;
     Ui._pendingBlurCardId = null;
-    if (window.AppState.activeCard && window.AppState.activeCard._id === cardId && !window.AppState._dirty) {
+    if (CardState.activeCard && CardState.activeCard._id === cardId && !CardState.dirty) {
       Ui._reloadActiveCard(cardId);
     }
   });
@@ -949,7 +961,7 @@ function bindEvents(settingsModal) {
   $('#btnPreviewOpenEditor').addEventListener('click', () => {
     const id = CardManager._previewCardId;
     if (!id) return;
-    const meta = window.AppState.cards.find(c => c._id === id);
+    const meta = CardState.cards.find(c => c._id === id);
     if (CardManager._previewModal) CardManager._previewModal.hide();
     if (meta) CardManager.selectCard(meta);
   });
@@ -1114,7 +1126,7 @@ function bindEvents(settingsModal) {
   const loreSearch = $('#lorebookSearchInput');
   if (loreSearch) {
     loreSearch.addEventListener('input', Ui.debounce(() => {
-      if (window.AppState.activeCard) Editor.renderLorebook(window.AppState.activeCard);
+      if (CardState.activeCard) Editor.renderLorebook(CardState.activeCard);
     }, DEBOUNCE_SEARCH_MS));
   }
 
@@ -1405,23 +1417,23 @@ async function handleStorageChange(e) {
     || rel.startsWith('chatSessions_')
     || rel.startsWith('sessionMsgs_');
   if (!isCardData) return;
-  window.AppState.cards = CardStorage.getCards();
+  CardState.cards = CardStorage.getCards();
   CardManager.renderCardList();
-  if (window.AppState.activeCard) {
+  if (CardState.activeCard) {
     const active = document.activeElement;
-    if (window.AppState._dirty) {
+    if (CardState.dirty) {
       // We have unsaved local edits; don't clobber them now. Remember the card
       // so it gets merged from the other tab once the local save completes.
       if (Ui._pendingRemoteReload) return;
       Ui._pendingRemoteReload = true;
-      Ui._pendingRemoteCardId = window.AppState.activeCard._id;
+      Ui._pendingRemoteCardId = CardState.activeCard._id;
       Ui._pendingRemoteTouched = new Set();
       // Snapshot the other tab's version *now*: by the time the local autosave
       // completes, IndexedDB holds our copy, not the remote one — so reloading
       // from IDB at setDirty(false) would silently drop the remote change (#103).
       // The snapshot is kept as a Promise: _mergePendingRemote awaits it, so a
       // local save settling before the read finishes can't lose the change.
-      Ui._pendingRemoteSnapshot = CardStorage.getCard(window.AppState.activeCard._id)
+      Ui._pendingRemoteSnapshot = CardStorage.getCard(CardState.activeCard._id)
         .catch((err) => { console.error('Failed to snapshot remote card:', err); return null; });
       return;
     }
@@ -1429,10 +1441,10 @@ async function handleStorageChange(e) {
       // A focused field means the user may be typing; don't clobber the DOM.
       // Remember the card and reload it as soon as the field loses focus so
       // remote edits are surfaced instead of being skipped until a reload.
-      Ui._pendingBlurCardId = window.AppState.activeCard._id;
+      Ui._pendingBlurCardId = CardState.activeCard._id;
       return;
     }
-    Ui._reloadActiveCard(window.AppState.activeCard._id);
+    Ui._reloadActiveCard(CardState.activeCard._id);
   }
 }
 
