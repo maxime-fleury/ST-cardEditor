@@ -3929,6 +3929,7 @@ ${value}`).join(`
   // js/aiChat.js
   var AiChat2 = {
     MAX_PARALLEL_FIELDS: 20,
+    _INTENT_TIMEOUT_MS: 8000,
     FIELD_DEFS: [
       { id: "name", labelKey: "ai.target.name", icon: "bi-person-badge" },
       { id: "description", labelKey: "ai.target.description", icon: "bi-card-text" },
@@ -3991,7 +3992,7 @@ ${value}`).join(`
     getSelectedFields() {
       return [...ChatState.selectedFields];
     },
-    send(retryPrompt) {
+    async send(retryPrompt) {
       const $ = Ui.$;
       const input = $("#aiInput");
       const rawPrompt = retryPrompt || input.value.trim();
@@ -4005,7 +4006,7 @@ ${value}`).join(`
       }
       let selectedFields2 = this.getSelectedFields();
       if (selectedFields2.length === 0) {
-        const inferred = this._inferFields(prompt);
+        const inferred = await this._resolveTargetFields(prompt);
         if (inferred.length > 0) {
           ChatState.selectedFields = new Set(inferred);
           this._renderFieldChips();
@@ -4765,6 +4766,40 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         card.alternate_greetings = card.alternate_greetings.map((g) => this._normalizePlaceholders(g));
       }
       return card;
+    },
+    async _resolveTargetFields(prompt) {
+      if (AIService.hasApiKey && AIService.hasApiKey()) {
+        if (!this._classifyInFlight) {
+          this._classifyInFlight = this._classifyFields(prompt);
+          this._classifyInFlight.finally(() => {
+            this._classifyInFlight = null;
+          });
+        }
+        const llm = await this._classifyInFlight;
+        if (llm.length > 0)
+          return llm;
+      }
+      return this._inferFields(prompt);
+    },
+    async _classifyFields(prompt) {
+      const validIds = this.FIELD_DEFS.map((d) => d.id);
+      const valid = new Set(validIds);
+      const listed = this.FIELD_DEFS.map((d) => d.id + ' ("' + (I18n.t ? I18n.t(d.labelKey) : d.id) + '")').join(", ");
+      const system = "You map a user request to the character-card fields it asks to change. " + 'Reply with ONLY a JSON array of field ids — e.g. ["name","description"]. ' + "Valid ids: " + listed + ". " + "If nothing matches or you are unsure, reply []. No explanations, no markdown.";
+      const controller = new AbortController;
+      const timer = setTimeout(() => controller.abort(), this._INTENT_TIMEOUT_MS);
+      try {
+        const result = await AIService.chat(prompt, system, "", { jsonMode: true, signal: controller.signal });
+        const parsed = JSON.parse(result.content);
+        if (!Array.isArray(parsed))
+          return [];
+        const picked = [...new Set(parsed.map((x) => String(x).trim()).filter((x) => valid.has(x)))];
+        return validIds.filter((id) => picked.includes(id));
+      } catch (_) {
+        return [];
+      } finally {
+        clearTimeout(timer);
+      }
     },
     _inferFields(prompt) {
       if (!prompt || typeof prompt !== "string")

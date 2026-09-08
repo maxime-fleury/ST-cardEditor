@@ -257,7 +257,16 @@ declare const AIService: {
     usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number } | null;
     model: string;
   }>;
-  chat?(messages: ChatMessage[], opts?: { jsonMode?: boolean; model?: string; maxTokens?: number; signal?: AbortSignal; [k: string]: unknown }): Promise<string>;
+  chat(
+    prompt: string,
+    systemPrompt?: string,
+    model?: string,
+    opts?: { jsonMode?: boolean; signal?: AbortSignal | null; history?: ChatMessage[]; [k: string]: unknown }
+  ): Promise<{
+    content: string;
+    usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number } | null;
+    model: string;
+  }>;
   getContextLength(modelId: string): number;
   resolveMaxTokens(modelId: string, messages?: unknown[]): Promise<number>;
   [k: string]: unknown;

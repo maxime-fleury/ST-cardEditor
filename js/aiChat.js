@@ -11,6 +11,7 @@ import { ChatState } from './chatState.js';
 
 const AiChat = {
   MAX_PARALLEL_FIELDS: 20,    // cap parallel API requests
+  _INTENT_TIMEOUT_MS: 8000,   // LLM field-detection cap before regex fallback
 
   FIELD_DEFS: [
     { id: 'name', labelKey: 'ai.target.name', icon: 'bi-person-badge' },
@@ -91,7 +92,7 @@ const AiChat = {
     return [...ChatState.selectedFields];
   },
 
-  send(retryPrompt) {
+  async send(retryPrompt) {
     const $ = Ui.$;
     const input = $('#aiInput');
     const rawPrompt = retryPrompt || input.value.trim();
@@ -106,9 +107,11 @@ const AiChat = {
 
     let selectedFields = this.getSelectedFields();
     if (selectedFields.length === 0) {
-      // Natural-language intent: no chips were picked — infer the fields the
-      // request is about and select them automatically.
-      const inferred = this._inferFields(prompt);
+      // Natural-language intent: no chips were picked — detect the fields the
+      // request is about. A short LLM call (jsonMode, capped at
+      // _INTENT_TIMEOUT_MS) understands any language the model does; the
+      // regex classifier is the offline fallback when it fails or times out.
+      const inferred = await this._resolveTargetFields(prompt);
       if (inferred.length > 0) {
         ChatState.selectedFields = new Set(inferred);
         this._renderFieldChips();
@@ -992,6 +995,53 @@ const AiChat = {
   // Infer which card fields a natural-language request is about. Used when the
   // user sends a message without picking field chips: "Renomme la carte en X,
   // elle est … elle dit « … »" → name + description + first_mes + scenario.
+  // Detect which fields a natural-language request targets. Tries the LLM
+  // classifier first (it generalizes across the 27 UI languages), falls back
+  // to the local regex classifier on any failure/timeout or when no API key
+  // is configured (the regex runs offline, so keyless users still get chips).
+  // _classifyInFlight dedupes a double-send while a classification runs.
+  async _resolveTargetFields(prompt) {
+    if (AIService.hasApiKey && AIService.hasApiKey()) {
+      if (!this._classifyInFlight) {
+        this._classifyInFlight = this._classifyFields(prompt);
+        this._classifyInFlight.finally(() => { this._classifyInFlight = null; });
+      }
+      const llm = await this._classifyInFlight;
+      if (llm.length > 0) return llm;
+    }
+    return this._inferFields(prompt);
+  },
+
+  // One-shot LLM classification: "which character-card fields does this
+  // request want to change?". jsonMode + a hard 8 s cap so a slow or
+  // non-compliant model never blocks the send flow — any failure returns []
+  // and the caller falls back to the regex classifier.
+  async _classifyFields(prompt) {
+    const validIds = this.FIELD_DEFS.map(d => d.id);
+    const valid = new Set(validIds);
+    const listed = this.FIELD_DEFS
+      .map(d => d.id + ' ("' + (I18n.t ? I18n.t(d.labelKey) : d.id) + '")')
+      .join(', ');
+    const system = 'You map a user request to the character-card fields it asks to change. '
+      + 'Reply with ONLY a JSON array of field ids — e.g. ["name","description"]. '
+      + 'Valid ids: ' + listed + '. '
+      + 'If nothing matches or you are unsure, reply []. No explanations, no markdown.';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this._INTENT_TIMEOUT_MS);
+    try {
+      const result = await AIService.chat(prompt, system, '', { jsonMode: true, signal: controller.signal });
+      const parsed = JSON.parse(result.content);
+      if (!Array.isArray(parsed)) return [];
+      // Keep only known ids, dedupe, preserve FIELD_DEFS order.
+      const picked = [...new Set(parsed.map(x => String(x).trim()).filter(x => valid.has(x)))];
+      return validIds.filter(id => picked.includes(id));
+    } catch (_) {
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+
   _inferFields(prompt) {
     if (!prompt || typeof prompt !== 'string') return [];
     const p = prompt.toLowerCase();

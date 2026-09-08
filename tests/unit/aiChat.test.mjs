@@ -435,3 +435,76 @@ test('_finalizeGroupedCard adds no ready-bar when nothing completed', () => {
   AiChat._finalizeGroupedCard(groupedCard, 3);
   expect(groupedCard.footer).toBeNull();
 });
+
+// ─── LLM intent detection (passe 3) ───────────────────────────────────────
+
+test('_classifyFields parses a JSON field list and keeps only valid ids', async () => {
+  globalThis.AIService = {
+    hasApiKey: () => true,
+    chat: async () => ({ content: '["name","description","nonsense"]' }),
+  };
+  const out = await AiChat._classifyFields('Renomme la carte en Elodie');
+  expect(out).toEqual(['name', 'description']); // invalid id filtered, FIELD_DEFS order kept
+});
+
+test('_classifyFields returns [] on garbage, empty lists and failures', async () => {
+  globalThis.AIService = { hasApiKey: () => true, chat: async () => ({ content: 'not json' }) };
+  expect(await AiChat._classifyFields('x')).toEqual([]);
+
+  globalThis.AIService.chat = async () => ({ content: '[]' });
+  expect(await AiChat._classifyFields('x')).toEqual([]);
+
+  globalThis.AIService.chat = async () => ({ content: '{"field": "name"}' }); // object, not array
+  expect(await AiChat._classifyFields('x')).toEqual([]);
+
+  globalThis.AIService.chat = async () => { throw new Error('timeout'); };
+  expect(await AiChat._classifyFields('x')).toEqual([]); // never throws
+});
+
+test('_resolveTargetFields prefers the LLM result over the regex fallback', async () => {
+  globalThis.AIService = {
+    hasApiKey: () => true,
+    chat: async () => ({ content: '["scenario"]' }),
+  };
+  // The regex would say name (+ description); the LLM wins when it answers.
+  const out = await AiChat._resolveTargetFields('Renomme la carte en Elodie');
+  expect(out).toEqual(['scenario']);
+});
+
+test('_resolveTargetFields falls back to regex when the LLM is empty or keyless', async () => {
+  globalThis.AIService = { hasApiKey: () => true, chat: async () => ({ content: '[]' }) };
+  const out = await AiChat._resolveTargetFields(
+    'Renomme la carte en Elodie, elle est étudiante fauchée'
+  );
+  expect(out).toContain('name');
+  expect(out).toContain('description');
+
+  // Keyless: the LLM is never called, regex still works offline.
+  let called = false;
+  globalThis.AIService = {
+    hasApiKey: () => false,
+    chat: async () => { called = true; return { content: '["name"]' }; },
+  };
+  const out2 = await AiChat._resolveTargetFields('Renomme la carte en Elodie');
+  expect(called).toBe(false);
+  expect(out2).toContain('name');
+});
+
+test('_resolveTargetFields dedupes concurrent classifications', async () => {
+  let calls = 0;
+  globalThis.AIService = {
+    hasApiKey: () => true,
+    chat: async () => {
+      calls++;
+      await new Promise((r) => setTimeout(r, 10));
+      return { content: '["name"]' };
+    },
+  };
+  const [a, b] = await Promise.all([
+    AiChat._resolveTargetFields('x'),
+    AiChat._resolveTargetFields('x'),
+  ]);
+  expect(calls).toBe(1);
+  expect(a).toEqual(['name']);
+  expect(b).toEqual(['name']);
+});
