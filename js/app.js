@@ -21616,8 +21616,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       }
       let inputTokens = 0;
       try {
-        if (window.Tokenizer && typeof window.Tokenizer.count === "function") {
-          inputTokens = await window.Tokenizer.count(inputText + `
+        if (Tokenizer && typeof Tokenizer.count === "function") {
+          inputTokens = await Tokenizer.count(inputText + `
 ` + historyText + `
 ` + prompt);
         }
@@ -21894,7 +21894,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       this.updateCharCounts();
       this.autoResizeTextareas();
       window.syncFloatingLabels?.();
-      window.Ui.updateUIState();
+      Ui.updateUIState();
     },
     _resetPreviewToggles() {
       document.querySelectorAll(".field-toggle-group").forEach((group) => {
@@ -25988,7 +25988,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       if (now - this._storageFullWarnedAt < 5000)
         return;
       this._storageFullWarnedAt = now;
-      if (window.Ui && typeof window.Ui.showToast === "function") {
+      if (Ui && typeof Ui.showToast === "function") {
         Ui.showToast(I18n.t ? I18n.t("error.storageFull") : "Storage full! Try removing some cards or exporting them.", "danger");
       }
     },
@@ -26627,8 +26627,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       const ctxLength = this._getContextLength(modelId);
       let inputTokens = 0;
       try {
-        if (window.Tokenizer && typeof window.Tokenizer.count === "function") {
-          const counts = await Promise.all((messages || []).map((m) => window.Tokenizer.count(m.content || "")));
+        if (Tokenizer && typeof Tokenizer.count === "function") {
+          const counts = await Promise.all((messages || []).map((m) => Tokenizer.count(m.content || "")));
           inputTokens = counts.reduce((sum, n) => sum + (n || 0), 0);
         }
       } catch (_) {

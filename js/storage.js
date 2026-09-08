@@ -688,7 +688,7 @@ const CardStorage = {
     const now = Date.now();
     if (now - this._storageFullWarnedAt < 5000) return;
     this._storageFullWarnedAt = now;
-    if (window.Ui && typeof window.Ui.showToast === 'function') {
+    if (Ui && typeof Ui.showToast === 'function') {
       Ui.showToast(I18n.t ? I18n.t('error.storageFull') : 'Storage full! Try removing some cards or exporting them.', 'danger');
     }
   },

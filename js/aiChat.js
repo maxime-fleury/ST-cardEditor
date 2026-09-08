@@ -1926,8 +1926,8 @@ const AiChat = {
     }
     let inputTokens = 0;
     try {
-      if (window.Tokenizer && typeof window.Tokenizer.count === 'function') {
-        inputTokens = await window.Tokenizer.count(inputText + '\n' + historyText + '\n' + prompt);
+      if (Tokenizer && typeof Tokenizer.count === 'function') {
+        inputTokens = await Tokenizer.count(inputText + '\n' + historyText + '\n' + prompt);
       }
     } catch (_) {
       inputTokens = 0;

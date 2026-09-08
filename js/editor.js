@@ -227,7 +227,7 @@ const Editor = {
     this.updateCharCounts();
     this.autoResizeTextareas();
     window.syncFloatingLabels?.();
-    window.Ui.updateUIState();
+    Ui.updateUIState();
   },
 
   // Force every field toggle back to Edit mode and clear preview panes when a

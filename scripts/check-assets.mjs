@@ -207,6 +207,37 @@ if (workflowFiles.length === 0) {
   }
 }
 
+// 7. Module decoupling: a module that already imports X must not also reach
+//    for the `window.X` global at call time — that dead coupling is how a
+//    stale global copy outlives the import (editor.js called window.Ui while
+//    importing Ui; aiChat.js read window.Tokenizer while importing Tokenizer).
+//    The module's own export line (`window.X = X`) is expected and excluded.
+const jsModules = readdirSync(join(root, "js")).filter(f => f.endsWith(".js") && f !== "app.js");
+let couplingIssues = 0;
+for (const file of jsModules) {
+  const src = read(`js/${file}`);
+  const imported = new Set();
+  for (const im of src.matchAll(/import\s*\{([^}]+)\}\s*from\s+'\.[^']+\.js';/g)) {
+    for (const part of im[1].split(",")) {
+      const name = part.trim().split(/\s+as\s+/).pop().trim();
+      if (name) imported.add(name);
+    }
+  }
+  if (imported.size === 0) continue;
+  for (const wm of src.matchAll(/window\.([A-Z][A-Za-z0-9]*)/g)) {
+    const name = wm[1];
+    if (!imported.has(name)) continue;
+    // Skip the module's own export line `window.X = X;`.
+    const tail = src.slice(wm.index, wm.index + name.length + 12);
+    if (tail.startsWith(`window.${name} = ${name}`) || tail.startsWith(`window.${name}=${name}`)) continue;
+    fail(`js/${file}: uses window.${name} while importing ${name} — use the import; the global copy can go stale (decoupling check).`);
+    couplingIssues++;
+  }
+}
+if (couplingIssues === 0) {
+  ok(`${jsModules.length} js modules have no dead window.* coupling (imports are the only entry point).`);
+}
+
 if (failures) {
   console.error(`\ncheck-assets: ${failures} problem(s) found.`);
   process.exit(1);

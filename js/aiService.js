@@ -613,8 +613,8 @@ const AIService = {
 
     let inputTokens = 0;
     try {
-      if (window.Tokenizer && typeof window.Tokenizer.count === 'function') {
-        const counts = await Promise.all((messages || []).map(m => window.Tokenizer.count(m.content || '')));
+      if (Tokenizer && typeof Tokenizer.count === 'function') {
+        const counts = await Promise.all((messages || []).map(m => Tokenizer.count(m.content || '')));
         inputTokens = counts.reduce((sum, n) => sum + (n || 0), 0);
       }
     } catch (_) { inputTokens = 0; }
