@@ -521,3 +521,111 @@ test('_resolveTargetFields dedupes concurrent classifications', async () => {
   expect(a).toEqual(['name']);
   expect(b).toEqual(['name']);
 });
+
+test('_classifyFields passes the selected model to the classifier request', async () => {
+  stubs.AIService.hasApiKey = () => true;
+  let seenModel = null;
+  stubs.AIService.chat = async (prompt, system, model) => {
+    seenModel = model;
+    return { content: '["name"]' };
+  };
+  const out = await AiChat._classifyFields('Renomme la carte en Elodie', 'acme/model-9');
+  expect(out).toEqual(['name']);
+  expect(seenModel).toBe('acme/model-9'); // the navbar selection, not ''
+});
+
+test('_classifyFields tolerates a missing model (falls back gracefully)', async () => {
+  stubs.AIService.hasApiKey = () => true;
+  let seenModel = null;
+  stubs.AIService.chat = async (prompt, system, model) => {
+    seenModel = model;
+    return { content: '["scenario"]' };
+  };
+  const out = await AiChat._classifyFields('Arrive chez quelqu\'un');
+  expect(out).toEqual(['scenario']);
+  expect(seenModel).toBe('');
+});
+
+// ─── STORED-JSON UNWRAPPING (legacy damage repair) ────────────────────────
+
+test('_unwrapStoredJSON extracts a field out of a whole card JSON stored in that field', () => {
+  // Legacy damage: the old broken editor dumped the WHOLE card JSON into a
+  // single field. The helper must pull the field's own value back out.
+  expect(AiChat._unwrapStoredJSON('description', elodieCard))
+    .toBe(JSON.parse(elodieCard).data.description);
+  expect(AiChat._unwrapStoredJSON('first_mes', elodieCard))
+    .toBe(JSON.parse(elodieCard).data.first_mes);
+  expect(AiChat._unwrapStoredJSON('name', elodieCard)).toBe('Elodie');
+  expect(AiChat._unwrapStoredJSON('alternate_greetings', elodieCard))
+    .toBe(JSON.stringify(JSON.parse(elodieCard).data.alternate_greetings, null, 2));
+});
+
+test('_unwrapStoredJSON leaves plain text and foreign JSON untouched', () => {
+  expect(AiChat._unwrapStoredJSON('description', 'Une description normale.')).toBe('Une description normale.');
+  // JSON that is not a card (no name) is NOT unwrapped — same guard as _extractCard.
+  expect(AiChat._unwrapStoredJSON('description', '{"description":"just some json"}'))
+    .toBe('{"description":"just some json"}');
+  expect(AiChat._unwrapStoredJSON('description', '')).toBe('');
+  expect(AiChat._unwrapStoredJSON('description', null)).toBeNull();
+  // Field absent from the detected card → raw value kept.
+  expect(AiChat._unwrapStoredJSON('creator_notes', elodieCard)).toBe(elodieCard);
+});
+
+test('_cleanCardForPrompt unwraps every polluted text field of a card copy', () => {
+  const dirty = {
+    name: 'Old Name',
+    description: elodieCard,          // whole card JSON dumped here
+    personality: elodieCard,
+    first_mes: 'salut {user}',        // clean field stays as-is (normalization is separate)
+  };
+  const clean = AiChat._cleanCardForPrompt(dirty);
+  expect(clean.description).toBe(JSON.parse(elodieCard).data.description);
+  expect(clean.personality).toBe(JSON.parse(elodieCard).data.personality);
+  expect(clean.first_mes).toBe('salut {user}');
+  // The original card is never mutated (copy semantics).
+  expect(dirty.description).toBe(elodieCard);
+});
+
+test('_repairStoredCardJSON unwraps polluted fields in place and reports the count', () => {
+  const card = {
+    name: 'Old',
+    description: elodieCard,
+    personality: 'propre',
+    first_mes: elodieCard,
+  };
+  const repaired = AiChat._repairStoredCardJSON(card);
+  expect(repaired).toBe(2);
+  expect(card.description).toBe(JSON.parse(elodieCard).data.description);
+  expect(card.first_mes).toBe(JSON.parse(elodieCard).data.first_mes);
+  expect(card.personality).toBe('propre'); // untouched
+});
+
+test('_repairStoredCardJSON returns 0 for clean cards and non-objects', () => {
+  expect(AiChat._repairStoredCardJSON({ name: 'X', description: 'propre' })).toBe(0);
+  expect(AiChat._repairStoredCardJSON(null)).toBe(0);
+  expect(AiChat._repairStoredCardJSON('nope')).toBe(0);
+});
+
+test('_prepareApply shows the unwrapped stored JSON as the diff oldVal', () => {
+  const activeCard = baseCard();
+  activeCard.description = elodieCard; // legacy damage already in the card
+  window.AppState = { activeCard };
+
+  const prep = AiChat._prepareApply('description', 'Nouvelle description propre.');
+  expect(prep).not.toBeNull();
+  expect(prep.oldVal).toBe(JSON.parse(elodieCard).data.description); // not the JSON blob
+  expect(prep.newVal).toBe('Nouvelle description propre.');
+});
+
+test('buildSystemPrompt unwraps stored JSON before sending Current to the model', () => {
+  const activeCard = baseCard();
+  activeCard.description = elodieCard; // legacy damage
+  window.AppState = { activeCard };
+  stubs.CardStorage.getPrompt = () => 'Rewrite the {field} field. Current: {current}';
+  stubs.Settings.getDefaultPrompt = () => '';
+
+  const prompt = AiChat.buildSystemPrompt('description');
+  expect(prompt).toContain(JSON.parse(elodieCard).data.description); // clean text reaches the model
+  expect(prompt).not.toContain('chara_card_v2'); // the JSON blob itself is gone
+  delete stubs.CardStorage.getPrompt;
+});

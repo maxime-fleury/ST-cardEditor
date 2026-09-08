@@ -176,6 +176,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} tamam · {{errs}} başarısız',
   'ai.changesReady': '{{count}} değişiklik hazır',
   'toast.fieldsDetected': 'Algılanan alanlar: {{fields}}',
+  'toast.jsonCleaned': 'Hâlâ JSON içeren {{count}} alan temizlendi',
   'ai.viewFullResult': 'Tam sonucu görüntüle',
   'ai.showLess': 'Daha az göster',
   'ai.reviewApply': 'İncele ve Uygula',

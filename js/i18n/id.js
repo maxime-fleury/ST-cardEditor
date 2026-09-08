@@ -176,6 +176,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} selesai · {{errs}} gagal',
   'ai.changesReady': '{{count}} perubahan siap',
   'toast.fieldsDetected': 'Bidang terdeteksi: {{fields}}',
+  'toast.jsonCleaned': '{{count}} kolom yang masih berisi JSON dibersihkan',
   'ai.viewFullResult': 'Lihat hasil lengkap',
   'ai.showLess': 'Tampilkan lebih sedikit',
   'ai.reviewApply': 'Tinjau & Terapkan',

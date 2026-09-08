@@ -176,6 +176,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} انجام شد · {{errs}} ناموفق',
   'ai.changesReady': '{{count}} تغییر آماده است',
   'toast.fieldsDetected': 'فیلدهای شناساییشده: {{fields}}',
+  'toast.jsonCleaned': '{{count}} فیلد که هنوز JSON داشتند پاکسازی شدند',
   'ai.viewFullResult': 'مشاهده نتیجه کامل',
   'ai.showLess': 'نمایش کمتر',
   'ai.reviewApply': 'بررسی و اعمال',

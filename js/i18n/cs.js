@@ -176,6 +176,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} hotovo · {{errs}} selhalo',
   'ai.changesReady': 'Připraveno změn: {{count}}',
   'toast.fieldsDetected': 'Zjištěná pole: {{fields}}',
+  'toast.jsonCleaned': 'Vyčištěno {{count}} polí, která stále obsahovala JSON',
   'ai.viewFullResult': 'Zobrazit celý výsledek',
   'ai.showLess': 'Zobrazit méně',
   'ai.reviewApply': 'Zkontrolovat a použít',

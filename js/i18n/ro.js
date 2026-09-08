@@ -176,6 +176,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} finalizate · {{errs}} eșuate',
   'ai.changesReady': '{{count}} modificări gata',
   'toast.fieldsDetected': 'Câmpuri detectate: {{fields}}',
+  'toast.jsonCleaned': 'Au fost curățate {{count}} câmpuri care mai conțineau JSON',
   'ai.viewFullResult': 'Vezi rezultatul complet',
   'ai.showLess': 'Afișează mai puțin',
   'ai.reviewApply': 'Revizuiește și aplică',

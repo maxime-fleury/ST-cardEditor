@@ -465,6 +465,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} hecho \u00b7 {{errs}} fall\u00f3',
   'ai.changesReady': '{{count}} cambios listos',
   'toast.fieldsDetected': 'Campos detectados: {{fields}}',
+  'toast.jsonCleaned': '{{count}} campo(s) aún contenían JSON — limpiados',
   'ai.viewFullResult': 'Ver resultado completo',
   'ai.showLess': 'Mostrar menos',
   'ai.reviewApply': 'Revisar y aplicar',

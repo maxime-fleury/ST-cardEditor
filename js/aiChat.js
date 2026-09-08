@@ -117,13 +117,23 @@ const AiChat = {
 
     if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
 
+    // Read the dropdown selection BEFORE intent detection: the LLM classifier
+    // must use the same model the send will use, or a model that was only
+    // picked in the (unsaved) navbar would make the classifier throw
+    // "no model" and silently fall back to the FR/EN regex rules.
+    const modelId = $('#aiModelSelect').value;
+    if (!modelId) {
+      Ui.showToast(I18n.t('toast.selectModel'), 'warning');
+      return;
+    }
+
     let selectedFields = this.getSelectedFields();
     if (selectedFields.length === 0) {
       // Natural-language intent: no chips were picked — detect the fields the
       // request is about. A short LLM call (jsonMode, capped at
       // _INTENT_TIMEOUT_MS) understands any language the model does; the
       // regex classifier is the offline fallback when it fails or times out.
-      const inferred = await this._resolveTargetFields(prompt);
+      const inferred = await this._resolveTargetFields(prompt, modelId);
       if (inferred.length > 0) {
         ChatState.selectedFields = new Set(inferred);
         this._renderFieldChips();
@@ -148,12 +158,6 @@ const AiChat = {
       this.toggleHistory(false);
     }
     if (!AIService.hasApiKey()) { Ui.showToast(I18n.t('toast.apiKey'), 'warning'); return; }
-
-    const modelId = $('#aiModelSelect').value;
-    if (!modelId) {
-      Ui.showToast(I18n.t('toast.selectModel'), 'warning');
-      return;
-    }
 
     if (!retryPrompt) {
       input.value = '';
@@ -281,7 +285,7 @@ const AiChat = {
       '',
       'Here is the FULL character card for context:',
       '```json',
-      this._normalizePlaceholders(CardEngine.toJSON(cardForPrompt)),
+      this._normalizePlaceholders(CardEngine.toJSON(this._cleanCardForPrompt(cardForPrompt))),
       '```',
       '',
     ];
@@ -295,7 +299,7 @@ const AiChat = {
     } else {
       let current = '(empty)';
       if (activeCard && typeof activeCard[targetField] === 'string' && activeCard[targetField]) {
-        current = this._normalizePlaceholders(activeCard[targetField]);
+        current = this._normalizePlaceholders(this._unwrapStoredJSON(targetField, activeCard[targetField]));
       }
       const fieldInstr = (CardStorage.getPrompt('fieldsEdit') || Settings.getDefaultPrompt('fieldsEdit'))
         .split('{field}').join(fieldLabel)
@@ -627,7 +631,7 @@ const AiChat = {
         : (I18n.t ? I18n.t('ai.thinkingLive', { secs }) : 'Thinking… ' + secs);
     }, 500);
 
-    const cardJson = activeCard ? CardEngine.toJSON(activeCard) : '';
+    const cardJson = activeCard ? CardEngine.toJSON(this._cleanCardForPrompt(activeCard)) : '';
     const systemPrompt = [
       CardStorage.getPrompt('fullCard') || 'You are an AI assistant helping edit SillyTavern character cards.\nSillyTavern is an AI roleplay frontend. Cards define character personalities.',
       '',
@@ -874,7 +878,7 @@ const AiChat = {
       // honor it as part of the same apply instead of silently dropping it.
       const renamedTo = this._pendingRename(card, activeCard);
       return {
-        oldVal: activeCard[field] || '',
+        oldVal: this._unwrapStoredJSON(field, activeCard[field] || ''),
         newVal: clean,
         applyFn: () => {
           activeCard[field] = clean;
@@ -1004,6 +1008,52 @@ const AiChat = {
     return card;
   },
 
+  // ─── STORED-JSON UNWRAPPING (legacy damage repair) ─────
+
+  // A stored field value may itself be a whole character card JSON — legacy
+  // damage from the old editor that dumped full-card responses into fields
+  // ("le JSON de base"). Detect it and unwrap back to the plain text of the
+  // requested field, so prompts, diffs and the editor never re-see the JSON.
+  // Non-JSON values pass through untouched.
+  _unwrapStoredJSON(field, value) {
+    if (typeof value !== 'string' || !value.trim()) return value;
+    const card = this._extractCard(value);
+    if (!card) return value;
+    const extracted = this._cardFieldValue(card, field);
+    if (extracted === undefined) return value;
+    if (Array.isArray(extracted)) return JSON.stringify(extracted, null, 2);
+    return String(extracted);
+  },
+
+  // Prompt-safe copy of the card: every text field that still holds a whole
+  // card JSON blob is unwrapped to its plain text before serialization, so
+  // the model receives clean fields instead of nested JSON.
+  _cleanCardForPrompt(card) {
+    const clean = card ? { ...card } : card;
+    if (!clean) return clean;
+    ['name', 'description', 'personality', 'first_mes', 'scenario', 'mes_example',
+      'system_prompt', 'post_history_instructions', 'creator_notes'].forEach(f => {
+      if (typeof clean[f] === 'string') clean[f] = this._unwrapStoredJSON(f, clean[f]);
+    });
+    return clean;
+  },
+
+  // Sweep a stored card and unwrap any text field that is itself a whole
+  // card JSON blob (legacy damage). Mutates the card in place and returns the
+  // number of fields repaired (0 = card already clean) so the caller can
+  // persist + inform the user once.
+  _repairStoredCardJSON(card) {
+    if (!card || typeof card !== 'object') return 0;
+    let repaired = 0;
+    ['name', 'description', 'personality', 'first_mes', 'scenario', 'mes_example',
+      'system_prompt', 'post_history_instructions', 'creator_notes'].forEach(f => {
+      if (typeof card[f] !== 'string') return;
+      const unwrapped = this._unwrapStoredJSON(f, card[f]);
+      if (unwrapped !== card[f]) { card[f] = unwrapped; repaired++; }
+    });
+    return repaired;
+  },
+
   // Infer which card fields a natural-language request is about. Used when the
   // user sends a message without picking field chips: "Renomme la carte en X,
   // elle est … elle dit « … »" → name + description + first_mes + scenario.
@@ -1012,10 +1062,10 @@ const AiChat = {
   // to the local regex classifier on any failure/timeout or when no API key
   // is configured (the regex runs offline, so keyless users still get chips).
   // _classifyInFlight dedupes a double-send while a classification runs.
-  async _resolveTargetFields(prompt) {
+  async _resolveTargetFields(prompt, modelId) {
     if (AIService.hasApiKey && AIService.hasApiKey()) {
       if (!this._classifyInFlight) {
-        this._classifyInFlight = this._classifyFields(prompt);
+        this._classifyInFlight = this._classifyFields(prompt, modelId);
         this._classifyInFlight.finally(() => { this._classifyInFlight = null; });
       }
       const llm = await this._classifyInFlight;
@@ -1025,10 +1075,11 @@ const AiChat = {
   },
 
   // One-shot LLM classification: "which character-card fields does this
-  // request want to change?". jsonMode + a hard 8 s cap so a slow or
+  // request want to change?". Uses the model selected in the navbar dropdown
+  // (same one the send will use), jsonMode + a hard 8 s cap so a slow or
   // non-compliant model never blocks the send flow — any failure returns []
   // and the caller falls back to the regex classifier.
-  async _classifyFields(prompt) {
+  async _classifyFields(prompt, modelId) {
     const validIds = this.FIELD_DEFS.map(d => d.id);
     const valid = new Set(validIds);
     const listed = this.FIELD_DEFS
@@ -1041,7 +1092,7 @@ const AiChat = {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this._INTENT_TIMEOUT_MS);
     try {
-      const result = await AIService.chat(prompt, system, '', { jsonMode: true, signal: controller.signal });
+      const result = await AIService.chat(prompt, system, modelId || '', { jsonMode: true, signal: controller.signal });
       const parsed = JSON.parse(result.content);
       if (!Array.isArray(parsed)) return [];
       // Keep only known ids, dedupe, preserve FIELD_DEFS order.
@@ -1328,11 +1379,15 @@ const AiChat = {
     // Prompts come from the Settings registry (stored override || built-in
     // default), so users can edit every AI prompt under Settings → Prompts tab.
     const promptFor = (name) => CardStorage.getPrompt(name) || Settings.getDefaultPrompt(name);
+    // Unwrap legacy stored JSON before feeding "Current" to the model: a field
+    // that still holds a whole card JSON (old broken editor) must not be
+    // re-emitted as JSON by the quick action.
+    const cleanCard = this._cleanCardForPrompt(activeCard);
     const currentOf = {
-      shorten: activeCard.description, enhance: activeCard.description,
-      tone: activeCard.description, grammar: activeCard.description,
-      personality: activeCard.personality, firstmes: activeCard.first_mes,
-      scenario: activeCard.scenario, systemprompt: activeCard.system_prompt,
+      shorten: cleanCard.description, enhance: cleanCard.description,
+      tone: cleanCard.description, grammar: cleanCard.description,
+      personality: cleanCard.personality, firstmes: cleanCard.first_mes,
+      scenario: cleanCard.scenario, systemprompt: cleanCard.system_prompt,
     };
     const withCurrent = (name, field) => promptFor(name) + '\n\nCurrent:\n' + (currentOf[field] || '(empty)');
 
@@ -1369,7 +1424,7 @@ const AiChat = {
         buttonLabel: I18n.t ? I18n.t('dialog.ok') : 'OK',
       });
       if (!lang) return;
-      prompts.translate = prompts.translate.split('{lang}').join(lang).split('{card}').join(CardEngine.toJSON(activeCard));
+      prompts.translate = prompts.translate.split('{lang}').join(lang).split('{card}').join(CardEngine.toJSON(this._cleanCardForPrompt(activeCard)));
     }
 
     if (action === 'tone') {
@@ -1820,7 +1875,7 @@ const AiChat = {
     }
 
     const ctx = AIService.getContextLength(modelId);
-    const cardJson = activeCard ? CardEngine.toJSON(activeCard) : '';
+    const cardJson = activeCard ? CardEngine.toJSON(this._cleanCardForPrompt(activeCard)) : '';
     // Mirror the default send path (buildSystemPrompt uses getPrompt('assistant')
     // plus the full card JSON), not the full-card translate prompt.
     const systemPromptBase = [

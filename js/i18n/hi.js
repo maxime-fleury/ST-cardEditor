@@ -176,6 +176,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} पूर्ण · {{errs}} विफल',
   'ai.changesReady': '{{count}} परिवर्तन तैयार',
   'toast.fieldsDetected': 'पहचाने गए फ़ील्ड: {{fields}}',
+  'toast.jsonCleaned': 'अभी भी JSON वाले {{count}} फ़ील्ड साफ़ किए गए',
   'ai.viewFullResult': 'पूरा परिणाम देखें',
   'ai.showLess': 'कम दिखाएं',
   'ai.reviewApply': 'समीक्षा करें और लागू करें',

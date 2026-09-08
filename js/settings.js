@@ -564,7 +564,16 @@ const Settings = {
           if (settings.provider) { CardStorage.setProvider(settings.provider); $('#providerSelect').value = settings.provider; this.toggleProvider(); }
           // Presence-based (not truthy) so explicitly-empty values in an
           // imported file actually clear previously stored ones.
-          if (settings.defaultModel !== undefined) { CardStorage.setDefaultModel(settings.defaultModel); $('#defaultModelSelect').value = settings.defaultModel; $('#aiModelSelect').value = settings.defaultModel; }
+          if (settings.defaultModel !== undefined) {
+            // Route into the provider-appropriate slot: OpenRouter owns the
+            // shared default, named/custom providers keep their own model IDs
+            // (same rule as saveSettings, v2 #25). Writing the shared slot for
+            // every provider would surface the imported model on the wrong
+            // provider at the next re-render.
+            this._setCurrentModelId(settings.defaultModel);
+            $('#defaultModelSelect').value = settings.defaultModel;
+            $('#aiModelSelect').value = this._currentModelId();
+          }
           if (settings.maxTokens !== undefined) { CardStorage.setMaxTokens(settings.maxTokens); $('#maxTokensInput').value = settings.maxTokens || ''; }
           if (settings.injectCopyright !== undefined) { CardStorage.setInjectCopyright(settings.injectCopyright); $('#injectCopyrightToggle').checked = settings.injectCopyright; }
           if (settings.customApiUrl !== undefined) { CardStorage.setCustomApiUrl(settings.customApiUrl); $('#customApiUrlInput').value = settings.customApiUrl; }
@@ -746,7 +755,9 @@ const Settings = {
             if (sel) sel.value = workspace.settings.provider;
           }
           if (workspace.settings.defaultModel) {
-            CardStorage.setDefaultModel(workspace.settings.defaultModel);
+            // Route into the provider-appropriate slot (v2 #25) — the provider
+            // was just restored above, so the model lands in the right slot.
+            this._setCurrentModelId(workspace.settings.defaultModel);
           }
           if (workspace.settings.maxTokens !== undefined) CardStorage.setMaxTokens(workspace.settings.maxTokens);
           if (workspace.settings.injectCopyright !== undefined) CardStorage.setInjectCopyright(workspace.settings.injectCopyright);

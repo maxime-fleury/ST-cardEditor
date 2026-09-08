@@ -465,6 +465,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} 完成 · {{errs}} 失败',
   'ai.changesReady': '{{count}}项更改已就绪',
   'toast.fieldsDetected': '检测到的字段：{{fields}}',
+  'toast.jsonCleaned': '已清理仍包含 JSON 的 {{count}} 个字段',
   'ai.viewFullResult': '查看完整结果',
   'ai.showLess': '显示较少',
   'ai.reviewApply': '审查并应用',

@@ -6,6 +6,34 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.7.1] - 2026-09-08
+
+### Fixed
+- **Legacy stored JSON is unwrapped from card fields** — cards whose fields
+  still hold a whole character-card JSON (dumped there by the old broken
+  editor) are repaired once, on load: each polluted field is unwrapped back to
+  its plain text, the card is re-saved and a “N fields still contained JSON —
+  cleaned” toast confirms it. The unwrapped text is also what prompts, the
+  context-bar estimate, quick actions and the diff old-value read, so the
+  model never sees — and never re-emits — the stored JSON.
+- **LLM field detection uses the selected model** — the intent classifier now
+  sends the model picked in the navbar dropdown instead of an empty model
+  string, so natural-language detection works with a model that was only
+  chosen in the (unsaved) dropdown instead of silently falling back to the
+  FR/EN regex rules.
+- **Settings/workspace import routes the model to the right provider** —
+  importing a settings or workspace file no longer writes the imported model
+  into the shared OpenRouter slot when the imported provider is a named one
+  (per-provider isolation, v2 #25); the visible dropdowns mirror the routed
+  value.
+- **Card selection survives a failed repair save** — a quota-exceeded error
+  while persisting a repaired card no longer aborts the whole card switch: the
+  in-memory card is already cleaned and the next save persists it.
+- **Batch-compare modal can no longer trigger an AI apply** — the Apply-all
+  button is hidden in the read-only comparison and any leftover Review &
+  Apply handlers are detached, so clicking Apply-all inside the comparison can
+  never apply pending AI changes (including ones queued for another card).
+
 ## [2.7.0] - 2026-09-08
 
 ### Added
@@ -236,7 +264,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   with a white popup in dark mode — fixed via `color-scheme` plus dark
   `form-select`/`option` styling across all browsers.
 
-[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.7.0...HEAD
+[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.7.1...HEAD
+[2.7.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.7.1
 [2.7.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.7.0
 [2.6.2]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.6.2
 [2.6.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.6.1

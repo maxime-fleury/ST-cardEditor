@@ -176,6 +176,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} اكتمل · {{errs}} فشل',
   'ai.changesReady': '{{count}} تغييرات جاهزة',
   'toast.fieldsDetected': 'الحقول المكتشفة: {{fields}}',
+  'toast.jsonCleaned': 'تم تنظيف {{count}} حقول كانت لا تزال تحتوي على JSON',
   'ai.viewFullResult': 'عرض النتيجة الكاملة',
   'ai.showLess': 'عرض أقل',
   'ai.reviewApply': 'مراجعة وتطبيق',

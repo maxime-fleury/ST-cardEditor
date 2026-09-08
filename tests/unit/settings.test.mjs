@@ -9,6 +9,7 @@ const store = {
   customModelId: '',
   providerModelIds: {},
   getProvider: () => store.provider,
+  setProvider: (p) => { store.provider = p || 'openrouter'; },
   getDefaultModel: () => store.defaultModel,
   setDefaultModel: (v) => { store.defaultModel = v || ''; },
   getCustomModelId: () => store.customModelId,
@@ -94,6 +95,52 @@ test('_currentModelId falls back to the saved provider when no provider is given
 test('getAllProviderModelIds returns only non-empty entries', () => {
   store.providerModelIds = { deepseek: 'deepseek-chat', xai: '', nanogpt: 'gpt-x' };
   expect(store.getAllProviderModelIds()).toEqual({ deepseek: 'deepseek-chat', nanogpt: 'gpt-x' });
+});
+
+// importSettings must route an imported defaultModel into the provider-appropriate
+// slot (v2 #25), not force it into the shared OpenRouter slot: importing a file
+// whose provider is DeepSeek must land the model in the deepseek slot, leaving
+// the OpenRouter default untouched.
+test('importSettings routes the imported model into the imported provider\'s slot', async () => {
+  store.provider = 'openrouter';
+  store.defaultModel = 'or-existing';
+  store.providerModelIds = {};
+  const file = { name: 'settings.json' };
+  const reader = {
+    result: JSON.stringify({ provider: 'deepseek', defaultModel: 'deepseek-chat', maxTokens: 8000 }),
+    onload: null,
+    readAsText: function () { this.onload(); },
+  };
+  globalThis.FileReader = function () { return reader; };
+  const els = {
+    '#settingsFileInput': { onchange: null, click: () => {} },
+    '#providerSelect': { value: '' },
+    '#defaultModelSelect': { value: '' },
+    '#aiModelSelect': { value: '' },
+    '#maxTokensInput': { value: '' },
+    '#injectCopyrightToggle': { checked: false },
+    '#customApiUrlInput': { value: '' },
+    '#customModelInput': { value: '' },
+  };
+  globalThis.document = {
+    querySelector: (sel) => els[sel] || null,
+  };
+  stubs.Ui.showToast = noop;
+  stubs.Ui.$ = (sel) => els[sel] || null;
+  Settings.toggleProvider = noop;
+
+  Settings.importSettings();
+  els['#settingsFileInput'].onchange({ target: { files: [file] } });
+  await Promise.resolve(); // flush the async onload
+
+  // DeepSeek slot receives the imported model…
+  expect(store.providerModelIds.deepseek).toBe('deepseek-chat');
+  // …and the shared OpenRouter slot is NOT clobbered by a DeepSeek import.
+  expect(store.defaultModel).toBe('or-existing');
+  // The visible dropdowns mirror the routed value.
+  expect(els['#aiModelSelect'].value).toBe('deepseek-chat');
+  delete globalThis.FileReader;
+  delete globalThis.document;
 });
 
 // Service-worker activate filter: the CDN cache (no ':' in its name) must be

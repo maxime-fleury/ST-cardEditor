@@ -465,6 +465,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} 完了 · {{errs}} 失敗',
   'ai.changesReady': '{{count}}件の変更が準備できました',
   'toast.fieldsDetected': '検出されたフィールド: {{fields}}',
+  'toast.jsonCleaned': 'まだJSONが含まれていた{{count}}個のフィールドを修復しました',
   'ai.viewFullResult': '結果を全部表示',
   'ai.showLess': '簡略表示',
   'ai.reviewApply': '確認して適用',

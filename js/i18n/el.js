@@ -465,6 +465,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} έγιναν · {{errs}} απέτυχαν',
   'ai.changesReady': '{{count}} αλλαγές έτοιμες',
   'toast.fieldsDetected': 'Πεδία που εντοπίστηκαν: {{fields}}',
+  'toast.jsonCleaned': 'Καθαρίστηκαν {{count}} πεδία που περιείχαν ακόμη JSON',
   'ai.viewFullResult': 'Προβολή πλήρους αποτελέσματος',
   'ai.showLess': 'Εμφάνιση λιγότερων',
   'ai.reviewApply': 'Ανασκόπηση & Εφαρμογή',

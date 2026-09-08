@@ -176,6 +176,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} concluído(s) · {{errs}} falhado(s)',
   'ai.changesReady': '{{count}} alterações prontas',
   'toast.fieldsDetected': 'Campos detetados: {{fields}}',
+  'toast.jsonCleaned': '{{count}} campo(s) ainda continham JSON — limpos',
   'ai.viewFullResult': 'Ver resultado completo',
   'ai.showLess': 'Mostrar menos',
   'ai.reviewApply': 'Rever e aplicar',

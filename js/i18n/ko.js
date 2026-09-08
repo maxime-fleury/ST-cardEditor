@@ -465,6 +465,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} 완료 · {{errs}} 실패',
   'ai.changesReady': '변경 {{count}}개 준비됨',
   'toast.fieldsDetected': '감지된 필드: {{fields}}',
+  'toast.jsonCleaned': '여전히 JSON이 포함된 {{count}}개 필드를 정리했습니다',
   'ai.viewFullResult': '전체 결과 보기',
   'ai.showLess': '간략히 보기',
   'ai.reviewApply': '검토 및 적용',

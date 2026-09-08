@@ -236,6 +236,7 @@
     "ai.doneSummary": "{{done}}/{{total}} done · {{errs}} failed",
     "ai.changesReady": "{{count}} changes ready",
     "toast.fieldsDetected": "Detected fields: {{fields}}",
+    "toast.jsonCleaned": "Cleaned {{count}} field(s) that still contained JSON",
     "ai.viewFullResult": "View full result",
     "ai.showLess": "Show less",
     "ai.reviewApply": "Review & Apply",
@@ -1164,6 +1165,7 @@
     "ai.doneSummary": "{{done}}/{{total}} terminé · {{errs}} échec(s)",
     "ai.changesReady": "{{count}} modifications prêtes",
     "toast.fieldsDetected": "Champs détectés : {{fields}}",
+    "toast.jsonCleaned": "{{count}} champ(s) contenaient encore du JSON — nettoyés",
     "ai.viewFullResult": "Voir le résultat complet",
     "ai.showLess": "Afficher moins",
     "ai.reviewApply": "Examiner et appliquer",
@@ -1806,6 +1808,7 @@
     "ai.doneSummary": "{{done}}/{{total}} hecho · {{errs}} falló",
     "ai.changesReady": "{{count}} cambios listos",
     "toast.fieldsDetected": "Campos detectados: {{fields}}",
+    "toast.jsonCleaned": "{{count}} campo(s) aún contenían JSON — limpiados",
     "ai.viewFullResult": "Ver resultado completo",
     "ai.showLess": "Mostrar menos",
     "ai.reviewApply": "Revisar y aplicar",
@@ -2447,6 +2450,7 @@
     "ai.doneSummary": "{{done}}/{{total}} erledigt · {{errs}} fehlgeschlagen",
     "ai.changesReady": "{{count}} Änderungen bereit",
     "toast.fieldsDetected": "Erkannte Felder: {{fields}}",
+    "toast.jsonCleaned": "{{count}} Felder enthielten noch JSON — bereinigt",
     "ai.viewFullResult": "Vollständiges Ergebnis anzeigen",
     "ai.showLess": "Weniger anzeigen",
     "ai.reviewApply": "Prüfen übernehmen",
@@ -3088,6 +3092,7 @@
     "ai.doneSummary": "{{done}}/{{total}} concluído · {{errs}} falhou",
     "ai.changesReady": "{{count}} alterações prontas",
     "toast.fieldsDetected": "Campos detectados: {{fields}}",
+    "toast.jsonCleaned": "{{count}} campo(s) ainda continham JSON — limpos",
     "ai.viewFullResult": "Ver resultado completo",
     "ai.showLess": "Mostrar menos",
     "ai.reviewApply": "Revisar e aplicar",
@@ -3729,6 +3734,7 @@
     "ai.doneSummary": "{{done}}/{{total}} 完了 · {{errs}} 失敗",
     "ai.changesReady": "{{count}}件の変更が準備できました",
     "toast.fieldsDetected": "検出されたフィールド: {{fields}}",
+    "toast.jsonCleaned": "まだJSONが含まれていた{{count}}個のフィールドを修復しました",
     "ai.viewFullResult": "結果を全部表示",
     "ai.showLess": "簡略表示",
     "ai.reviewApply": "確認して適用",
@@ -4370,6 +4376,7 @@
     "ai.doneSummary": "{{done}}/{{total}} 完成 · {{errs}} 失败",
     "ai.changesReady": "{{count}}项更改已就绪",
     "toast.fieldsDetected": "检测到的字段：{{fields}}",
+    "toast.jsonCleaned": "已清理仍包含 JSON 的 {{count}} 个字段",
     "ai.viewFullResult": "查看完整结果",
     "ai.showLess": "显示较少",
     "ai.reviewApply": "审查并应用",
@@ -5011,6 +5018,7 @@
     "ai.doneSummary": "{{done}}/{{total}} 완료 · {{errs}} 실패",
     "ai.changesReady": "변경 {{count}}개 준비됨",
     "toast.fieldsDetected": "감지된 필드: {{fields}}",
+    "toast.jsonCleaned": "여전히 JSON이 포함된 {{count}}개 필드를 정리했습니다",
     "ai.viewFullResult": "전체 결과 보기",
     "ai.showLess": "간략히 보기",
     "ai.reviewApply": "검토 및 적용",
@@ -5652,6 +5660,7 @@
     "ai.doneSummary": "{{done}}/{{total}} έγιναν · {{errs}} απέτυχαν",
     "ai.changesReady": "{{count}} αλλαγές έτοιμες",
     "toast.fieldsDetected": "Πεδία που εντοπίστηκαν: {{fields}}",
+    "toast.jsonCleaned": "Καθαρίστηκαν {{count}} πεδία που περιείχαν ακόμη JSON",
     "ai.viewFullResult": "Προβολή πλήρους αποτελέσματος",
     "ai.showLess": "Εμφάνιση λιγότερων",
     "ai.reviewApply": "Ανασκόπηση & Εφαρμογή",
@@ -6293,6 +6302,7 @@
     "ai.doneSummary": "{{done}}/{{total}} готово · {{errs}} ошибок",
     "ai.changesReady": "Готово изменений: {{count}}",
     "toast.fieldsDetected": "Обнаруженные поля: {{fields}}",
+    "toast.jsonCleaned": "Очищено {{count}} поле(й), всё ещё содержавших JSON",
     "ai.viewFullResult": "Посмотреть полный результат",
     "ai.showLess": "Показать меньше",
     "ai.reviewApply": "Просмотр и применение",
@@ -6646,6 +6656,7 @@
     "ai.doneSummary": "{{done}}/{{total}} completati · {{errs}} non riusciti",
     "ai.changesReady": "{{count}} modifiche pronte",
     "toast.fieldsDetected": "Campi rilevati: {{fields}}",
+    "toast.jsonCleaned": "{{count}} campi contenevano ancora JSON — ripuliti",
     "ai.viewFullResult": "Visualizza risultato completo",
     "ai.showLess": "Mostra meno",
     "ai.reviewApply": "Rivedi e applica",
@@ -7287,6 +7298,7 @@
     "ai.doneSummary": "{{done}}/{{total}} gotowych · {{errs}} nieudanych",
     "ai.changesReady": "Gotowych zmian: {{count}}",
     "toast.fieldsDetected": "Wykryte pola: {{fields}}",
+    "toast.jsonCleaned": "Wyczyszczono {{count}} pola, które nadal zawierały JSON",
     "ai.viewFullResult": "Zobacz pełny wynik",
     "ai.showLess": "Pokaż mniej",
     "ai.reviewApply": "Przejrzyj i zastosuj",
@@ -7928,6 +7940,7 @@
     "ai.doneSummary": "{{done}}/{{total}} tamam · {{errs}} başarısız",
     "ai.changesReady": "{{count}} değişiklik hazır",
     "toast.fieldsDetected": "Algılanan alanlar: {{fields}}",
+    "toast.jsonCleaned": "Hâlâ JSON içeren {{count}} alan temizlendi",
     "ai.viewFullResult": "Tam sonucu görüntüle",
     "ai.showLess": "Daha az göster",
     "ai.reviewApply": "İncele ve Uygula",
@@ -8569,6 +8582,7 @@
     "ai.doneSummary": "{{done}}/{{total}} klaar · {{errs}} mislukt",
     "ai.changesReady": "{{count}} wijzigingen klaar",
     "toast.fieldsDetected": "Gedetecteerde velden: {{fields}}",
+    "toast.jsonCleaned": "{{count}} veld(en) bevatten nog JSON — opgeschoond",
     "ai.viewFullResult": "Volledig resultaat bekijken",
     "ai.showLess": "Minder tonen",
     "ai.reviewApply": "Controleren en toepassen",
@@ -9210,6 +9224,7 @@
     "ai.doneSummary": "{{done}}/{{total}} готово · {{errs}} помилок",
     "ai.changesReady": "Змін готово: {{count}}",
     "toast.fieldsDetected": "Виявлені поля: {{fields}}",
+    "toast.jsonCleaned": "Очищено {{count}} поле(й), що ще містили JSON",
     "ai.viewFullResult": "Переглянути повний результат",
     "ai.showLess": "Показати менше",
     "ai.reviewApply": "Переглянути та застосувати",
@@ -9851,6 +9866,7 @@
     "ai.doneSummary": "{{done}}/{{total}} xong · {{errs}} thất bại",
     "ai.changesReady": "{{count}} thay đổi đã sẵn sàng",
     "toast.fieldsDetected": "Các trường được phát hiện: {{fields}}",
+    "toast.jsonCleaned": "Đã dọn {{count}} trường vẫn còn chứa JSON",
     "ai.viewFullResult": "Xem kết quả đầy đủ",
     "ai.showLess": "Hiển thị ít hơn",
     "ai.reviewApply": "Xem lại và áp dụng",
@@ -10492,6 +10508,7 @@
     "ai.doneSummary": "{{done}}/{{total}} selesai · {{errs}} gagal",
     "ai.changesReady": "{{count}} perubahan siap",
     "toast.fieldsDetected": "Bidang terdeteksi: {{fields}}",
+    "toast.jsonCleaned": "{{count}} kolom yang masih berisi JSON dibersihkan",
     "ai.viewFullResult": "Lihat hasil lengkap",
     "ai.showLess": "Tampilkan lebih sedikit",
     "ai.reviewApply": "Tinjau & Terapkan",
@@ -11133,6 +11150,7 @@
     "ai.doneSummary": "{{done}}/{{total}} पूर्ण · {{errs}} विफल",
     "ai.changesReady": "{{count}} परिवर्तन तैयार",
     "toast.fieldsDetected": "पहचाने गए फ़ील्ड: {{fields}}",
+    "toast.jsonCleaned": "अभी भी JSON वाले {{count}} फ़ील्ड साफ़ किए गए",
     "ai.viewFullResult": "पूरा परिणाम देखें",
     "ai.showLess": "कम दिखाएं",
     "ai.reviewApply": "समीक्षा करें और लागू करें",
@@ -11774,6 +11792,7 @@
     "ai.doneSummary": "{{done}}/{{total}} اكتمل · {{errs}} فشل",
     "ai.changesReady": "{{count}} تغييرات جاهزة",
     "toast.fieldsDetected": "الحقول المكتشفة: {{fields}}",
+    "toast.jsonCleaned": "تم تنظيف {{count}} حقول كانت لا تزال تحتوي على JSON",
     "ai.viewFullResult": "عرض النتيجة الكاملة",
     "ai.showLess": "عرض أقل",
     "ai.reviewApply": "مراجعة وتطبيق",
@@ -12415,6 +12434,7 @@
     "ai.doneSummary": "{{done}}/{{total}} הושלמו · {{errs}} נכשלו",
     "ai.changesReady": "{{count}} שינויים מוכנים",
     "toast.fieldsDetected": "שדות שזוהו: {{fields}}",
+    "toast.jsonCleaned": "נוקו {{count}} שדות שעדיין הכילו JSON",
     "ai.viewFullResult": "הצגת התוצאה המלאה",
     "ai.showLess": "הצגה פחותה",
     "ai.reviewApply": "סקירה והחלה",
@@ -13056,6 +13076,7 @@
     "ai.doneSummary": "{{done}}/{{total}} انجام شد · {{errs}} ناموفق",
     "ai.changesReady": "{{count}} تغییر آماده است",
     "toast.fieldsDetected": "فیلدهای شناساییشده: {{fields}}",
+    "toast.jsonCleaned": "{{count}} فیلد که هنوز JSON داشتند پاکسازی شدند",
     "ai.viewFullResult": "مشاهده نتیجه کامل",
     "ai.showLess": "نمایش کمتر",
     "ai.reviewApply": "بررسی و اعمال",
@@ -13697,6 +13718,7 @@
     "ai.doneSummary": "{{done}}/{{total}} finalizate · {{errs}} eșuate",
     "ai.changesReady": "{{count}} modificări gata",
     "toast.fieldsDetected": "Câmpuri detectate: {{fields}}",
+    "toast.jsonCleaned": "Au fost curățate {{count}} câmpuri care mai conțineau JSON",
     "ai.viewFullResult": "Vezi rezultatul complet",
     "ai.showLess": "Afișează mai puțin",
     "ai.reviewApply": "Revizuiește și aplică",
@@ -14338,6 +14360,7 @@
     "ai.doneSummary": "{{done}}/{{total}} hotovo · {{errs}} selhalo",
     "ai.changesReady": "Připraveno změn: {{count}}",
     "toast.fieldsDetected": "Zjištěná pole: {{fields}}",
+    "toast.jsonCleaned": "Vyčištěno {{count}} polí, která stále obsahovala JSON",
     "ai.viewFullResult": "Zobrazit celý výsledek",
     "ai.showLess": "Zobrazit méně",
     "ai.reviewApply": "Zkontrolovat a použít",
@@ -14979,6 +15002,7 @@
     "ai.doneSummary": "{{done}}/{{total}} klart · {{errs}} misslyckade",
     "ai.changesReady": "{{count}} ändringar redo",
     "toast.fieldsDetected": "Identifierade fält: {{fields}}",
+    "toast.jsonCleaned": "{{count}} fält innehöll fortfarande JSON — rensade",
     "ai.viewFullResult": "Visa hela resultatet",
     "ai.showLess": "Visa mindre",
     "ai.reviewApply": "Granska och tillämpa",
@@ -15620,6 +15644,7 @@
     "ai.doneSummary": "{{done}}/{{total}} เสร็จสิ้น · {{errs}} ล้มเหลว",
     "ai.changesReady": "การเปลี่ยนแปลง {{count}} รายการพร้อม",
     "toast.fieldsDetected": "ฟิลด์ที่ตรวจพบ: {{fields}}",
+    "toast.jsonCleaned": "ทำความสะอาดฟิลด์ {{count}} รายการที่ยังมี JSON อยู่",
     "ai.viewFullResult": "ดูผลลัพธ์ทั้งหมด",
     "ai.showLess": "แสดงน้อยลง",
     "ai.reviewApply": "ตรวจสอบและใช้",
@@ -16261,6 +16286,7 @@
     "ai.doneSummary": "{{done}}/{{total}} concluído(s) · {{errs}} falhado(s)",
     "ai.changesReady": "{{count}} alterações prontas",
     "toast.fieldsDetected": "Campos detetados: {{fields}}",
+    "toast.jsonCleaned": "{{count}} campo(s) ainda continham JSON — limpos",
     "ai.viewFullResult": "Ver resultado completo",
     "ai.showLess": "Mostrar menos",
     "ai.reviewApply": "Rever e aplicar",
@@ -16902,6 +16928,7 @@
     "ai.doneSummary": "{{done}}/{{total}} tapos · {{errs}} nabigo",
     "ai.changesReady": "{{count}} pagbabago handa na",
     "toast.fieldsDetected": "Mga field na natukoy: {{fields}}",
+    "toast.jsonCleaned": "Nilinis ang {{count}} field na mayroon pang JSON",
     "ai.viewFullResult": "Tingnan ang buong resulta",
     "ai.showLess": "Ipakita ang mas kaunti",
     "ai.reviewApply": "Suriin at I-apply",
@@ -18554,9 +18581,9 @@ Each greeting should be an in-character opening message that could start a conve
               this.toggleProvider();
             }
             if (settings.defaultModel !== undefined) {
-              CardStorage.setDefaultModel(settings.defaultModel);
+              this._setCurrentModelId(settings.defaultModel);
               $("#defaultModelSelect").value = settings.defaultModel;
-              $("#aiModelSelect").value = settings.defaultModel;
+              $("#aiModelSelect").value = this._currentModelId();
             }
             if (settings.maxTokens !== undefined) {
               CardStorage.setMaxTokens(settings.maxTokens);
@@ -18746,7 +18773,7 @@ Each greeting should be an in-character opening message that could start a conve
                 sel.value = workspace.settings.provider;
             }
             if (workspace.settings.defaultModel) {
-              CardStorage.setDefaultModel(workspace.settings.defaultModel);
+              this._setCurrentModelId(workspace.settings.defaultModel);
             }
             if (workspace.settings.maxTokens !== undefined)
               CardStorage.setMaxTokens(workspace.settings.maxTokens);
@@ -19011,9 +19038,14 @@ Each greeting should be an in-character opening message that could start a conve
         Ui.showToast(I18n.t("toast.selectCard"), "warning");
         return;
       }
+      const modelId = $("#aiModelSelect").value;
+      if (!modelId) {
+        Ui.showToast(I18n.t("toast.selectModel"), "warning");
+        return;
+      }
       let selectedFields2 = this.getSelectedFields();
       if (selectedFields2.length === 0) {
-        const inferred = await this._resolveTargetFields(prompt);
+        const inferred = await this._resolveTargetFields(prompt, modelId);
         if (inferred.length > 0) {
           ChatState.selectedFields = new Set(inferred);
           this._renderFieldChips();
@@ -19038,11 +19070,6 @@ Each greeting should be an in-character opening message that could start a conve
       }
       if (!AIService.hasApiKey()) {
         Ui.showToast(I18n.t("toast.apiKey"), "warning");
-        return;
-      }
-      const modelId = $("#aiModelSelect").value;
-      if (!modelId) {
-        Ui.showToast(I18n.t("toast.selectModel"), "warning");
         return;
       }
       if (!retryPrompt) {
@@ -19158,7 +19185,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         "",
         "Here is the FULL character card for context:",
         "```json",
-        this._normalizePlaceholders(CardEngine.toJSON(cardForPrompt)),
+        this._normalizePlaceholders(CardEngine.toJSON(this._cleanCardForPrompt(cardForPrompt))),
         "```",
         ""
       ];
@@ -19169,7 +19196,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       } else {
         let current = "(empty)";
         if (activeCard && typeof activeCard[targetField] === "string" && activeCard[targetField]) {
-          current = this._normalizePlaceholders(activeCard[targetField]);
+          current = this._normalizePlaceholders(this._unwrapStoredJSON(targetField, activeCard[targetField]));
         }
         const fieldInstr = (CardStorage.getPrompt("fieldsEdit") || Settings.getDefaultPrompt("fieldsEdit")).split("{field}").join(fieldLabel).split("{current}").join(current);
         parts.push(fieldInstr);
@@ -19440,7 +19467,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         }
         statusEl.textContent = lastOut ? I18n.t ? I18n.t("ai.streamLive", { tokens: liveCount, secs }) : liveCount + " tokens · " + secs : I18n.t ? I18n.t("ai.thinkingLive", { secs }) : "Thinking… " + secs;
       }, 500);
-      const cardJson = activeCard ? CardEngine.toJSON(activeCard) : "";
+      const cardJson = activeCard ? CardEngine.toJSON(this._cleanCardForPrompt(activeCard)) : "";
       const systemPrompt = [
         CardStorage.getPrompt("fullCard") || `You are an AI assistant helping edit SillyTavern character cards.
 SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
@@ -19644,7 +19671,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         }
         const renamedTo = this._pendingRename(card, activeCard);
         return {
-          oldVal: activeCard[field] || "",
+          oldVal: this._unwrapStoredJSON(field, activeCard[field] || ""),
           newVal: clean,
           applyFn: () => {
             activeCard[field] = clean;
@@ -19774,10 +19801,68 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       }
       return card;
     },
-    async _resolveTargetFields(prompt) {
+    _unwrapStoredJSON(field, value) {
+      if (typeof value !== "string" || !value.trim())
+        return value;
+      const card = this._extractCard(value);
+      if (!card)
+        return value;
+      const extracted = this._cardFieldValue(card, field);
+      if (extracted === undefined)
+        return value;
+      if (Array.isArray(extracted))
+        return JSON.stringify(extracted, null, 2);
+      return String(extracted);
+    },
+    _cleanCardForPrompt(card) {
+      const clean = card ? { ...card } : card;
+      if (!clean)
+        return clean;
+      [
+        "name",
+        "description",
+        "personality",
+        "first_mes",
+        "scenario",
+        "mes_example",
+        "system_prompt",
+        "post_history_instructions",
+        "creator_notes"
+      ].forEach((f) => {
+        if (typeof clean[f] === "string")
+          clean[f] = this._unwrapStoredJSON(f, clean[f]);
+      });
+      return clean;
+    },
+    _repairStoredCardJSON(card) {
+      if (!card || typeof card !== "object")
+        return 0;
+      let repaired = 0;
+      [
+        "name",
+        "description",
+        "personality",
+        "first_mes",
+        "scenario",
+        "mes_example",
+        "system_prompt",
+        "post_history_instructions",
+        "creator_notes"
+      ].forEach((f) => {
+        if (typeof card[f] !== "string")
+          return;
+        const unwrapped = this._unwrapStoredJSON(f, card[f]);
+        if (unwrapped !== card[f]) {
+          card[f] = unwrapped;
+          repaired++;
+        }
+      });
+      return repaired;
+    },
+    async _resolveTargetFields(prompt, modelId) {
       if (AIService.hasApiKey && AIService.hasApiKey()) {
         if (!this._classifyInFlight) {
-          this._classifyInFlight = this._classifyFields(prompt);
+          this._classifyInFlight = this._classifyFields(prompt, modelId);
           this._classifyInFlight.finally(() => {
             this._classifyInFlight = null;
           });
@@ -19788,7 +19873,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       }
       return this._inferFields(prompt);
     },
-    async _classifyFields(prompt) {
+    async _classifyFields(prompt, modelId) {
       const validIds = this.FIELD_DEFS.map((d) => d.id);
       const valid = new Set(validIds);
       const listed = this.FIELD_DEFS.map((d) => d.id + ' ("' + (I18n.t ? I18n.t(d.labelKey) : d.id) + '")').join(", ");
@@ -19796,7 +19881,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       const controller = new AbortController;
       const timer = setTimeout(() => controller.abort(), this._INTENT_TIMEOUT_MS);
       try {
-        const result = await AIService.chat(prompt, system, "", { jsonMode: true, signal: controller.signal });
+        const result = await AIService.chat(prompt, system, modelId || "", { jsonMode: true, signal: controller.signal });
         const parsed = JSON.parse(result.content);
         if (!Array.isArray(parsed))
           return [];
@@ -20105,15 +20190,16 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         return;
       }
       const promptFor = (name) => CardStorage.getPrompt(name) || Settings.getDefaultPrompt(name);
+      const cleanCard = this._cleanCardForPrompt(activeCard);
       const currentOf = {
-        shorten: activeCard.description,
-        enhance: activeCard.description,
-        tone: activeCard.description,
-        grammar: activeCard.description,
-        personality: activeCard.personality,
-        firstmes: activeCard.first_mes,
-        scenario: activeCard.scenario,
-        systemprompt: activeCard.system_prompt
+        shorten: cleanCard.description,
+        enhance: cleanCard.description,
+        tone: cleanCard.description,
+        grammar: cleanCard.description,
+        personality: cleanCard.personality,
+        firstmes: cleanCard.first_mes,
+        scenario: cleanCard.scenario,
+        systemprompt: cleanCard.system_prompt
       };
       const withCurrent = (name, field) => promptFor(name) + `
 
@@ -20147,7 +20233,7 @@ Current:
         });
         if (!lang)
           return;
-        prompts.translate = prompts.translate.split("{lang}").join(lang).split("{card}").join(CardEngine.toJSON(activeCard));
+        prompts.translate = prompts.translate.split("{lang}").join(lang).split("{card}").join(CardEngine.toJSON(this._cleanCardForPrompt(activeCard)));
       }
       if (action === "tone") {
         const tone = await Ui.prompt({
@@ -20504,7 +20590,7 @@ Current:
         return;
       }
       const ctx = AIService.getContextLength(modelId);
-      const cardJson = activeCard ? CardEngine.toJSON(activeCard) : "";
+      const cardJson = activeCard ? CardEngine.toJSON(this._cleanCardForPrompt(activeCard)) : "";
       const systemPromptBase = [
         CardStorage.getPrompt("assistant") || `You are an AI assistant helping edit SillyTavern character cards.
 SillyTavern is an AI roleplay frontend. Cards define character personalities.`
@@ -21768,10 +21854,18 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       AiChat._renderDiff(jsonA, jsonB);
       const acceptBtn = document.querySelector("#btnAcceptAI");
       const discardBtn = document.querySelector("#btnDiscardAI");
+      const applyAllBtn = document.querySelector("#btnApplyAll");
       if (acceptBtn)
         acceptBtn.classList.add("d-none");
       if (discardBtn)
         discardBtn.classList.add("d-none");
+      if (applyAllBtn)
+        applyAllBtn.classList.add("d-none");
+      if (AiChat._previewCleanup) {
+        try {
+          AiChat._previewCleanup();
+        } catch (_) {}
+      }
       const applyNav = document.querySelector("#applyNavGroup");
       if (applyNav)
         applyNav.style.display = "none";
@@ -21782,6 +21876,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
           acceptBtn.classList.remove("d-none");
         if (discardBtn)
           discardBtn.classList.remove("d-none");
+        if (applyAllBtn)
+          applyAllBtn.classList.remove("d-none");
         modalEl.removeEventListener("hidden.bs.modal", restoreButtons);
       };
       modalEl.addEventListener("hidden.bs.modal", restoreButtons);
@@ -22157,6 +22253,15 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       const fullCard = await CardStorage.getCard(cardMeta._id);
       if (!fullCard)
         return;
+      const repaired = AiChat._repairStoredCardJSON(fullCard);
+      if (repaired > 0) {
+        try {
+          await CardStorage.upsertCard(fullCard);
+          Ui.showToast(I18n.t("toast.jsonCleaned", { count: repaired }), "info");
+        } catch (e) {
+          console.error("cardManager: failed to persist repaired card:", e);
+        }
+      }
       window.AppState.activeCard = fullCard;
       CardStorage.setActiveCardId(fullCard._id);
       AiChat._resetChat();

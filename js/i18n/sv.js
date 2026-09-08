@@ -176,6 +176,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} klart · {{errs}} misslyckade',
   'ai.changesReady': '{{count}} ändringar redo',
   'toast.fieldsDetected': 'Identifierade fält: {{fields}}',
+  'toast.jsonCleaned': '{{count}} fält innehöll fortfarande JSON — rensade',
   'ai.viewFullResult': 'Visa hela resultatet',
   'ai.showLess': 'Visa mindre',
   'ai.reviewApply': 'Granska och tillämpa',

@@ -176,6 +176,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} klaar · {{errs}} mislukt',
   'ai.changesReady': '{{count}} wijzigingen klaar',
   'toast.fieldsDetected': 'Gedetecteerde velden: {{fields}}',
+  'toast.jsonCleaned': '{{count}} veld(en) bevatten nog JSON — opgeschoond',
   'ai.viewFullResult': 'Volledig resultaat bekijken',
   'ai.showLess': 'Minder tonen',
   'ai.reviewApply': 'Controleren en toepassen',

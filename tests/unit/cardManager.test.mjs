@@ -100,6 +100,7 @@ const baseCardStorage = () => ({
   getChatSessions: () => [],
   getSessionMessages: () => [],
   saveSessionMessages: noop,
+  upsertCard: async () => {},
 });
 
 // AiChat's mutable state lives in ChatState (see chatState.js); _doSelect only
@@ -112,6 +113,7 @@ const baseAiChat = () => ({
   _setCurrentSession: noop,
   renderChatHistory: noop,
   updateContextBar: noop,
+  _repairStoredCardJSON: () => 0,
 });
 
 // ─── CARD SWITCH: session / apply-queue reset ─────────────────────────────
@@ -192,6 +194,123 @@ test('session fallback migrates only the new card\'s own history', async () => {
   expect(saves).toEqual([['B', 's1', ['history for B']]]);
   expect(window.AppState.chatHistory).toEqual(['history for B']);
   expect(session.id).toBe('s1');
+});
+
+// ─── LEGACY STORED-JSON REPAIR ON LOAD ───────────────────────────────────
+
+test('_doSelect unwraps legacy stored card JSON from fields and persists the repair', async () => {
+  CardManager.renderCardList = noop;
+  const blob = JSON.stringify({
+    spec: 'chara_card_v2',
+    data: { name: 'Elodie', description: 'Clean description here', first_mes: '« Bonjour »' },
+  });
+  const saved = [];
+  const toasts = [];
+  Object.assign(stubs.CardStorage, baseCardStorage(), {
+    // Legacy damage: description field holds the WHOLE card JSON blob.
+    getCard: async () => ({ _id: 'B', name: 'Old', description: blob, tags: [] }),
+    upsertCard: async (card) => saved.push(card),
+  });
+  Object.assign(stubs.AiChat, baseAiChat(), {
+    _repairStoredCardJSON: (card) => {
+      card.description = 'Clean description here'; // the real AiChat does this
+      return 1;
+    },
+  });
+  Object.assign(stubs.Ui, { showToast: (msg) => toasts.push(msg) });
+
+  await CardManager._doSelect({ _id: 'B' });
+
+  expect(saved).toHaveLength(1);
+  expect(saved[0].description).toBe('Clean description here');
+  expect(toasts).toContain('toast.jsonCleaned');
+});
+
+test('_doSelect continues the selection when persisting the repair fails', async () => {
+  // A quota-exceeded upsert must not abort the card switch: the in-memory
+  // card is already repaired and the next save persists it.
+  CardManager.renderCardList = noop;
+  const blob = JSON.stringify({ spec: 'chara_card_v2', data: { name: 'Elodie', description: 'Clean here' } });
+  Object.assign(stubs.CardStorage, baseCardStorage(), {
+    getCard: async () => ({ _id: 'B', name: 'Old', description: blob, tags: [] }),
+    upsertCard: async () => { throw new Error('QuotaExceededError'); },
+  });
+  Object.assign(stubs.AiChat, baseAiChat(), {
+    _repairStoredCardJSON: (card) => { card.description = 'Clean here'; return 1; },
+  });
+
+  await CardManager._doSelect({ _id: 'B' }); // must not reject
+
+  expect(window.AppState.activeCard._id).toBe('B');
+  expect(window.AppState.activeCard.description).toBe('Clean here');
+});
+
+test('_doSelect does not re-save a clean card', async () => {
+  CardManager.renderCardList = noop;
+  const saved = [];
+  Object.assign(stubs.CardStorage, baseCardStorage(), {
+    getCard: async () => ({ _id: 'B', name: 'B', description: 'clean', tags: [] }),
+    upsertCard: async (card) => saved.push(card),
+  });
+  Object.assign(stubs.AiChat, baseAiChat(), { _repairStoredCardJSON: () => 0 });
+
+  await CardManager._doSelect({ _id: 'B' });
+
+  expect(saved).toHaveLength(0);
+  expect(window.AppState.activeCard.description).toBe('clean');
+});
+
+// ─── BATCH COMPARE: read-only modal must not trigger an apply ────────────
+
+test('batchCompare hides Apply-all and cleans up leftover preview handlers', async () => {
+  const hidden = new Set();
+  const restored = new Set();
+  const modalEl = {
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    _hidden: false,
+  };
+  const modalInstance = { show: () => { modalEl._hidden = false; } };
+  const makeBtn = (id) => ({
+    id,
+    classList: {
+      add: () => hidden.add(id),
+      remove: () => restored.add(id),
+    },
+  });
+  const cleanups = { ran: 0 };
+  globalThis.bootstrap = { Modal: function () { return modalInstance; } };
+  globalThis.document = {
+    querySelector(sel) {
+      if (sel === '#aiDiffOld') return { innerHTML: '' };
+      if (sel === '#aiDiffNew') return { innerHTML: '' };
+      if (sel === '#aiPreviewModal .modal-title') return { innerHTML: '' };
+      if (sel === '#aiPreviewModal') return modalEl;
+      if (sel === '#btnAcceptAI') return makeBtn('accept');
+      if (sel === '#btnDiscardAI') return makeBtn('discard');
+      if (sel === '#btnApplyAll') return makeBtn('applyAll');
+      if (sel === '#applyNavGroup') return { style: {} };
+      return null;
+    },
+  };
+  const cleanup = () => { cleanups.ran++; };
+  Object.assign(stubs.AiChat, {
+    _renderDiff: noop,
+    _previewCleanup: cleanup,
+  });
+  Object.assign(stubs.CardStorage, baseCardStorage(), {
+    getCard: async () => ({ _id: 'x', name: 'A' }),
+  });
+  Object.assign(stubs.CardEngine, { toJSON: (c) => JSON.stringify(c) });
+  window.AppState = { activeCard: null };
+  CardManager._selectedIds = new Set(['a', 'b']);
+  await CardManager.batchCompare();
+
+  expect(hidden.has('accept')).toBe(true);
+  expect(hidden.has('discard')).toBe(true);
+  expect(hidden.has('applyAll')).toBe(true); // was left visible before
+  expect(cleanups.ran).toBe(1); // leftover Review & Apply handlers detached
+  delete globalThis.bootstrap;
 });
 
 // ─── HARDENED TAG PATHS ───────────────────────────────────────────────────

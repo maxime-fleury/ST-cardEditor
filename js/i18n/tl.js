@@ -176,6 +176,7 @@ export default {
   'ai.doneSummary': '{{done}}/{{total}} tapos · {{errs}} nabigo',
   'ai.changesReady': '{{count}} pagbabago handa na',
   'toast.fieldsDetected': 'Mga field na natukoy: {{fields}}',
+  'toast.jsonCleaned': 'Nilinis ang {{count}} field na mayroon pang JSON',
   'ai.viewFullResult': 'Tingnan ang buong resulta',
   'ai.showLess': 'Ipakita ang mas kaunti',
   'ai.reviewApply': 'Suriin at I-apply',

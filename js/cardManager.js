@@ -208,11 +208,20 @@ const CardManager = {
     // Reuse the existing diff renderer
     AiChat._renderDiff(jsonA, jsonB);
 
-    // Hide accept/discard buttons (comparison is read-only)
+    // Hide accept/discard/apply-all buttons (comparison is read-only).
+    // Apply-all must be hidden too: its click handler may still be attached
+    // from a previous Review & Apply run, and leaving it visible would let a
+    // click apply pending AI changes from inside the comparison modal.
     const acceptBtn = document.querySelector('#btnAcceptAI');
     const discardBtn = document.querySelector('#btnDiscardAI');
+    const applyAllBtn = document.querySelector('#btnApplyAll');
     if (acceptBtn) acceptBtn.classList.add('d-none');
     if (discardBtn) discardBtn.classList.add('d-none');
+    if (applyAllBtn) applyAllBtn.classList.add('d-none');
+    // Detach any leftover Review & Apply handlers bound to this modal so the
+    // comparison can never trigger an apply (Enter/A/←/→ or the hidden
+    // buttons' listeners).
+    if (AiChat._previewCleanup) { try { AiChat._previewCleanup(); } catch (_) {} }
     // Prev/Next nav belongs to AI apply, not comparison — hide any leftover.
     const applyNav = document.querySelector('#applyNavGroup');
     if (applyNav) applyNav.style.display = 'none';
@@ -225,6 +234,7 @@ const CardManager = {
     const restoreButtons = () => {
       if (acceptBtn) acceptBtn.classList.remove('d-none');
       if (discardBtn) discardBtn.classList.remove('d-none');
+      if (applyAllBtn) applyAllBtn.classList.remove('d-none');
       modalEl.removeEventListener('hidden.bs.modal', restoreButtons);
     };
     modalEl.addEventListener('hidden.bs.modal', restoreButtons);
@@ -632,6 +642,20 @@ const CardManager = {
     if (activeCard && activeCard._id !== cardMeta._id) await Editor.syncEditorToCard();
     const fullCard = await CardStorage.getCard(cardMeta._id);
     if (!fullCard) return;
+    // Legacy damage repair: fields may still contain a whole card JSON (dumped
+    // there by the old broken editor). Unwrap them once, on load, so prompts,
+    // diffs and the editor stop re-seeing the JSON. A failed persistence (e.g.
+    // quota exceeded) must NOT abort the selection: the in-memory card is
+    // already repaired and the next save will persist it.
+    const repaired = AiChat._repairStoredCardJSON(fullCard);
+    if (repaired > 0) {
+      try {
+        await CardStorage.upsertCard(fullCard);
+        Ui.showToast(I18n.t('toast.jsonCleaned', { count: repaired }), 'info');
+      } catch (e) {
+        console.error('cardManager: failed to persist repaired card:', e);
+      }
+    }
     window.AppState.activeCard = fullCard;
     CardStorage.setActiveCardId(fullCard._id);
 
