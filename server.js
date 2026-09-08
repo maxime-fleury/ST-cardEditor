@@ -3,7 +3,7 @@
 
 import { join, extname, resolve, sep } from "path";
 
-const PORT = parseInt(process.env.PORT || '8182');
+const PORT = parseInt(process.env.PORT || '8182', 10);
 const PUBLIC_DIR = resolve(join(import.meta.dir, "public"));
 const JS_DIR = resolve(join(import.meta.dir, "js"));
 

@@ -59,22 +59,8 @@ const CardManager = {
         const card = await CardEngine.parseFile(file);
         // Auto-rename exact duplicates (same name + same content) so
         // re-importing a card never silently creates two identical entries.
-        const trimmedName = (card.name || '').trim();
-        if (trimmedName) {
-          const existing = CardStorage.getCards().find(c => (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase());
-          if (existing) {
-            let existingFull = null;
-            try { existingFull = await CardStorage.getCard(existing._id); } catch (_) {}
-            if (existingFull && this._cardSignature(card) === this._cardSignature(existingFull)) {
-              const base = trimmedName;
-              let n = 2;
-              const used = new Set(CardStorage.getCards().map(c => (c.name || '').toLowerCase()));
-              let candidate = base + ' (' + n + ')';
-              while (used.has(candidate.toLowerCase())) { n++; candidate = base + ' (' + n + ')'; }
-              card.name = candidate;
-              Ui.showToast(I18n.t('toast.importDupe', { name: candidate }), 'info');
-            }
-          }
+        if (await this._ensureUniqueImportName(card)) {
+          Ui.showToast(I18n.t('toast.importDupe', { name: card.name }), 'info');
         }
         if (card._imageBase64) {
           // Soft-warn on very large embedded images so users can trim them
@@ -129,6 +115,26 @@ const CardManager = {
       (card.character_version || '').trim(),
       tags.join('|'),
     ]);
+  },
+
+  // Rename an imported card when an identical one already exists so re-imports
+  // never silently duplicate (#38). Mutates the card in place and reports
+  // whether a rename happened (so callers can surface it to the user).
+  async _ensureUniqueImportName(card) {
+    const trimmedName = (card.name || '').trim();
+    if (!trimmedName) return false;
+    const existing = CardStorage.getCards().find(c => (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase());
+    if (!existing) return false;
+    let existingFull = null;
+    try { existingFull = await CardStorage.getCard(existing._id); } catch (_) {}
+    if (!existingFull || this._cardSignature(card) !== this._cardSignature(existingFull)) return false;
+    const base = trimmedName;
+    let n = 2;
+    const used = new Set(CardStorage.getCards().map(c => (c.name || '').toLowerCase()));
+    let candidate = base + ' (' + n + ')';
+    while (used.has(candidate.toLowerCase())) { n++; candidate = base + ' (' + n + ')'; }
+    card.name = candidate;
+    return true;
   },
 
   // Lowercased string set of a card's tags, tolerant of malformed values so
@@ -381,7 +387,8 @@ const CardManager = {
     const groups = []; const byLetter = new Map();
     for (const card of list) {
       const name = (card.name || '').trim();
-      let letter = '#', ch = name ? name[0] : '';
+      const ch = name ? name[0] : '';
+      let letter = '#';
       if (/[A-Za-z0-9]/.test(ch)) letter = ch.toUpperCase();
       let g = byLetter.get(letter);
       if (!g) { g = { letter, items: [] }; byLetter.set(letter, g); groups.push(g); }
@@ -601,14 +608,14 @@ const CardManager = {
         }
         const dropId = item.dataset.cardId;
         if (dragId === dropId) return;
-        const cards = window.AppState.cards;
-        const fromIdx = cards.findIndex(c => c._id === dragId);
-        const toIdx = cards.findIndex(c => c._id === dropId);
+        const dropCards = window.AppState.cards;
+        const fromIdx = dropCards.findIndex(c => c._id === dragId);
+        const toIdx = dropCards.findIndex(c => c._id === dropId);
         if (fromIdx < 0 || toIdx < 0) return;
-        const [moved] = cards.splice(fromIdx, 1);
+        const [moved] = dropCards.splice(fromIdx, 1);
         const adjustedTo = toIdx > fromIdx ? toIdx - 1 : toIdx;
-        cards.splice(adjustedTo, 0, moved);
-        CardStorage.saveCardIndex(cards);
+        dropCards.splice(adjustedTo, 0, moved);
+        CardStorage.saveCardIndex(dropCards);
         this.renderCardList();
         dragId = null;
       });

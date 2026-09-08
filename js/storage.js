@@ -323,7 +323,7 @@ const CardStorage = {
       localStorage.setItem(this.PREFIX + this._keys.apiKey, await this._encryptSecret(clean));
     } catch (_) {
       // Encryption unavailable — fail open to keep the editor working.
-      try { localStorage.setItem(this.PREFIX + this._keys.apiKey, clean); } catch (_) {}
+      try { localStorage.setItem(this.PREFIX + this._keys.apiKey, clean); } catch (__) {}
     }
   },
 
@@ -426,7 +426,7 @@ const CardStorage = {
     try {
       localStorage.setItem(this.PREFIX + this._keys.customApiKey, await this._encryptSecret(clean));
     } catch (_) {
-      try { localStorage.setItem(this.PREFIX + this._keys.customApiKey, clean); } catch (_) {}
+      try { localStorage.setItem(this.PREFIX + this._keys.customApiKey, clean); } catch (__) {}
     }
   },
 

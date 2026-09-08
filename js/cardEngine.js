@@ -362,7 +362,7 @@ const CardEngine = {
 
   _createThumbnail(base64) {
     return new Promise(resolve => {
-      if (!base64) return resolve(null);
+      if (!base64) { resolve(null); return; }
       const img = new Image();
       img.onload = () => {
         try {

@@ -796,6 +796,25 @@ const Wizard = {
     this._modal.hide();
     const a = this._answers;
 
+    const prompt = this._buildWizardPrompt(a);
+
+    const card = CardEngine.createEmptyCard(a.name || 'New Character');
+    card.tags = a.tags || [];
+    card.creator = a.creator || '';
+    await CardStorage.upsertCard(card);
+    window.AppState.cards = CardStorage.getCards();
+    await CardManager.selectCard(card);
+    if (chosenImage) {
+      try { await Editor.setAvatar(chosenImage); } catch (_) {}
+    }
+    CardManager.renderCardList();
+
+    AiChat._sendFullCard(prompt);
+  },
+
+  // Compose the wizard's generation prompt from the collected answers. Kept
+  // separate from _generateWithAI so the request flow stays readable.
+  _buildWizardPrompt(a) {
     const genderText = a.gender === 'other' ? a.genderCustom : (a.gender || 'unspecified');
     const langMap = {
       en: 'English', fr: 'French', de: 'German', ja: 'Japanese', it: 'Italian',
@@ -839,19 +858,7 @@ const Wizard = {
     prompt += '- `creator_notes`: Brief usage notes for the card\n';
     prompt += '- Use {{char}} for the character name and {{user}} for the user in example messages\n';
     prompt += '- Keep the JSON structure clean and valid\n';
-
-    const card = CardEngine.createEmptyCard(a.name || 'New Character');
-    card.tags = a.tags || [];
-    card.creator = a.creator || '';
-    await CardStorage.upsertCard(card);
-    window.AppState.cards = CardStorage.getCards();
-    await CardManager.selectCard(card);
-    if (chosenImage) {
-      try { await Editor.setAvatar(chosenImage); } catch (_) {}
-    }
-    CardManager.renderCardList();
-
-    AiChat._sendFullCard(prompt);
+    return prompt;
   },
 };
 

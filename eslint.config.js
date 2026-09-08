@@ -27,6 +27,26 @@ const SHARED_RULES = {
     caughtErrorsIgnorePattern: '^_',
   }],
   'no-constant-condition': ['error', { checkLoops: false }],
+  // ─── Hardened quality rules (see docs/DEVELOPMENT.md for the rationale) ───
+  'prefer-const': 'error',
+  'no-var': 'error',
+  'no-eval': 'error',
+  'no-implied-eval': 'error',
+  'no-promise-executor-return': 'error',
+  'no-unreachable-loop': 'error',
+  'radix': 'error',
+  // Legacy-aware caps: the codebase predates these limits, so the thresholds
+  // sit just above today's worst offenders (see DEVELOPMENT.md).
+  'complexity': ['error', 30],
+  'max-depth': ['error', 5],
+  'no-shadow': 'error',
+};
+
+// Debug noise: stray console.log/info/debug are only a problem in the browser
+// runtime — the CLI scripts (scripts/**, server.js) legitimately print to stdout.
+const BROWSER_RULES = {
+  ...SHARED_RULES,
+  'no-console': ['error', { allow: ['error', 'warn'] }],
 };
 
 export default [
@@ -59,7 +79,7 @@ export default [
         DOMPurify: 'readonly',
       },
     },
-    rules: SHARED_RULES,
+    rules: BROWSER_RULES,
   },
 
   // Service worker — worker globals instead of window/document.
@@ -73,7 +93,7 @@ export default [
         importScripts: 'readonly',
       },
     },
-    rules: SHARED_RULES,
+    rules: BROWSER_RULES,
   },
 
   // Node/Bun tooling: server, release scripts, unit + e2e tests.

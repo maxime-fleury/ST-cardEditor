@@ -192,17 +192,7 @@ const Editor = {
     if (datalist) datalist.innerHTML = [...allTags].map(t => '<option value="' + Ui.escapeAttr(t) + '">').join('');
 
     // Reset any preview states when loading a new card
-    document.querySelectorAll('.field-toggle-group').forEach(group => {
-      const targetId = group.dataset.target;
-      group.querySelectorAll('.field-toggle-btn').forEach(b => b.classList.remove('active'));
-      const editBtn = group.querySelector('[data-mode="edit"]');
-      if (editBtn) editBtn.classList.add('active');
-      const textarea = document.getElementById(targetId);
-      const previewId = 'preview' + targetId.replace('edit', '');
-      const preview = document.getElementById(previewId);
-      if (textarea) textarea.style.display = '';
-      if (preview) { preview.classList.remove('visible'); preview.innerHTML = ''; }
-    });
+    this._resetPreviewToggles();
 
     this.renderGreetings(card);
 
@@ -232,6 +222,22 @@ const Editor = {
     this.autoResizeTextareas();
     window.syncFloatingLabels?.();
     window.Ui.updateUIState();
+  },
+
+  // Force every field toggle back to Edit mode and clear preview panes when a
+  // new card is loaded, so a stale preview of the previous card cannot linger.
+  _resetPreviewToggles() {
+    document.querySelectorAll('.field-toggle-group').forEach(group => {
+      const targetId = group.dataset.target;
+      group.querySelectorAll('.field-toggle-btn').forEach(b => b.classList.remove('active'));
+      const editBtn = group.querySelector('[data-mode="edit"]');
+      if (editBtn) editBtn.classList.add('active');
+      const textarea = document.getElementById(targetId);
+      const previewId = 'preview' + targetId.replace('edit', '');
+      const preview = document.getElementById(previewId);
+      if (textarea) textarea.style.display = '';
+      if (preview) { preview.classList.remove('visible'); preview.innerHTML = ''; }
+    });
   },
 
   // Shared field-capture logic used by both sync paths so the two stay in
@@ -434,7 +440,7 @@ const Editor = {
         // Flush any in-flight typed text into the array before re-rendering,
         // otherwise the characters typed in the last 500 ms are discarded (#74).
         self.syncGreetings();
-        window.AppState.activeCard.alternate_greetings.splice(parseInt(btn.dataset.idx), 1);
+        window.AppState.activeCard.alternate_greetings.splice(parseInt(btn.dataset.idx, 10), 1);
         self.renderGreetings(window.AppState.activeCard);
         await self.syncEditorToCard();
         self.updateCharCounts();
@@ -444,7 +450,7 @@ const Editor = {
     container.querySelectorAll('.greeting-set-default').forEach(btn => {
       btn.addEventListener('click', async () => {
         self.syncGreetings();
-        const g = window.AppState.activeCard.alternate_greetings[parseInt(btn.dataset.idx)];
+        const g = window.AppState.activeCard.alternate_greetings[parseInt(btn.dataset.idx, 10)];
         if (g) {
           window.AppState.activeCard.first_mes = g;
           $('#editFirstMes').value = g;
@@ -458,7 +464,7 @@ const Editor = {
     container.querySelectorAll('.greeting-up').forEach(btn => {
       btn.addEventListener('click', async () => {
         self.syncGreetings();
-        const idx = parseInt(btn.dataset.idx);
+        const idx = parseInt(btn.dataset.idx, 10);
         if (idx > 0) {
           const arr = window.AppState.activeCard.alternate_greetings;
           [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
@@ -471,7 +477,7 @@ const Editor = {
     container.querySelectorAll('.greeting-down').forEach(btn => {
       btn.addEventListener('click', async () => {
         self.syncGreetings();
-        const idx = parseInt(btn.dataset.idx);
+        const idx = parseInt(btn.dataset.idx, 10);
         const arr = window.AppState.activeCard.alternate_greetings;
         if (idx < arr.length - 1) {
           [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
@@ -500,7 +506,7 @@ const Editor = {
           await self.syncEditorToCard();
           return;
         }
-        const idx = parseInt(ta.dataset.greetingIdx);
+        const idx = parseInt(ta.dataset.greetingIdx, 10);
         if (window.AppState.activeCard.alternate_greetings[idx] !== undefined) {
           window.AppState.activeCard.alternate_greetings[idx] = ta.value;
         }
@@ -687,45 +693,7 @@ const Editor = {
     }
 
     container.innerHTML = '<div class="lorebook-accordion">'
-      + filteredEntries.map(({ entry, idx }) => {
-        // V2 treats keys as an array; older ST cards use a comma-joined string.
-        // Normalize both so spec-conformant cards don't lose their keywords (#99).
-        const keys = (Array.isArray(entry.key) ? entry.key : (entry.key || '').split(',')).map(s => String(s).trim()).filter(Boolean);
-        const secondary = (entry.keysecondary || []);
-        const label = entry.comment || (Array.isArray(entry.key) ? entry.key.join(', ') : entry.key) || (I18n.t ? I18n.t('editor.loreEntry', { num: idx + 1 }) : 'Entry ' + (idx + 1));
-
-        const keyTagsHtml = keys.slice(0, 3).map(k =>
-          '<span class="lorebook-key-tag primary">' + Ui.escapeHtml(k) + '</span>'
-        ).join('') + secondary.slice(0, 2).map(k =>
-          '<span class="lorebook-key-tag secondary">' + Ui.escapeHtml(k) + '</span>'
-        ).join('');
-
-        return '<div class="lorebook-accordion-item" data-entry-idx="' + idx + '">'
-          + '<div class="lorebook-accordion-header" data-lore-toggle="' + idx + '" role="button" tabindex="0" aria-expanded="false">'
-          + '<i class="bi bi-chevron-right lorebook-chevron"></i>'
-          + '<span class="lorebook-entry-label">' + Ui.escapeHtml(label) + '</span>'
-          + '<div class="lorebook-key-tags">' + keyTagsHtml + '</div>'
-          + '<button class="btn btn-outline-danger btn-sm lorebook-delete-btn" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t('editor.loreDeleteEntry') : 'Delete entry') + '"><i class="bi bi-trash"></i></button>'
-          + '</div>'
-          + '<div class="lorebook-accordion-body">'
-          + '<div class="row g-2 mb-2" style="font-size:0.8rem;">'
-          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.lorePrimaryKeys') : 'Primary Keywords') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((Array.isArray(entry.key) ? entry.key.join(', ') : entry.key) || '') + '" placeholder="' + (I18n.t ? I18n.t('editor.lorePrimaryKeysPlaceholder') : 'Primary keywords \u2014 comma separated') + '" data-lore-key-idx="' + idx + '"></div>'
-          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreSecondaryKeys') : 'Secondary Keywords') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(', ')) + '" placeholder="' + (I18n.t ? I18n.t('editor.loreSecondaryKeysPlaceholder') : 'Secondary keywords') + '" data-lore-secondary-idx="' + idx + '"></div>'
-          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreComment') : 'Comment') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || '') + '" placeholder="' + (I18n.t ? I18n.t('editor.loreCommentPlaceholder') : 'Comment') + '" data-lore-comment-idx="' + idx + '"></div>'
-          + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreOrder') : 'Order') + '</label><input type="number" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.order ?? 100) + '" placeholder="' + (I18n.t ? I18n.t('editor.loreOrderPlaceholder') : 'Order') + '" data-lore-order-idx="' + idx + '"></div>'
-          + '</div>'
-          + '<div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">'
-          + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? ' checked' : '') + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">' + (I18n.t ? I18n.t('editor.loreConstant') : 'Constant') + '</label></div>'
-          + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.selective ? ' checked' : '') + ' data-lore-selective-idx="' + idx + '"><label class="form-check-label">' + (I18n.t ? I18n.t('editor.loreSelective') : 'Selective') + '</label></div>'
-          + '<select class="form-select form-select-sm" style="width:auto;" data-lore-position-idx="' + idx + '">'
-          + '<option value="before_char"' + (entry.position === 'before_char' ? ' selected' : '') + '>' + (I18n.t ? I18n.t('editor.loreBeforeChar') : 'Before char') + '</option>'
-          + '<option value="after_char"' + (entry.position === 'after_char' ? ' selected' : '') + '>' + (I18n.t ? I18n.t('editor.loreAfterChar') : 'After char') + '</option></select>'
-          + '</div>'
-          + '<label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t('editor.loreContent') : 'Content') + '</label>'
-          + '<textarea class="form-control editor-textarea font-mono" rows="6" placeholder="' + (I18n.t ? I18n.t('editor.loreContentPlaceholder') : 'Entry content...') + '" data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || '') + '</textarea>'
-          + '</div>'
-          + '</div>';
-      }).join('')
+      + filteredEntries.map(({ entry, idx }) => this._loreEntryHtml(entry, idx)).join('')
       + '</div>';
 
     // Accordion toggle handlers (mouse + keyboard, #72)
@@ -748,7 +716,7 @@ const Editor = {
     container.querySelectorAll('.lorebook-delete-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        window.AppState.activeCard.character_book.entries.splice(parseInt(btn.dataset.idx), 1);
+        window.AppState.activeCard.character_book.entries.splice(parseInt(btn.dataset.idx, 10), 1);
         self.renderLorebook(window.AppState.activeCard);
         await self.syncEditorToCard();
         self.updateCharCounts();
@@ -767,7 +735,7 @@ const Editor = {
     container.querySelectorAll('textarea[data-lore-idx]').forEach(ta => {
       ta.addEventListener('input', Ui.debounce(async () => {
         if (!ta.isConnected || gen !== self._loreGen) return; // re-render superseded this write
-        const idx = parseInt(ta.dataset.loreIdx);
+        const idx = parseInt(ta.dataset.loreIdx, 10);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].content = ta.value;
           await self.syncEditorToCard();
@@ -779,7 +747,7 @@ const Editor = {
     container.querySelectorAll('input[data-lore-key-idx]').forEach(input => {
       input.addEventListener('input', Ui.debounce(async () => {
         if (!input.isConnected || gen !== self._loreGen) return;
-        const idx = parseInt(input.dataset.loreKeyIdx);
+        const idx = parseInt(input.dataset.loreKeyIdx, 10);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].key = input.value.trim();
           await self.syncEditorToCard();
@@ -789,7 +757,7 @@ const Editor = {
     container.querySelectorAll('input[data-lore-secondary-idx]').forEach(input => {
       input.addEventListener('input', Ui.debounce(async () => {
         if (!input.isConnected || gen !== self._loreGen) return;
-        const idx = parseInt(input.dataset.loreSecondaryIdx);
+        const idx = parseInt(input.dataset.loreSecondaryIdx, 10);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].keysecondary = input.value.split(',').map(s => s.trim()).filter(Boolean);
           await self.syncEditorToCard();
@@ -799,7 +767,7 @@ const Editor = {
     container.querySelectorAll('input[data-lore-comment-idx]').forEach(input => {
       input.addEventListener('input', Ui.debounce(async () => {
         if (!input.isConnected || gen !== self._loreGen) return;
-        const idx = parseInt(input.dataset.loreCommentIdx);
+        const idx = parseInt(input.dataset.loreCommentIdx, 10);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].comment = input.value;
           await self.syncEditorToCard();
@@ -809,7 +777,7 @@ const Editor = {
     container.querySelectorAll('input[data-lore-order-idx]').forEach(input => {
       input.addEventListener('input', Ui.debounce(async () => {
         if (!input.isConnected || gen !== self._loreGen) return;
-        const idx = parseInt(input.dataset.loreOrderIdx);
+        const idx = parseInt(input.dataset.loreOrderIdx, 10);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           const parsed = parseInt(input.value, 10);
           window.AppState.activeCard.character_book.entries[idx].order = Number.isNaN(parsed) ? 100 : parsed;
@@ -819,7 +787,7 @@ const Editor = {
     });
     container.querySelectorAll('input[data-lore-constant-idx]').forEach(cb => {
       cb.addEventListener('change', async () => {
-        const idx = parseInt(cb.dataset.loreConstantIdx);
+        const idx = parseInt(cb.dataset.loreConstantIdx, 10);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].constant = cb.checked;
           await self.syncEditorToCard();
@@ -828,7 +796,7 @@ const Editor = {
     });
     container.querySelectorAll('input[data-lore-selective-idx]').forEach(cb => {
       cb.addEventListener('change', async () => {
-        const idx = parseInt(cb.dataset.loreSelectiveIdx);
+        const idx = parseInt(cb.dataset.loreSelectiveIdx, 10);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].selective = cb.checked;
           await self.syncEditorToCard();
@@ -837,13 +805,56 @@ const Editor = {
     });
     container.querySelectorAll('select[data-lore-position-idx]').forEach(sel => {
       sel.addEventListener('change', async () => {
-        const idx = parseInt(sel.dataset.lorePositionIdx);
+        const idx = parseInt(sel.dataset.lorePositionIdx, 10);
         if (window.AppState.activeCard.character_book.entries[idx]) {
           window.AppState.activeCard.character_book.entries[idx].position = sel.value;
           await self.syncEditorToCard();
         }
       });
     });
+  },
+
+  // HTML for one lorebook accordion entry. Local `t` resolves the
+  // I18n.t-or-fallback idiom once instead of repeating the ternary per label.
+  _loreEntryHtml(entry, idx) {
+    const t = (key, fallback) => (I18n.t ? I18n.t(key) : fallback);
+    // V2 treats keys as an array; older ST cards use a comma-joined string.
+    // Normalize both so spec-conformant cards don't lose their keywords (#99).
+    const keys = (Array.isArray(entry.key) ? entry.key : (entry.key || '').split(',')).map(s => String(s).trim()).filter(Boolean);
+    const secondary = (entry.keysecondary || []);
+    const label = entry.comment || (Array.isArray(entry.key) ? entry.key.join(', ') : entry.key) || t('editor.loreEntry', 'Entry ' + (idx + 1));
+
+    const keyTagsHtml = keys.slice(0, 3).map(k =>
+      '<span class="lorebook-key-tag primary">' + Ui.escapeHtml(k) + '</span>'
+    ).join('') + secondary.slice(0, 2).map(k =>
+      '<span class="lorebook-key-tag secondary">' + Ui.escapeHtml(k) + '</span>'
+    ).join('');
+
+    return '<div class="lorebook-accordion-item" data-entry-idx="' + idx + '">'
+      + '<div class="lorebook-accordion-header" data-lore-toggle="' + idx + '" role="button" tabindex="0" aria-expanded="false">'
+      + '<i class="bi bi-chevron-right lorebook-chevron"></i>'
+      + '<span class="lorebook-entry-label">' + Ui.escapeHtml(label) + '</span>'
+      + '<div class="lorebook-key-tags">' + keyTagsHtml + '</div>'
+      + '<button class="btn btn-outline-danger btn-sm lorebook-delete-btn" data-idx="' + idx + '" title="' + t('editor.loreDeleteEntry', 'Delete entry') + '"><i class="bi bi-trash"></i></button>'
+      + '</div>'
+      + '<div class="lorebook-accordion-body">'
+      + '<div class="row g-2 mb-2" style="font-size:0.8rem;">'
+      + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + t('editor.lorePrimaryKeys', 'Primary Keywords') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((Array.isArray(entry.key) ? entry.key.join(', ') : entry.key) || '') + '" placeholder="' + t('editor.lorePrimaryKeysPlaceholder', 'Primary keywords \u2014 comma separated') + '" data-lore-key-idx="' + idx + '"></div>'
+      + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + t('editor.loreSecondaryKeys', 'Secondary Keywords') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(', ')) + '" placeholder="' + t('editor.loreSecondaryKeysPlaceholder', 'Secondary keywords') + '" data-lore-secondary-idx="' + idx + '"></div>'
+      + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + t('editor.loreComment', 'Comment') + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || '') + '" placeholder="' + t('editor.loreCommentPlaceholder', 'Comment') + '" data-lore-comment-idx="' + idx + '"></div>'
+      + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + t('editor.loreOrder', 'Order') + '</label><input type="number" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.order ?? 100) + '" placeholder="' + t('editor.loreOrderPlaceholder', 'Order') + '" data-lore-order-idx="' + idx + '"></div>'
+      + '</div>'
+      + '<div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">'
+      + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? ' checked' : '') + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">' + t('editor.loreConstant', 'Constant') + '</label></div>'
+      + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.selective ? ' checked' : '') + ' data-lore-selective-idx="' + idx + '"><label class="form-check-label">' + t('editor.loreSelective', 'Selective') + '</label></div>'
+      + '<select class="form-select form-select-sm" style="width:auto;" data-lore-position-idx="' + idx + '">'
+      + '<option value="before_char"' + (entry.position === 'before_char' ? ' selected' : '') + '>' + t('editor.loreBeforeChar', 'Before char') + '</option>'
+      + '<option value="after_char"' + (entry.position === 'after_char' ? ' selected' : '') + '>' + t('editor.loreAfterChar', 'After char') + '</option></select>'
+      + '</div>'
+      + '<label class="form-label" style="font-size:0.72rem;">' + t('editor.loreContent', 'Content') + '</label>'
+      + '<textarea class="form-control editor-textarea font-mono" rows="6" placeholder="' + t('editor.loreContentPlaceholder', 'Entry content...') + '" data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || '') + '</textarea>'
+      + '</div>'
+      + '</div>';
   },
 
   async addLorebookEntry() {

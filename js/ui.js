@@ -324,9 +324,9 @@ const Ui = {
           // Re-render any content that fell back to escaped plaintext while
           // the CDN libs were loading (e.g. a Preview toggle triggered during
           // a cold load) (#78).
-          const pending = this._markdownPending;
+          const pendingItems = this._markdownPending;
           this._markdownPending = [];
-          pending.forEach(item => {
+          pendingItems.forEach(item => {
             if (item.target && item.target.isConnected) {
               item.target.innerHTML = this.renderMarkdown(item.text);
             }
@@ -578,7 +578,7 @@ Wizard.init();
       // Data is already persisted on every debounced keystroke (_doSync writes
       // to IndexedDB then sets _dirty), so this is just a best-effort flush.
       // Prompting here would nag on every close despite the data being safe (#14).
-      try { Editor.syncGreetings(); Editor.syncEditorToCardSync(); } catch (_) {}
+      try { Editor.syncGreetings(); Editor.syncEditorToCardSync(); } catch (__) {}
     }
   });
   window.addEventListener('storage', handleStorageChange);
@@ -1010,8 +1010,8 @@ function bindEvents(settingsModal) {
         // The {{char}}/{{user}} insert chips target the (now hidden) textarea;
         // hide them in Preview mode so a click can't silently edit a field the
         // user is only previewing.
-        document.querySelectorAll('.token-insert-btn[data-target="' + targetId + '"]').forEach(btn => {
-          const grp = btn.closest('.token-insert-group');
+        document.querySelectorAll('.token-insert-btn[data-target="' + targetId + '"]').forEach(tbtn => {
+          const grp = tbtn.closest('.token-insert-group');
           if (grp) grp.style.display = (mode === 'preview') ? 'none' : '';
         });
       });
@@ -1041,7 +1041,7 @@ function bindEvents(settingsModal) {
   const greetingCountInput = $('#aiGreetingCountInput');
   if (greetingCountInput) {
     greetingCountInput.addEventListener('change', () => {
-      AiChat._greetingCount = parseInt(greetingCountInput.value) || 3;
+      AiChat._greetingCount = parseInt(greetingCountInput.value, 10) || 3;
     });
   }
 
@@ -1345,44 +1345,47 @@ function bindEvents(settingsModal) {
 
 function handleKeyboardShortcuts(e) {
   const inField = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable;
+  const mod = e.ctrlKey || e.metaKey;
+  const key = (e.key || '').toLowerCase();
 
   // Inside a text field: only intercept Save; let native undo/redo work.
   if (inField) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    // e.key is case-sensitive here: Ctrl+Shift+S must stay with the browser.
+    if (mod && e.key === 's') {
       e.preventDefault();
       CardManager.saveCurrentCard();
     }
     return;
   }
 
-  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+  if (mod && key === 'z' && !e.shiftKey) {
     e.preventDefault(); Editor.undo(); return;
   }
-  if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
+  if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) {
     e.preventDefault(); Editor.redo(); return;
   }
-  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+  if (mod && e.key === 's') {
     e.preventDefault();
     CardManager.saveCurrentCard();
     return;
   }
-  if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+  if (mod && e.key === 'n') {
     e.preventDefault();
     CardManager.createNewCard();
   }
-  if (e.altKey && e.key.toLowerCase() === 'f') {
+  if (e.altKey && key === 'f') {
     e.preventDefault();
     const app = document.querySelector('#appContainer');
     const focused = app && app.classList.contains('side-left-collapsed') && app.classList.contains('side-right-collapsed');
     if (Ui.setFocusMode) Ui.setFocusMode(!focused);
     return;
   }
-  if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
+  if (mod && key === '\\') {
     e.preventDefault();
     if (Ui.togglePanelCollapse) Ui.togglePanelCollapse('right');
     return;
   }
-  if (e.key === '?') {
+  if (key === '?') {
     Ui._shortcutsModal = Ui._shortcutsModal || new bootstrap.Modal('#shortcutsModal');
     Ui._shortcutsModal.show();
   }

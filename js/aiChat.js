@@ -78,7 +78,7 @@ const AiChat = {
     // Sync greeting count from DOM
     const countInput = document.querySelector('#aiGreetingCountInput');
     if (countInput) {
-      ChatState.greetingCount = parseInt(countInput.value) || 3;
+      ChatState.greetingCount = parseInt(countInput.value, 10) || 3;
     }
   },
 
@@ -954,7 +954,7 @@ const AiChat = {
   _fieldDisplayContent(field, content) {
     const card = this._extractCard(content);
     if (!card) return content;
-    let value = this._cardFieldValue(card, field);
+    const value = this._cardFieldValue(card, field);
     if (value === undefined) return content;
     if (field === 'alternate_greetings') {
       if (!Array.isArray(value)) return content;
@@ -1682,7 +1682,7 @@ const AiChat = {
     const now = Date.now();
     const SESSION_TIMEOUT = 30 * 60 * 1000;
 
-    let currentSession = ChatState.currentSessionId
+    const currentSession = ChatState.currentSessionId
       ? sessions.find(s => s.id === ChatState.currentSessionId)
       : (sessions.length > 0 ? sessions[0] : null);
 
@@ -1935,13 +1935,19 @@ const AiChat = {
     bar.classList.toggle('warn', ratio >= 0.9 && ratio < 1);
     bar.classList.toggle('danger', ratio >= 1);
 
+    label.textContent = this._buildContextLabel(inputTokens, actualMaxOut, ctx, ratio);
+  },
+
+  // Compose the context-bar text: token counts in/out/ctx plus a warning suffix
+  // when the request approaches or exceeds the model's context window.
+  _buildContextLabel(inputTokens, actualMaxOut, ctx, ratio) {
     let labelText = this._fmt(inputTokens) + (I18n.t ? I18n.t('ai.tokensIn') : ' in · ') + this._fmt(actualMaxOut) + (I18n.t ? I18n.t('ai.tokensOut') : ' out · ') + this._fmt(ctx) + (I18n.t ? I18n.t('ai.tokensCtx') : ' ctx');
     if (ratio >= 1) {
       labelText += I18n.t ? I18n.t('ai.exceedsLimit') : ' ⚠ Exceeds limit!';
     } else if (ratio >= 0.9) {
       labelText += I18n.t ? I18n.t('ai.approachingLimit') : ' ⚠ Approaching limit';
     }
-    label.textContent = labelText;
+    return labelText;
   },
 
   _fmt(n) {

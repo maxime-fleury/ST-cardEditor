@@ -17408,7 +17408,7 @@
     ja: ja_default,
     zh: zh_default,
     ko: ko_default,
-    el: el_default,
+    elGr: el_default,
     ru: ru_default,
     it: it_default,
     pl: pl_default,
@@ -17449,7 +17449,7 @@
       document.documentElement.dir = RTL_LANGS.includes(this._lang) ? "rtl" : "ltr";
       this._applyBootstrapDir();
       document.title = this.t("app.title");
-      var langSel = document.getElementById("languageSelect");
+      const langSel = document.getElementById("languageSelect");
       if (langSel)
         langSel.value = this._lang;
       this.translateDOM();
@@ -17487,45 +17487,45 @@
       }
     },
     _applyBootstrapDir() {
-      var rtl = RTL_LANGS.includes(this._lang);
-      var ltr = document.getElementById("bootstrapLtr");
-      var rtlSheet = document.getElementById("bootstrapRtl");
+      const rtl = RTL_LANGS.includes(this._lang);
+      const ltr = document.getElementById("bootstrapLtr");
+      const rtlSheet = document.getElementById("bootstrapRtl");
       if (ltr)
         ltr.disabled = rtl;
       if (rtlSheet)
         rtlSheet.disabled = !rtl;
     },
     translateDOM() {
-      var self = this;
-      document.querySelectorAll("[data-i18n]").forEach(function(el) {
-        var key = el.getAttribute("data-i18n");
-        var translated = self.t(key);
+      const self = this;
+      document.querySelectorAll("[data-i18n]").forEach(function(node) {
+        const key = node.getAttribute("data-i18n");
+        const translated = self.t(key);
         if (translated)
-          el.textContent = translated;
+          node.textContent = translated;
       });
-      document.querySelectorAll("[data-i18n-placeholder]").forEach(function(el) {
-        var key = el.getAttribute("data-i18n-placeholder");
-        var translated = self.t(key);
+      document.querySelectorAll("[data-i18n-placeholder]").forEach(function(node) {
+        const key = node.getAttribute("data-i18n-placeholder");
+        const translated = self.t(key);
         if (translated)
-          el.placeholder = translated;
+          node.placeholder = translated;
       });
-      document.querySelectorAll("[data-i18n-title]").forEach(function(el) {
-        var key = el.getAttribute("data-i18n-title");
-        var translated = self.t(key);
+      document.querySelectorAll("[data-i18n-title]").forEach(function(node) {
+        const key = node.getAttribute("data-i18n-title");
+        const translated = self.t(key);
         if (translated)
-          el.title = translated;
+          node.title = translated;
       });
-      document.querySelectorAll("[data-i18n-aria]").forEach(function(el) {
-        var key = el.getAttribute("data-i18n-aria");
-        var translated = self.t(key);
+      document.querySelectorAll("[data-i18n-aria]").forEach(function(node) {
+        const key = node.getAttribute("data-i18n-aria");
+        const translated = self.t(key);
         if (translated)
-          el.setAttribute("aria-label", translated);
+          node.setAttribute("aria-label", translated);
       });
-      document.querySelectorAll("[data-i18n-html]").forEach(function(el) {
-        var key = el.getAttribute("data-i18n-html");
-        var translated = self.t(key);
+      document.querySelectorAll("[data-i18n-html]").forEach(function(node) {
+        const key = node.getAttribute("data-i18n-html");
+        const translated = self.t(key);
         if (translated)
-          el.innerHTML = translated;
+          node.innerHTML = translated;
       });
     }
   };
@@ -17880,8 +17880,10 @@ ${value}`).join(`
     },
     _createThumbnail(base64) {
       return new Promise((resolve) => {
-        if (!base64)
-          return resolve(null);
+        if (!base64) {
+          resolve(null);
+          return;
+        }
         const img = new Image;
         img.onload = () => {
           try {
@@ -18867,6 +18869,22 @@ ${value}`).join(`
       const chosenImage = this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx] ? this._fetchedImages[this._selectedImageIdx].blob : null;
       this._modal.hide();
       const a = this._answers;
+      const prompt = this._buildWizardPrompt(a);
+      const card = CardEngine.createEmptyCard(a.name || "New Character");
+      card.tags = a.tags || [];
+      card.creator = a.creator || "";
+      await CardStorage.upsertCard(card);
+      window.AppState.cards = CardStorage.getCards();
+      await CardManager.selectCard(card);
+      if (chosenImage) {
+        try {
+          await Editor.setAvatar(chosenImage);
+        } catch (_) {}
+      }
+      CardManager.renderCardList();
+      AiChat._sendFullCard(prompt);
+    },
+    _buildWizardPrompt(a) {
       const genderText = a.gender === "other" ? a.genderCustom : a.gender || "unspecified";
       const langMap = {
         en: "English",
@@ -18957,19 +18975,7 @@ ${value}`).join(`
 `;
       prompt += `- Keep the JSON structure clean and valid
 `;
-      const card = CardEngine.createEmptyCard(a.name || "New Character");
-      card.tags = a.tags || [];
-      card.creator = a.creator || "";
-      await CardStorage.upsertCard(card);
-      window.AppState.cards = CardStorage.getCards();
-      await CardManager.selectCard(card);
-      if (chosenImage) {
-        try {
-          await Editor.setAvatar(chosenImage);
-        } catch (_) {}
-      }
-      CardManager.renderCardList();
-      AiChat._sendFullCard(prompt);
+      return prompt;
     }
   };
   if (typeof window !== "undefined")
@@ -19614,66 +19620,9 @@ Each greeting should be an in-character opening message that could start a conve
           if (!workspace.cards || !Array.isArray(workspace.cards)) {
             throw new Error(I18n.t ? I18n.t("settings.invalidWorkspace") : "Invalid workspace format");
           }
-          let imported = 0;
-          for (const card of workspace.cards) {
-            if (!card.name && !card.description)
-              continue;
-            const normalized = CardEngine.normalize(card, (card.name || "character") + ".json");
-            const trimmedName = (normalized.name || "").trim();
-            if (trimmedName) {
-              const existing = CardStorage.getCards().find((c) => (c.name || "").trim().toLowerCase() === trimmedName.toLowerCase());
-              if (existing) {
-                let existingFull = null;
-                try {
-                  existingFull = await CardStorage.getCard(existing._id);
-                } catch (_) {}
-                if (existingFull && CardManager._cardSignature(normalized) === CardManager._cardSignature(existingFull)) {
-                  const base = trimmedName;
-                  let n = 2;
-                  const used = new Set(CardStorage.getCards().map((c) => (c.name || "").toLowerCase()));
-                  let candidate = base + " (" + n + ")";
-                  while (used.has(candidate.toLowerCase())) {
-                    n++;
-                    candidate = base + " (" + n + ")";
-                  }
-                  normalized.name = candidate;
-                }
-              }
-            }
-            if (card._imageBase64) {
-              await CardStorage.saveImage(normalized._id, card._imageBase64);
-              normalized._hasImage = true;
-              normalized._thumbnail = normalized._thumbnail || await CardEngine._createThumbnail(card._imageBase64);
-            }
-            normalized._fileSize = CardEngine.computeFileSize(normalized);
-            await CardStorage.upsertCard(normalized);
-            imported++;
-          }
-          if (workspace.settings) {
-            if (workspace.settings.provider) {
-              CardStorage.setProvider(workspace.settings.provider);
-              const isCustom = workspace.settings.provider === "custom";
-              const isOR = workspace.settings.provider === "openrouter";
-              const providerKey = isOR ? CardStorage.getApiKey() : isCustom ? CardStorage.getCustomApiKey() : CardStorage.getProviderKey(workspace.settings.provider);
-              AIService.setProvider(workspace.settings.provider, providerKey);
-              const sel = document.querySelector("#providerSelect");
-              if (sel)
-                sel.value = workspace.settings.provider;
-            }
-            if (workspace.settings.defaultModel) {
-              this._setCurrentModelId(workspace.settings.defaultModel);
-            }
-            if (workspace.settings.maxTokens !== undefined)
-              CardStorage.setMaxTokens(workspace.settings.maxTokens);
-            if (workspace.settings.injectCopyright !== undefined)
-              CardStorage.setInjectCopyright(workspace.settings.injectCopyright);
-            if (workspace.settings.glassDensity !== undefined)
-              CardStorage.setGlassDensity(workspace.settings.glassDensity);
-            if (workspace.settings.cardRadius !== undefined)
-              CardStorage.setCardRadius(workspace.settings.cardRadius);
-            if (workspace.settings.vignette !== undefined)
-              CardStorage.setVignette(workspace.settings.vignette);
-          }
+          const imported = await this._importWorkspaceCards(workspace.cards);
+          if (workspace.settings)
+            this._applyWorkspaceSettings(workspace.settings);
           window.AppState.cards = CardStorage.getCards();
           CardManager.renderCardList();
           Settings.applyAppearance();
@@ -19690,6 +19639,69 @@ Each greeting should be an in-character opening message that could start a conve
       };
       document.body.appendChild(input);
       input.click();
+    },
+    async _importWorkspaceCards(cards) {
+      let imported = 0;
+      for (const card of cards) {
+        if (!card.name && !card.description)
+          continue;
+        const normalized = CardEngine.normalize(card, (card.name || "character") + ".json");
+        const trimmedName = (normalized.name || "").trim();
+        if (trimmedName) {
+          const existing = CardStorage.getCards().find((c) => (c.name || "").trim().toLowerCase() === trimmedName.toLowerCase());
+          if (existing) {
+            let existingFull = null;
+            try {
+              existingFull = await CardStorage.getCard(existing._id);
+            } catch (_) {}
+            if (existingFull && CardManager._cardSignature(normalized) === CardManager._cardSignature(existingFull)) {
+              const base = trimmedName;
+              let n = 2;
+              const used = new Set(CardStorage.getCards().map((c) => (c.name || "").toLowerCase()));
+              let candidate = base + " (" + n + ")";
+              while (used.has(candidate.toLowerCase())) {
+                n++;
+                candidate = base + " (" + n + ")";
+              }
+              normalized.name = candidate;
+            }
+          }
+        }
+        if (card._imageBase64) {
+          await CardStorage.saveImage(normalized._id, card._imageBase64);
+          normalized._hasImage = true;
+          normalized._thumbnail = normalized._thumbnail || await CardEngine._createThumbnail(card._imageBase64);
+        }
+        normalized._fileSize = CardEngine.computeFileSize(normalized);
+        await CardStorage.upsertCard(normalized);
+        imported++;
+      }
+      return imported;
+    },
+    _applyWorkspaceSettings(settings) {
+      if (settings.provider) {
+        CardStorage.setProvider(settings.provider);
+        const isCustom = settings.provider === "custom";
+        const isOR = settings.provider === "openrouter";
+        const providerKey = isOR ? CardStorage.getApiKey() : isCustom ? CardStorage.getCustomApiKey() : CardStorage.getProviderKey(settings.provider);
+        AIService.setProvider(settings.provider, providerKey);
+        const sel = document.querySelector("#providerSelect");
+        if (sel)
+          sel.value = settings.provider;
+      }
+      if (settings.defaultModel) {
+        this._setCurrentModelId(settings.defaultModel);
+      }
+      if (settings.maxTokens !== undefined)
+        CardStorage.setMaxTokens(settings.maxTokens);
+      if (settings.injectCopyright !== undefined)
+        CardStorage.setInjectCopyright(settings.injectCopyright);
+      if (settings.glassDensity !== undefined)
+        CardStorage.setGlassDensity(settings.glassDensity);
+      if (settings.cardRadius !== undefined)
+        CardStorage.setCardRadius(settings.cardRadius);
+      if (settings.vignette !== undefined)
+        CardStorage.setVignette(settings.vignette);
     }
   };
   if (typeof window !== "undefined")
@@ -19892,7 +19904,7 @@ Each greeting should be an in-character opening message that could start a conve
       }
       const countInput = document.querySelector("#aiGreetingCountInput");
       if (countInput) {
-        ChatState.greetingCount = parseInt(countInput.value) || 3;
+        ChatState.greetingCount = parseInt(countInput.value, 10) || 3;
       }
     },
     _toggleFieldChip(field) {
@@ -20641,7 +20653,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       const card = this._extractCard(content);
       if (!card)
         return content;
-      let value = this._cardFieldValue(card, field);
+      const value = this._cardFieldValue(card, field);
       if (value === undefined)
         return content;
       if (field === "alternate_greetings") {
@@ -21332,7 +21344,7 @@ Current:
       const preview = firstUser ? firstUser.content.length > 80 ? firstUser.content.slice(0, 80) + "..." : firstUser.content : I18n.t ? I18n.t("ai.chatSession") : "Chat session";
       const now = Date.now();
       const SESSION_TIMEOUT = 30 * 60 * 1000;
-      let currentSession = ChatState.currentSessionId ? sessions.find((s) => s.id === ChatState.currentSessionId) : sessions.length > 0 ? sessions[0] : null;
+      const currentSession = ChatState.currentSessionId ? sessions.find((s) => s.id === ChatState.currentSessionId) : sessions.length > 0 ? sessions[0] : null;
       if (currentSession && now - (currentSession.lastUpdated || currentSession.created) < SESSION_TIMEOUT) {
         currentSession.lastUpdated = now;
         currentSession.preview = preview;
@@ -21522,13 +21534,16 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       bar.style.width = pct + "%";
       bar.classList.toggle("warn", ratio >= 0.9 && ratio < 1);
       bar.classList.toggle("danger", ratio >= 1);
+      label.textContent = this._buildContextLabel(inputTokens, actualMaxOut, ctx, ratio);
+    },
+    _buildContextLabel(inputTokens, actualMaxOut, ctx, ratio) {
       let labelText = this._fmt(inputTokens) + (I18n.t ? I18n.t("ai.tokensIn") : " in · ") + this._fmt(actualMaxOut) + (I18n.t ? I18n.t("ai.tokensOut") : " out · ") + this._fmt(ctx) + (I18n.t ? I18n.t("ai.tokensCtx") : " ctx");
       if (ratio >= 1) {
         labelText += I18n.t ? I18n.t("ai.exceedsLimit") : " ⚠ Exceeds limit!";
       } else if (ratio >= 0.9) {
         labelText += I18n.t ? I18n.t("ai.approachingLimit") : " ⚠ Approaching limit";
       }
-      label.textContent = labelText;
+      return labelText;
     },
     _fmt(n) {
       n = n || 0;
@@ -21726,22 +21741,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       const datalist = document.querySelector("#tagSuggestions");
       if (datalist)
         datalist.innerHTML = [...allTags].map((t) => '<option value="' + Ui.escapeAttr(t) + '">').join("");
-      document.querySelectorAll(".field-toggle-group").forEach((group) => {
-        const targetId = group.dataset.target;
-        group.querySelectorAll(".field-toggle-btn").forEach((b) => b.classList.remove("active"));
-        const editBtn = group.querySelector('[data-mode="edit"]');
-        if (editBtn)
-          editBtn.classList.add("active");
-        const textarea = document.getElementById(targetId);
-        const previewId = "preview" + targetId.replace("edit", "");
-        const preview = document.getElementById(previewId);
-        if (textarea)
-          textarea.style.display = "";
-        if (preview) {
-          preview.classList.remove("visible");
-          preview.innerHTML = "";
-        }
-      });
+      this._resetPreviewToggles();
       this.renderGreetings(card);
       const metaCreator = $("#metaCreator");
       if (metaCreator) {
@@ -21778,6 +21778,24 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       this.autoResizeTextareas();
       window.syncFloatingLabels?.();
       window.Ui.updateUIState();
+    },
+    _resetPreviewToggles() {
+      document.querySelectorAll(".field-toggle-group").forEach((group) => {
+        const targetId = group.dataset.target;
+        group.querySelectorAll(".field-toggle-btn").forEach((b) => b.classList.remove("active"));
+        const editBtn = group.querySelector('[data-mode="edit"]');
+        if (editBtn)
+          editBtn.classList.add("active");
+        const textarea = document.getElementById(targetId);
+        const previewId = "preview" + targetId.replace("edit", "");
+        const preview = document.getElementById(previewId);
+        if (textarea)
+          textarea.style.display = "";
+        if (preview) {
+          preview.classList.remove("visible");
+          preview.innerHTML = "";
+        }
+      });
     },
     _captureFields(activeCard) {
       const $ = Ui.$;
@@ -21952,7 +21970,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       container.querySelectorAll(".greeting-delete").forEach((btn) => {
         btn.addEventListener("click", async () => {
           self.syncGreetings();
-          window.AppState.activeCard.alternate_greetings.splice(parseInt(btn.dataset.idx), 1);
+          window.AppState.activeCard.alternate_greetings.splice(parseInt(btn.dataset.idx, 10), 1);
           self.renderGreetings(window.AppState.activeCard);
           await self.syncEditorToCard();
           self.updateCharCounts();
@@ -21961,7 +21979,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       container.querySelectorAll(".greeting-set-default").forEach((btn) => {
         btn.addEventListener("click", async () => {
           self.syncGreetings();
-          const g = window.AppState.activeCard.alternate_greetings[parseInt(btn.dataset.idx)];
+          const g = window.AppState.activeCard.alternate_greetings[parseInt(btn.dataset.idx, 10)];
           if (g) {
             window.AppState.activeCard.first_mes = g;
             $("#editFirstMes").value = g;
@@ -21974,7 +21992,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       container.querySelectorAll(".greeting-up").forEach((btn) => {
         btn.addEventListener("click", async () => {
           self.syncGreetings();
-          const idx = parseInt(btn.dataset.idx);
+          const idx = parseInt(btn.dataset.idx, 10);
           if (idx > 0) {
             const arr = window.AppState.activeCard.alternate_greetings;
             [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
@@ -21986,7 +22004,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       container.querySelectorAll(".greeting-down").forEach((btn) => {
         btn.addEventListener("click", async () => {
           self.syncGreetings();
-          const idx = parseInt(btn.dataset.idx);
+          const idx = parseInt(btn.dataset.idx, 10);
           const arr = window.AppState.activeCard.alternate_greetings;
           if (idx < arr.length - 1) {
             [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
@@ -22011,7 +22029,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
             await self.syncEditorToCard();
             return;
           }
-          const idx = parseInt(ta.dataset.greetingIdx);
+          const idx = parseInt(ta.dataset.greetingIdx, 10);
           if (window.AppState.activeCard.alternate_greetings[idx] !== undefined) {
             window.AppState.activeCard.alternate_greetings[idx] = ta.value;
           }
@@ -22175,13 +22193,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         container.innerHTML = '<div class="text-muted text-center py-3">' + (I18n.t ? I18n.t("editor.noEntriesMatch", { query: Ui.escapeHtml(searchQuery) }) : 'No entries match "' + Ui.escapeHtml(searchQuery) + '"') + "</div>";
         return;
       }
-      container.innerHTML = '<div class="lorebook-accordion">' + filteredEntries.map(({ entry, idx }) => {
-        const keys = (Array.isArray(entry.key) ? entry.key : (entry.key || "").split(",")).map((s) => String(s).trim()).filter(Boolean);
-        const secondary = entry.keysecondary || [];
-        const label = entry.comment || (Array.isArray(entry.key) ? entry.key.join(", ") : entry.key) || (I18n.t ? I18n.t("editor.loreEntry", { num: idx + 1 }) : "Entry " + (idx + 1));
-        const keyTagsHtml = keys.slice(0, 3).map((k) => '<span class="lorebook-key-tag primary">' + Ui.escapeHtml(k) + "</span>").join("") + secondary.slice(0, 2).map((k) => '<span class="lorebook-key-tag secondary">' + Ui.escapeHtml(k) + "</span>").join("");
-        return '<div class="lorebook-accordion-item" data-entry-idx="' + idx + '">' + '<div class="lorebook-accordion-header" data-lore-toggle="' + idx + '" role="button" tabindex="0" aria-expanded="false">' + '<i class="bi bi-chevron-right lorebook-chevron"></i>' + '<span class="lorebook-entry-label">' + Ui.escapeHtml(label) + "</span>" + '<div class="lorebook-key-tags">' + keyTagsHtml + "</div>" + '<button class="btn btn-outline-danger btn-sm lorebook-delete-btn" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t("editor.loreDeleteEntry") : "Delete entry") + '"><i class="bi bi-trash"></i></button>' + "</div>" + '<div class="lorebook-accordion-body">' + '<div class="row g-2 mb-2" style="font-size:0.8rem;">' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.lorePrimaryKeys") : "Primary Keywords") + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((Array.isArray(entry.key) ? entry.key.join(", ") : entry.key) || "") + '" placeholder="' + (I18n.t ? I18n.t("editor.lorePrimaryKeysPlaceholder") : "Primary keywords — comma separated") + '" data-lore-key-idx="' + idx + '"></div>' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.loreSecondaryKeys") : "Secondary Keywords") + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(", ")) + '" placeholder="' + (I18n.t ? I18n.t("editor.loreSecondaryKeysPlaceholder") : "Secondary keywords") + '" data-lore-secondary-idx="' + idx + '"></div>' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.loreComment") : "Comment") + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || "") + '" placeholder="' + (I18n.t ? I18n.t("editor.loreCommentPlaceholder") : "Comment") + '" data-lore-comment-idx="' + idx + '"></div>' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.loreOrder") : "Order") + '</label><input type="number" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.order ?? 100) + '" placeholder="' + (I18n.t ? I18n.t("editor.loreOrderPlaceholder") : "Order") + '" data-lore-order-idx="' + idx + '"></div>' + "</div>" + '<div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">' + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? " checked" : "") + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">' + (I18n.t ? I18n.t("editor.loreConstant") : "Constant") + "</label></div>" + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.selective ? " checked" : "") + ' data-lore-selective-idx="' + idx + '"><label class="form-check-label">' + (I18n.t ? I18n.t("editor.loreSelective") : "Selective") + "</label></div>" + '<select class="form-select form-select-sm" style="width:auto;" data-lore-position-idx="' + idx + '">' + '<option value="before_char"' + (entry.position === "before_char" ? " selected" : "") + ">" + (I18n.t ? I18n.t("editor.loreBeforeChar") : "Before char") + "</option>" + '<option value="after_char"' + (entry.position === "after_char" ? " selected" : "") + ">" + (I18n.t ? I18n.t("editor.loreAfterChar") : "After char") + "</option></select>" + "</div>" + '<label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.loreContent") : "Content") + "</label>" + '<textarea class="form-control editor-textarea font-mono" rows="6" placeholder="' + (I18n.t ? I18n.t("editor.loreContentPlaceholder") : "Entry content...") + '" data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || "") + "</textarea>" + "</div>" + "</div>";
-      }).join("") + "</div>";
+      container.innerHTML = '<div class="lorebook-accordion">' + filteredEntries.map(({ entry, idx }) => this._loreEntryHtml(entry, idx)).join("") + "</div>";
       container.querySelectorAll("[data-lore-toggle]").forEach((header) => {
         const toggle = (e) => {
           if (e.target.closest(".lorebook-delete-btn"))
@@ -22204,7 +22216,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       container.querySelectorAll(".lorebook-delete-btn").forEach((btn) => {
         btn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          window.AppState.activeCard.character_book.entries.splice(parseInt(btn.dataset.idx), 1);
+          window.AppState.activeCard.character_book.entries.splice(parseInt(btn.dataset.idx, 10), 1);
           self.renderLorebook(window.AppState.activeCard);
           await self.syncEditorToCard();
           self.updateCharCounts();
@@ -22226,7 +22238,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         ta.addEventListener("input", Ui.debounce(async () => {
           if (!ta.isConnected || gen2 !== self._loreGen)
             return;
-          const idx = parseInt(ta.dataset.loreIdx);
+          const idx = parseInt(ta.dataset.loreIdx, 10);
           if (window.AppState.activeCard.character_book.entries[idx]) {
             window.AppState.activeCard.character_book.entries[idx].content = ta.value;
             await self.syncEditorToCard();
@@ -22239,7 +22251,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         input.addEventListener("input", Ui.debounce(async () => {
           if (!input.isConnected || gen2 !== self._loreGen)
             return;
-          const idx = parseInt(input.dataset.loreKeyIdx);
+          const idx = parseInt(input.dataset.loreKeyIdx, 10);
           if (window.AppState.activeCard.character_book.entries[idx]) {
             window.AppState.activeCard.character_book.entries[idx].key = input.value.trim();
             await self.syncEditorToCard();
@@ -22250,7 +22262,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         input.addEventListener("input", Ui.debounce(async () => {
           if (!input.isConnected || gen2 !== self._loreGen)
             return;
-          const idx = parseInt(input.dataset.loreSecondaryIdx);
+          const idx = parseInt(input.dataset.loreSecondaryIdx, 10);
           if (window.AppState.activeCard.character_book.entries[idx]) {
             window.AppState.activeCard.character_book.entries[idx].keysecondary = input.value.split(",").map((s) => s.trim()).filter(Boolean);
             await self.syncEditorToCard();
@@ -22261,7 +22273,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         input.addEventListener("input", Ui.debounce(async () => {
           if (!input.isConnected || gen2 !== self._loreGen)
             return;
-          const idx = parseInt(input.dataset.loreCommentIdx);
+          const idx = parseInt(input.dataset.loreCommentIdx, 10);
           if (window.AppState.activeCard.character_book.entries[idx]) {
             window.AppState.activeCard.character_book.entries[idx].comment = input.value;
             await self.syncEditorToCard();
@@ -22272,7 +22284,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         input.addEventListener("input", Ui.debounce(async () => {
           if (!input.isConnected || gen2 !== self._loreGen)
             return;
-          const idx = parseInt(input.dataset.loreOrderIdx);
+          const idx = parseInt(input.dataset.loreOrderIdx, 10);
           if (window.AppState.activeCard.character_book.entries[idx]) {
             const parsed = parseInt(input.value, 10);
             window.AppState.activeCard.character_book.entries[idx].order = Number.isNaN(parsed) ? 100 : parsed;
@@ -22282,7 +22294,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       });
       container.querySelectorAll("input[data-lore-constant-idx]").forEach((cb) => {
         cb.addEventListener("change", async () => {
-          const idx = parseInt(cb.dataset.loreConstantIdx);
+          const idx = parseInt(cb.dataset.loreConstantIdx, 10);
           if (window.AppState.activeCard.character_book.entries[idx]) {
             window.AppState.activeCard.character_book.entries[idx].constant = cb.checked;
             await self.syncEditorToCard();
@@ -22291,7 +22303,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       });
       container.querySelectorAll("input[data-lore-selective-idx]").forEach((cb) => {
         cb.addEventListener("change", async () => {
-          const idx = parseInt(cb.dataset.loreSelectiveIdx);
+          const idx = parseInt(cb.dataset.loreSelectiveIdx, 10);
           if (window.AppState.activeCard.character_book.entries[idx]) {
             window.AppState.activeCard.character_book.entries[idx].selective = cb.checked;
             await self.syncEditorToCard();
@@ -22300,13 +22312,21 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       });
       container.querySelectorAll("select[data-lore-position-idx]").forEach((sel) => {
         sel.addEventListener("change", async () => {
-          const idx = parseInt(sel.dataset.lorePositionIdx);
+          const idx = parseInt(sel.dataset.lorePositionIdx, 10);
           if (window.AppState.activeCard.character_book.entries[idx]) {
             window.AppState.activeCard.character_book.entries[idx].position = sel.value;
             await self.syncEditorToCard();
           }
         });
       });
+    },
+    _loreEntryHtml(entry, idx) {
+      const t = (key, fallback) => I18n.t ? I18n.t(key) : fallback;
+      const keys = (Array.isArray(entry.key) ? entry.key : (entry.key || "").split(",")).map((s) => String(s).trim()).filter(Boolean);
+      const secondary = entry.keysecondary || [];
+      const label = entry.comment || (Array.isArray(entry.key) ? entry.key.join(", ") : entry.key) || t("editor.loreEntry", "Entry " + (idx + 1));
+      const keyTagsHtml = keys.slice(0, 3).map((k) => '<span class="lorebook-key-tag primary">' + Ui.escapeHtml(k) + "</span>").join("") + secondary.slice(0, 2).map((k) => '<span class="lorebook-key-tag secondary">' + Ui.escapeHtml(k) + "</span>").join("");
+      return '<div class="lorebook-accordion-item" data-entry-idx="' + idx + '">' + '<div class="lorebook-accordion-header" data-lore-toggle="' + idx + '" role="button" tabindex="0" aria-expanded="false">' + '<i class="bi bi-chevron-right lorebook-chevron"></i>' + '<span class="lorebook-entry-label">' + Ui.escapeHtml(label) + "</span>" + '<div class="lorebook-key-tags">' + keyTagsHtml + "</div>" + '<button class="btn btn-outline-danger btn-sm lorebook-delete-btn" data-idx="' + idx + '" title="' + t("editor.loreDeleteEntry", "Delete entry") + '"><i class="bi bi-trash"></i></button>' + "</div>" + '<div class="lorebook-accordion-body">' + '<div class="row g-2 mb-2" style="font-size:0.8rem;">' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + t("editor.lorePrimaryKeys", "Primary Keywords") + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((Array.isArray(entry.key) ? entry.key.join(", ") : entry.key) || "") + '" placeholder="' + t("editor.lorePrimaryKeysPlaceholder", "Primary keywords — comma separated") + '" data-lore-key-idx="' + idx + '"></div>' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + t("editor.loreSecondaryKeys", "Secondary Keywords") + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(", ")) + '" placeholder="' + t("editor.loreSecondaryKeysPlaceholder", "Secondary keywords") + '" data-lore-secondary-idx="' + idx + '"></div>' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + t("editor.loreComment", "Comment") + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || "") + '" placeholder="' + t("editor.loreCommentPlaceholder", "Comment") + '" data-lore-comment-idx="' + idx + '"></div>' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + t("editor.loreOrder", "Order") + '</label><input type="number" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.order ?? 100) + '" placeholder="' + t("editor.loreOrderPlaceholder", "Order") + '" data-lore-order-idx="' + idx + '"></div>' + "</div>" + '<div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">' + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? " checked" : "") + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">' + t("editor.loreConstant", "Constant") + "</label></div>" + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.selective ? " checked" : "") + ' data-lore-selective-idx="' + idx + '"><label class="form-check-label">' + t("editor.loreSelective", "Selective") + "</label></div>" + '<select class="form-select form-select-sm" style="width:auto;" data-lore-position-idx="' + idx + '">' + '<option value="before_char"' + (entry.position === "before_char" ? " selected" : "") + ">" + t("editor.loreBeforeChar", "Before char") + "</option>" + '<option value="after_char"' + (entry.position === "after_char" ? " selected" : "") + ">" + t("editor.loreAfterChar", "After char") + "</option></select>" + "</div>" + '<label class="form-label" style="font-size:0.72rem;">' + t("editor.loreContent", "Content") + "</label>" + '<textarea class="form-control editor-textarea font-mono" rows="6" placeholder="' + t("editor.loreContentPlaceholder", "Entry content...") + '" data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || "") + "</textarea>" + "</div>" + "</div>";
     },
     async addLorebookEntry() {
       const { activeCard } = window.AppState;
@@ -22593,27 +22613,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         }
         try {
           const card = await CardEngine.parseFile(file);
-          const trimmedName = (card.name || "").trim();
-          if (trimmedName) {
-            const existing = CardStorage.getCards().find((c) => (c.name || "").trim().toLowerCase() === trimmedName.toLowerCase());
-            if (existing) {
-              let existingFull = null;
-              try {
-                existingFull = await CardStorage.getCard(existing._id);
-              } catch (_) {}
-              if (existingFull && this._cardSignature(card) === this._cardSignature(existingFull)) {
-                const base = trimmedName;
-                let n = 2;
-                const used = new Set(CardStorage.getCards().map((c) => (c.name || "").toLowerCase()));
-                let candidate = base + " (" + n + ")";
-                while (used.has(candidate.toLowerCase())) {
-                  n++;
-                  candidate = base + " (" + n + ")";
-                }
-                card.name = candidate;
-                Ui.showToast(I18n.t("toast.importDupe", { name: candidate }), "info");
-              }
-            }
+          if (await this._ensureUniqueImportName(card)) {
+            Ui.showToast(I18n.t("toast.importDupe", { name: card.name }), "info");
           }
           if (card._imageBase64) {
             const approxBytes = Math.round(card._imageBase64.length * 3 / 4);
@@ -22660,6 +22661,30 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         (card.character_version || "").trim(),
         tags.join("|")
       ]);
+    },
+    async _ensureUniqueImportName(card) {
+      const trimmedName = (card.name || "").trim();
+      if (!trimmedName)
+        return false;
+      const existing = CardStorage.getCards().find((c) => (c.name || "").trim().toLowerCase() === trimmedName.toLowerCase());
+      if (!existing)
+        return false;
+      let existingFull = null;
+      try {
+        existingFull = await CardStorage.getCard(existing._id);
+      } catch (_) {}
+      if (!existingFull || this._cardSignature(card) !== this._cardSignature(existingFull))
+        return false;
+      const base = trimmedName;
+      let n = 2;
+      const used = new Set(CardStorage.getCards().map((c) => (c.name || "").toLowerCase()));
+      let candidate = base + " (" + n + ")";
+      while (used.has(candidate.toLowerCase())) {
+        n++;
+        candidate = base + " (" + n + ")";
+      }
+      card.name = candidate;
+      return true;
     },
     _tagSet(card) {
       return new Set((card.tags || []).map((t) => String(t == null ? "" : t).trim().toLowerCase()).filter(Boolean));
@@ -22870,7 +22895,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       const byLetter = new Map;
       for (const card of list) {
         const name = (card.name || "").trim();
-        let letter = "#", ch = name ? name[0] : "";
+        const ch = name ? name[0] : "";
+        let letter = "#";
         if (/[A-Za-z0-9]/.test(ch))
           letter = ch.toUpperCase();
         let g = byLetter.get(letter);
@@ -23093,15 +23119,15 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
           const dropId = item.dataset.cardId;
           if (dragId === dropId)
             return;
-          const cards2 = window.AppState.cards;
-          const fromIdx = cards2.findIndex((c) => c._id === dragId);
-          const toIdx = cards2.findIndex((c) => c._id === dropId);
+          const dropCards = window.AppState.cards;
+          const fromIdx = dropCards.findIndex((c) => c._id === dragId);
+          const toIdx = dropCards.findIndex((c) => c._id === dropId);
           if (fromIdx < 0 || toIdx < 0)
             return;
-          const [moved] = cards2.splice(fromIdx, 1);
+          const [moved] = dropCards.splice(fromIdx, 1);
           const adjustedTo = toIdx > fromIdx ? toIdx - 1 : toIdx;
-          cards2.splice(adjustedTo, 0, moved);
-          CardStorage.saveCardIndex(cards2);
+          dropCards.splice(adjustedTo, 0, moved);
+          CardStorage.saveCardIndex(dropCards);
           this.renderCardList();
           dragId = null;
         });
@@ -24199,9 +24225,9 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
           if (!failed && typeof marked !== "undefined" && typeof DOMPurify !== "undefined") {
             this._markdownReady = true;
             this._markdownRetryAfter = 0;
-            const pending2 = this._markdownPending;
+            const pendingItems = this._markdownPending;
             this._markdownPending = [];
-            pending2.forEach((item) => {
+            pendingItems.forEach((item) => {
               if (item.target && item.target.isConnected) {
                 item.target.innerHTML = this.renderMarkdown(item.text);
               }
@@ -24405,7 +24431,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         try {
           Editor.syncGreetings();
           Editor.syncEditorToCardSync();
-        } catch (_2) {}
+        } catch (__) {}
       }
     });
     window.addEventListener("storage", handleStorageChange);
@@ -24841,8 +24867,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
             preview.classList.remove("visible");
             preview.innerHTML = "";
           }
-          document.querySelectorAll('.token-insert-btn[data-target="' + targetId + '"]').forEach((btn2) => {
-            const grp = btn2.closest(".token-insert-group");
+          document.querySelectorAll('.token-insert-btn[data-target="' + targetId + '"]').forEach((tbtn) => {
+            const grp = tbtn.closest(".token-insert-group");
             if (grp)
               grp.style.display = mode === "preview" ? "none" : "";
           });
@@ -24872,7 +24898,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
     const greetingCountInput = $("#aiGreetingCountInput");
     if (greetingCountInput) {
       greetingCountInput.addEventListener("change", () => {
-        AiChat._greetingCount = parseInt(greetingCountInput.value) || 3;
+        AiChat._greetingCount = parseInt(greetingCountInput.value, 10) || 3;
       });
     }
     $$(".quick-action").forEach((btn) => {
@@ -25145,33 +25171,35 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
   }
   function handleKeyboardShortcuts(e) {
     const inField = e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable;
+    const mod = e.ctrlKey || e.metaKey;
+    const key = (e.key || "").toLowerCase();
     if (inField) {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+      if (mod && e.key === "s") {
         e.preventDefault();
         CardManager.saveCurrentCard();
       }
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+    if (mod && key === "z" && !e.shiftKey) {
       e.preventDefault();
       Editor.undo();
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "y" || e.key.toLowerCase() === "z" && e.shiftKey)) {
+    if (mod && (key === "y" || key === "z" && e.shiftKey)) {
       e.preventDefault();
       Editor.redo();
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+    if (mod && e.key === "s") {
       e.preventDefault();
       CardManager.saveCurrentCard();
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === "n") {
+    if (mod && e.key === "n") {
       e.preventDefault();
       CardManager.createNewCard();
     }
-    if (e.altKey && e.key.toLowerCase() === "f") {
+    if (e.altKey && key === "f") {
       e.preventDefault();
       const app = document.querySelector("#appContainer");
       const focused = app && app.classList.contains("side-left-collapsed") && app.classList.contains("side-right-collapsed");
@@ -25179,13 +25207,13 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         Ui.setFocusMode(!focused);
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === "\\") {
+    if (mod && key === "\\") {
       e.preventDefault();
       if (Ui.togglePanelCollapse)
         Ui.togglePanelCollapse("right");
       return;
     }
-    if (e.key === "?") {
+    if (key === "?") {
       Ui._shortcutsModal = Ui._shortcutsModal || new bootstrap.Modal("#shortcutsModal");
       Ui._shortcutsModal.show();
     }
@@ -25520,7 +25548,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       } catch (_) {
         try {
           localStorage.setItem(this.PREFIX + this._keys.apiKey, clean);
-        } catch (_2) {}
+        } catch (__) {}
       }
     },
     getDefaultModel() {
@@ -25593,7 +25621,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       } catch (_) {
         try {
           localStorage.setItem(this.PREFIX + this._keys.customApiKey, clean);
-        } catch (_2) {}
+        } catch (__) {}
       }
     },
     getCustomModelId() {
@@ -26251,13 +26279,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       if (!baseUrl)
         throw new Error(I18n.t ? I18n.t("error.customUrlNotSet") : "Custom API base URL is not set");
       const apiBaseUrl = this._getChatBaseUrl();
-      const headers = { "Content-Type": "application/json" };
-      if (apiKey)
-        headers["Authorization"] = "Bearer " + apiKey;
-      if (this._provider === "openrouter") {
-        headers["HTTP-Referer"] = "https://github.com/st-card-editor";
-        headers["X-Title"] = "ST Card Editor";
-      }
+      const headers = this._buildHeaders(apiKey);
       const fetchChat = async (useJsonMode) => {
         const resp = await fetch(`${apiBaseUrl}/chat/completions`, {
           method: "POST",
@@ -26283,6 +26305,19 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
           throw e;
         }
       }
+      return this._normalizeChatResponse(data, useModel);
+    },
+    _buildHeaders(apiKey) {
+      const headers = { "Content-Type": "application/json" };
+      if (apiKey)
+        headers["Authorization"] = "Bearer " + apiKey;
+      if (this._provider === "openrouter") {
+        headers["HTTP-Referer"] = "https://github.com/st-card-editor";
+        headers["X-Title"] = "ST Card Editor";
+      }
+      return headers;
+    },
+    _normalizeChatResponse(data, useModel) {
       const choice = data.choices?.[0];
       if (!choice)
         throw new Error(I18n.t ? I18n.t("error.noChoices") : "API returned no response choices");
@@ -26322,13 +26357,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       if (!baseUrl)
         throw new Error(I18n.t ? I18n.t("error.customUrlNotSet") : "Custom API base URL is not set");
       const apiBaseUrl = this._getChatBaseUrl();
-      const headers = { "Content-Type": "application/json" };
-      if (apiKey)
-        headers["Authorization"] = "Bearer " + apiKey;
-      if (this._provider === "openrouter") {
-        headers["HTTP-Referer"] = "https://github.com/st-card-editor";
-        headers["X-Title"] = "ST Card Editor";
-      }
+      const headers = this._buildHeaders(apiKey);
       const doStream = async (useJsonMode) => {
         const resp2 = await fetch(`${apiBaseUrl}/chat/completions`, {
           method: "POST",

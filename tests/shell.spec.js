@@ -213,7 +213,7 @@ test('service worker serves the app shell offline with cached CDN', async ({ pag
     navigator.serviceWorker.ready.then(() =>
       navigator.serviceWorker.controller
         ? true
-        : new Promise((res) => navigator.serviceWorker.addEventListener('controllerchange', () => res(true), { once: true }))
+        : new Promise((res) => { navigator.serviceWorker.addEventListener('controllerchange', () => res(true), { once: true }); })
     ));
   await page.waitForTimeout(2000);
 

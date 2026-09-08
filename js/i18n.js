@@ -15,7 +15,7 @@ import pt from './i18n/pt.js';
 import ja from './i18n/ja.js';
 import zh from './i18n/zh.js';
 import ko from './i18n/ko.js';
-import el from './i18n/el.js';
+import elGr from './i18n/el.js';
 import ru from './i18n/ru.js';
 import it from './i18n/it.js';
 import pl from './i18n/pl.js';
@@ -40,7 +40,7 @@ const SUPPORTED = ['en','fr','es','de','pt','ja','zh','ko','el','ru','it','pl','
 const RTL_LANGS = ['ar','he','fa'];
 
 const translations = {
-  en, fr, es, de, pt, ja, zh, ko, el, ru, it, pl, tr, nl, uk, vi, id, hi, ar, he, fa,
+  en, fr, es, de, pt, ja, zh, ko, elGr, ru, it, pl, tr, nl, uk, vi, id, hi, ar, he, fa,
   ro, cs, sv, th, 'pt-pt': ptPt, tl
 };
 
@@ -69,7 +69,7 @@ const I18n = {
     document.documentElement.dir = RTL_LANGS.includes(this._lang) ? 'rtl' : 'ltr';
     this._applyBootstrapDir();
     document.title = this.t('app.title');
-    var langSel = document.getElementById('languageSelect');
+    const langSel = document.getElementById('languageSelect');
     if (langSel) langSel.value = this._lang;
     this.translateDOM();
   },
@@ -108,39 +108,39 @@ const I18n = {
   },
 
   _applyBootstrapDir() {
-    var rtl = RTL_LANGS.includes(this._lang);
-    var ltr = document.getElementById('bootstrapLtr');
-    var rtlSheet = document.getElementById('bootstrapRtl');
+    const rtl = RTL_LANGS.includes(this._lang);
+    const ltr = document.getElementById('bootstrapLtr');
+    const rtlSheet = document.getElementById('bootstrapRtl');
     if (ltr) ltr.disabled = rtl;
     if (rtlSheet) rtlSheet.disabled = !rtl;
   },
 
   translateDOM() {
-    var self = this;
-    document.querySelectorAll('[data-i18n]').forEach(function(el) {
-      var key = el.getAttribute('data-i18n');
-      var translated = self.t(key);
-      if (translated) el.textContent = translated;
+    const self = this;
+    document.querySelectorAll('[data-i18n]').forEach(function(node) {
+      const key = node.getAttribute('data-i18n');
+      const translated = self.t(key);
+      if (translated) node.textContent = translated;
     });
-    document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el) {
-      var key = el.getAttribute('data-i18n-placeholder');
-      var translated = self.t(key);
-      if (translated) el.placeholder = translated;
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(function(node) {
+      const key = node.getAttribute('data-i18n-placeholder');
+      const translated = self.t(key);
+      if (translated) node.placeholder = translated;
     });
-    document.querySelectorAll('[data-i18n-title]').forEach(function(el) {
-      var key = el.getAttribute('data-i18n-title');
-      var translated = self.t(key);
-      if (translated) el.title = translated;
+    document.querySelectorAll('[data-i18n-title]').forEach(function(node) {
+      const key = node.getAttribute('data-i18n-title');
+      const translated = self.t(key);
+      if (translated) node.title = translated;
     });
-    document.querySelectorAll('[data-i18n-aria]').forEach(function(el) {
-      var key = el.getAttribute('data-i18n-aria');
-      var translated = self.t(key);
-      if (translated) el.setAttribute('aria-label', translated);
+    document.querySelectorAll('[data-i18n-aria]').forEach(function(node) {
+      const key = node.getAttribute('data-i18n-aria');
+      const translated = self.t(key);
+      if (translated) node.setAttribute('aria-label', translated);
     });
-    document.querySelectorAll('[data-i18n-html]').forEach(function(el) {
-      var key = el.getAttribute('data-i18n-html');
-      var translated = self.t(key);
-      if (translated) el.innerHTML = translated;
+    document.querySelectorAll('[data-i18n-html]').forEach(function(node) {
+      const key = node.getAttribute('data-i18n-html');
+      const translated = self.t(key);
+      if (translated) node.innerHTML = translated;
     });
   }
 };

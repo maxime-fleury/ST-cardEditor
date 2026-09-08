@@ -510,7 +510,7 @@ test('_resolveTargetFields dedupes concurrent classifications', async () => {
   stubs.AIService.hasApiKey = () => true;
   stubs.AIService.chat = async () => {
     calls++;
-    await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => { setTimeout(r, 10); });
     return { content: '["name"]' };
   };
   const [a, b] = await Promise.all([

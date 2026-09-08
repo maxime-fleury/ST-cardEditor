@@ -706,64 +706,9 @@ const Settings = {
         if (!workspace.cards || !Array.isArray(workspace.cards)) {
           throw new Error((I18n.t ? I18n.t('settings.invalidWorkspace') : 'Invalid workspace format'));
         }
-        let imported = 0;
-        for (const card of workspace.cards) {
-          if (!card.name && !card.description) continue;
-          const normalized = CardEngine.normalize(card, (card.name || 'character') + '.json');
-          // Dedupe like processFiles: re-importing a workspace mints a fresh _id
-          // for every card, so without this the library silently doubles (#38).
-          const trimmedName = (normalized.name || '').trim();
-          if (trimmedName) {
-            const existing = CardStorage.getCards().find(c => (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase());
-            if (existing) {
-              let existingFull = null;
-              try { existingFull = await CardStorage.getCard(existing._id); } catch (_) {}
-              if (existingFull && CardManager._cardSignature(normalized) === CardManager._cardSignature(existingFull)) {
-                const base = trimmedName;
-                let n = 2;
-                const used = new Set(CardStorage.getCards().map(c => (c.name || '').toLowerCase()));
-                let candidate = base + ' (' + n + ')';
-                while (used.has(candidate.toLowerCase())) { n++; candidate = base + ' (' + n + ')'; }
-                normalized.name = candidate;
-              }
-            }
-          }
-          if (card._imageBase64) {
-            await CardStorage.saveImage(normalized._id, card._imageBase64);
-            normalized._hasImage = true;
-            normalized._thumbnail = normalized._thumbnail || await CardEngine._createThumbnail(card._imageBase64);
-          }
-          // Recompute now that the image may be attached: normalize() computed
-          // _fileSize before it existed, so the badge/sort would ignore it.
-          normalized._fileSize = CardEngine.computeFileSize(normalized);
-          await CardStorage.upsertCard(normalized);
-          imported++;
-        }
+        const imported = await this._importWorkspaceCards(workspace.cards);
         // Restore settings if present
-        if (workspace.settings) {
-          if (workspace.settings.provider) {
-            CardStorage.setProvider(workspace.settings.provider);
-            // Keep the runtime in sync so the imported provider actually takes
-            // effect instead of waiting for a reload (#80).
-            const isCustom = workspace.settings.provider === 'custom';
-            const isOR = workspace.settings.provider === 'openrouter';
-            const providerKey = isOR ? CardStorage.getApiKey() : (isCustom ? CardStorage.getCustomApiKey() : CardStorage.getProviderKey(workspace.settings.provider));
-            AIService.setProvider(workspace.settings.provider, providerKey);
-            const sel = document.querySelector('#providerSelect');
-            if (sel) sel.value = workspace.settings.provider;
-          }
-          if (workspace.settings.defaultModel) {
-            // Route into the provider-appropriate slot (v2 #25) — the provider
-            // was just restored above, so the model lands in the right slot.
-            this._setCurrentModelId(workspace.settings.defaultModel);
-          }
-          if (workspace.settings.maxTokens !== undefined) CardStorage.setMaxTokens(workspace.settings.maxTokens);
-          if (workspace.settings.injectCopyright !== undefined) CardStorage.setInjectCopyright(workspace.settings.injectCopyright);
-          // Appearance prefs are optional for backward compatibility.
-          if (workspace.settings.glassDensity !== undefined) CardStorage.setGlassDensity(workspace.settings.glassDensity);
-          if (workspace.settings.cardRadius !== undefined) CardStorage.setCardRadius(workspace.settings.cardRadius);
-          if (workspace.settings.vignette !== undefined) CardStorage.setVignette(workspace.settings.vignette);
-        }
+        if (workspace.settings) this._applyWorkspaceSettings(workspace.settings);
         window.AppState.cards = CardStorage.getCards();
         CardManager.renderCardList();
         Settings.applyAppearance();
@@ -779,6 +724,72 @@ const Settings = {
     };
     document.body.appendChild(input);
     input.click();
+  },
+
+  // Import workspace cards with the same name-dedupe as processFiles:
+  // re-importing a workspace mints a fresh _id for every card, so without this
+  // the library silently doubles (#38). Returns the number of cards imported.
+  async _importWorkspaceCards(cards) {
+    let imported = 0;
+    for (const card of cards) {
+      if (!card.name && !card.description) continue;
+      const normalized = CardEngine.normalize(card, (card.name || 'character') + '.json');
+      const trimmedName = (normalized.name || '').trim();
+      if (trimmedName) {
+        const existing = CardStorage.getCards().find(c => (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase());
+        if (existing) {
+          let existingFull = null;
+          try { existingFull = await CardStorage.getCard(existing._id); } catch (_) {}
+          if (existingFull && CardManager._cardSignature(normalized) === CardManager._cardSignature(existingFull)) {
+            const base = trimmedName;
+            let n = 2;
+            const used = new Set(CardStorage.getCards().map(c => (c.name || '').toLowerCase()));
+            let candidate = base + ' (' + n + ')';
+            while (used.has(candidate.toLowerCase())) { n++; candidate = base + ' (' + n + ')'; }
+            normalized.name = candidate;
+          }
+        }
+      }
+      if (card._imageBase64) {
+        await CardStorage.saveImage(normalized._id, card._imageBase64);
+        normalized._hasImage = true;
+        normalized._thumbnail = normalized._thumbnail || await CardEngine._createThumbnail(card._imageBase64);
+      }
+      // Recompute now that the image may be attached: normalize() computed
+      // _fileSize before it existed, so the badge/sort would ignore it.
+      normalized._fileSize = CardEngine.computeFileSize(normalized);
+      await CardStorage.upsertCard(normalized);
+      imported++;
+    }
+    return imported;
+  },
+
+  // Restore provider/model/token/appearance prefs from an imported workspace.
+  // The provider is applied first so the model lands in the right per-provider
+  // slot (v2 #25) instead of the shared OpenRouter one.
+  _applyWorkspaceSettings(settings) {
+    if (settings.provider) {
+      CardStorage.setProvider(settings.provider);
+      // Keep the runtime in sync so the imported provider actually takes
+      // effect instead of waiting for a reload (#80).
+      const isCustom = settings.provider === 'custom';
+      const isOR = settings.provider === 'openrouter';
+      const providerKey = isOR ? CardStorage.getApiKey() : (isCustom ? CardStorage.getCustomApiKey() : CardStorage.getProviderKey(settings.provider));
+      AIService.setProvider(settings.provider, providerKey);
+      const sel = document.querySelector('#providerSelect');
+      if (sel) sel.value = settings.provider;
+    }
+    if (settings.defaultModel) {
+      // Route into the provider-appropriate slot (v2 #25) — the provider
+      // was just restored above, so the model lands in the right slot.
+      this._setCurrentModelId(settings.defaultModel);
+    }
+    if (settings.maxTokens !== undefined) CardStorage.setMaxTokens(settings.maxTokens);
+    if (settings.injectCopyright !== undefined) CardStorage.setInjectCopyright(settings.injectCopyright);
+    // Appearance prefs are optional for backward compatibility.
+    if (settings.glassDensity !== undefined) CardStorage.setGlassDensity(settings.glassDensity);
+    if (settings.cardRadius !== undefined) CardStorage.setCardRadius(settings.cardRadius);
+    if (settings.vignette !== undefined) CardStorage.setVignette(settings.vignette);
   },
 };
 

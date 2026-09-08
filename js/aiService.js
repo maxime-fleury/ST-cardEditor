@@ -419,12 +419,7 @@ const AIService = {
     const baseUrl = this._getBaseUrl();
     if (!baseUrl) throw new Error(I18n.t ? I18n.t('error.customUrlNotSet') : 'Custom API base URL is not set');
     const apiBaseUrl = this._getChatBaseUrl();
-    const headers = { 'Content-Type': 'application/json' };
-    if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
-    if (this._provider === 'openrouter') {
-      headers['HTTP-Referer'] = 'https://github.com/st-card-editor';
-      headers['X-Title'] = 'ST Card Editor';
-    }
+    const headers = this._buildHeaders(apiKey);
 
     const fetchChat = async (useJsonMode) => {
       const resp = await fetch(`${apiBaseUrl}/chat/completions`, {
@@ -452,6 +447,23 @@ const AIService = {
       }
     }
 
+    return this._normalizeChatResponse(data, useModel);
+  },
+
+  // Auth + OpenRouter identification headers shared by chat and chatStream.
+  _buildHeaders(apiKey) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+    if (this._provider === 'openrouter') {
+      headers['HTTP-Referer'] = 'https://github.com/st-card-editor';
+      headers['X-Title'] = 'ST Card Editor';
+    }
+    return headers;
+  },
+
+  // Shape a chat-completions response into the compact { content, usage, model }
+  // object the editor consumes, throwing when the API returned no choices.
+  _normalizeChatResponse(data, useModel) {
     const choice = data.choices?.[0];
     if (!choice) throw new Error((I18n.t ? I18n.t('error.noChoices') : 'API returned no response choices'));
     return {
@@ -491,12 +503,7 @@ const AIService = {
     const baseUrl = this._getBaseUrl();
     if (!baseUrl) throw new Error(I18n.t ? I18n.t('error.customUrlNotSet') : 'Custom API base URL is not set');
     const apiBaseUrl = this._getChatBaseUrl();
-    const headers = { 'Content-Type': 'application/json' };
-    if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
-    if (this._provider === 'openrouter') {
-      headers['HTTP-Referer'] = 'https://github.com/st-card-editor';
-      headers['X-Title'] = 'ST Card Editor';
-    }
+    const headers = this._buildHeaders(apiKey);
 
     const doStream = async (useJsonMode) => {
       const resp = await fetch(`${apiBaseUrl}/chat/completions`, {
