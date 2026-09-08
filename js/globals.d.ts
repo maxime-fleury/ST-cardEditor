@@ -341,6 +341,18 @@ declare const CardState: {
   clearDirty(): void;
 };
 
+/**
+ * Persisted keyword -> field vocabulary learned from LLM classifications and
+ * explicit user chip corrections (see intentLearner.js). recall() runs before
+ * the LLM intent classifier so keyless/offline runs benefit from past
+ * judgments without spending a request.
+ */
+declare const IntentLearner: {
+  learn(prompt: string, fields: string[]): void;
+  recall(prompt: string): string[];
+  _reset(): void;
+};
+
 declare const ExportUtils: {
   injectCopyright(card: CardShape): void;
   embedCharaChunk(pngBytes: unknown, jsonStr: string): unknown;
@@ -377,6 +389,7 @@ interface Window {
   Wizard: typeof Wizard;
   ChatState: typeof ChatState;
   CardState: typeof CardState;
+  IntentLearner: typeof IntentLearner;
   syncFloatingLabels?: () => void;
   [k: string]: unknown;
 }

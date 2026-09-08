@@ -28,6 +28,7 @@ const stubs = {
   Anims: { staggerFadeIn: noop },
   Settings: { getDefaultPrompt: () => '', refreshCredits: noop },
   Tokenizer: { count: async () => 0, syncCount: () => 0 },
+  IntentLearner: { learn: () => {}, recall: () => [], _reset: () => {} },
 };
 mock.module('../../js/i18n.js', () => ({ I18n: stubs.I18n }));
 mock.module('../../js/ui.js', () => ({ Ui: stubs.Ui }));
@@ -39,6 +40,7 @@ mock.module('../../js/storage.js', () => ({ CardStorage: stubs.CardStorage }));
 mock.module('../../js/animations.js', () => ({ Anims: stubs.Anims }));
 mock.module('../../js/settings.js', () => ({ Settings: stubs.Settings }));
 mock.module('../../js/tokenizer.js', () => ({ Tokenizer: stubs.Tokenizer }));
+mock.module('../../js/intentLearner.js', () => ({ IntentLearner: stubs.IntentLearner }));
 
 beforeAll(async () => {
   globalThis.window = globalThis;
@@ -500,6 +502,31 @@ test('_resolveTargetFields prefers the LLM result over the regex fallback', asyn
   // The regex would say name (+ description); the LLM wins when it answers.
   const out = await AiChat._resolveTargetFields('Renomme la carte en Elodie');
   expect(out).toEqual(['scenario']);
+});
+
+test('_resolveTargetFields serves the learned vocabulary first without an LLM call', async () => {
+  stubs.IntentLearner.recall = () => ['first_mes'];
+  let called = false;
+  stubs.AIService.hasApiKey = () => true;
+  stubs.AIService.chat = async () => { called = true; return { content: '["name"]' }; };
+  const out = await AiChat._resolveTargetFields('benenne die Karte um');
+  expect(out).toEqual(['first_mes']);
+  expect(called).toBe(false); // learned answer costs zero requests
+  stubs.IntentLearner.recall = () => [];
+});
+
+test('_classifyFields persists the LLM judgment as learned vocabulary', async () => {
+  const learned = [];
+  stubs.IntentLearner.learn = (p, f) => learned.push([p, f]);
+  stubs.AIService.hasApiKey = () => true;
+  stubs.AIService.chat = async () => ({ content: '["name","description"]' });
+  await AiChat._classifyFields('Renomme la carte en Elodie');
+  expect(learned).toEqual([['Renomme la carte en Elodie', ['name', 'description']]]);
+
+  // Empty LLM results must NOT be learned (no signal).
+  stubs.AIService.chat = async () => ({ content: '[]' });
+  await AiChat._classifyFields('x');
+  expect(learned).toHaveLength(1);
 });
 
 test('_resolveTargetFields falls back to regex when the LLM is empty or keyless', async () => {

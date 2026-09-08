@@ -22,6 +22,7 @@ import { CardState } from './cardState.js';
 // (FIELD_DEFS, limits) and methods; every `ChatState.applyQueue`-style field of
 // old is now `ChatState.applyQueue`.
 import { ChatState } from './chatState.js';
+import { IntentLearner } from './intentLearner.js';
 
 const AiChat = {
   MAX_PARALLEL_FIELDS: 20,    // cap parallel API requests
@@ -97,6 +98,12 @@ const AiChat = {
       ChatState.selectedFields.delete(field);
     } else {
       ChatState.selectedFields.add(field);
+      // Self-learning correction: when the user manually adds a field chip
+      // while a prompt is typed, remember the word -> field association so
+      // future keyless runs detect it too.
+      const input = document.querySelector('#aiInput');
+      const text = input && input.value ? input.value.trim() : '';
+      if (text.length >= 15) IntentLearner.learn(text, [field]);
     }
   },
 
@@ -1098,6 +1105,11 @@ const AiChat = {
   // is configured (the regex runs offline, so keyless users still get chips).
   // _classifyInFlight dedupes a double-send while a classification runs.
   async _resolveTargetFields(prompt, modelId) {
+    // Learned vocabulary first: free, offline and personalized — a past LLM
+    // classification or explicit user correction answers instantly without
+    // spending a request (see intentLearner.js).
+    const learned = IntentLearner.recall(prompt);
+    if (learned.length > 0) return learned;
     if (AIService.hasApiKey && AIService.hasApiKey()) {
       if (!this._classifyInFlight) {
         this._classifyInFlight = this._classifyFields(prompt, modelId);
@@ -1132,7 +1144,11 @@ const AiChat = {
       if (!Array.isArray(parsed)) return [];
       // Keep only known ids, dedupe, preserve FIELD_DEFS order.
       const picked = [...new Set(parsed.map(x => String(x).trim()).filter(x => valid.has(x)))];
-      return validIds.filter(id => picked.includes(id));
+      const fields = validIds.filter(id => picked.includes(id));
+      // Self-learning: persist the LLM's judgment so keyless/offline runs
+      // benefit from it without another request (user accepts it by sending).
+      if (fields.length > 0) IntentLearner.learn(prompt, fields);
+      return fields;
     } catch (_) {
       return [];
     } finally {

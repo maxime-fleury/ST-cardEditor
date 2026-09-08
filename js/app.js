@@ -19920,6 +19920,179 @@ Each greeting should be an in-character opening message that could start a conve
   if (typeof window !== "undefined")
     window.ChatState = ChatState;
 
+  // js/intentLearner.js
+  var STORE_KEY = "stce.intentLearner.v1";
+  var MIN_WORD_LEN = 4;
+  var MAX_KEYWORDS = 300;
+  var MAX_EVIDENCE = 20;
+  var STOPWORDS = new Set([
+    "alors",
+    "avec",
+    "dans",
+    "dune",
+    "elle",
+    "elles",
+    "leur",
+    "leurs",
+    "mais",
+    "pour",
+    "quand",
+    "quel",
+    "quelle",
+    "quels",
+    "qui",
+    "sans",
+    "sur",
+    "tout",
+    "toute",
+    "tous",
+    "toutes",
+    "aussi",
+    "etre",
+    "faire",
+    "fait",
+    "faites",
+    "veut",
+    "chez",
+    "carte",
+    "card",
+    "that",
+    "this",
+    "with",
+    "from",
+    "have",
+    "been",
+    "were",
+    "will",
+    "would",
+    "could",
+    "should",
+    "about",
+    "their",
+    "there",
+    "these",
+    "those",
+    "being",
+    "what",
+    "when",
+    "where",
+    "which",
+    "while",
+    "your",
+    "yours",
+    "them",
+    "then",
+    "than",
+    "into",
+    "just",
+    "like",
+    "make",
+    "made",
+    "more",
+    "most",
+    "much",
+    "many",
+    "only",
+    "other",
+    "over",
+    "some",
+    "such",
+    "take",
+    "very",
+    "want",
+    "well",
+    "also",
+    "even",
+    "first",
+    "last",
+    "next",
+    "really"
+  ]);
+  var mem = null;
+  function normalize(text) {
+    if (!text || typeof text !== "string")
+      return [];
+    return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/).filter((w) => w.length >= MIN_WORD_LEN && !STOPWORDS.has(w));
+  }
+  function load() {
+    if (mem)
+      return mem;
+    try {
+      if (typeof localStorage !== "undefined") {
+        const raw = localStorage.getItem(STORE_KEY);
+        mem = raw ? JSON.parse(raw) : {};
+      } else {
+        mem = {};
+      }
+    } catch (_) {
+      mem = {};
+    }
+    return mem;
+  }
+  function save(map) {
+    try {
+      if (typeof localStorage !== "undefined")
+        localStorage.setItem(STORE_KEY, JSON.stringify(map));
+    } catch (_) {}
+  }
+  function prune(map) {
+    const keys = Object.keys(map);
+    if (keys.length <= MAX_KEYWORDS)
+      return;
+    const total = (k) => Object.values(map[k]).reduce((s, n) => s + n, 0);
+    keys.sort((a, b) => total(a) - total(b));
+    for (let i = 0;i < keys.length - MAX_KEYWORDS; i++)
+      delete map[keys[i]];
+  }
+  var IntentLearner = {
+    learn(prompt, fields) {
+      const words = normalize(prompt);
+      const fieldSet = new Set((fields || []).filter((f) => typeof f === "string" && f));
+      if (!words.length || fieldSet.size === 0)
+        return;
+      const map = load();
+      let changed = false;
+      for (const w of words) {
+        const entry = map[w] || (map[w] = {});
+        for (const f of fieldSet) {
+          entry[f] = Math.min((entry[f] || 0) + 1, MAX_EVIDENCE);
+          changed = true;
+        }
+      }
+      if (changed) {
+        prune(map);
+        save(map);
+      }
+    },
+    recall(prompt) {
+      const words = normalize(prompt);
+      if (!words.length)
+        return [];
+      const map = load();
+      const evidence = new Map;
+      for (const w of words) {
+        const entry = map[w];
+        if (!entry)
+          continue;
+        for (const [f, c] of Object.entries(entry)) {
+          evidence.set(f, (evidence.get(f) || 0) + c);
+        }
+      }
+      if (!evidence.size)
+        return [];
+      return [...evidence.entries()].filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1]).map(([f]) => f);
+    },
+    _reset() {
+      mem = null;
+      try {
+        if (typeof localStorage !== "undefined")
+          localStorage.removeItem(STORE_KEY);
+      } catch (_) {}
+    }
+  };
+  if (typeof window !== "undefined")
+    window.IntentLearner = IntentLearner;
+
   // js/aiChat.js
   var AiChat = {
     MAX_PARALLEL_FIELDS: 20,
@@ -19981,6 +20154,10 @@ Each greeting should be an in-character opening message that could start a conve
         ChatState.selectedFields.delete(field);
       } else {
         ChatState.selectedFields.add(field);
+        const input = document.querySelector("#aiInput");
+        const text = input && input.value ? input.value.trim() : "";
+        if (text.length >= 15)
+          IntentLearner.learn(text, [field]);
       }
     },
     getSelectedFields() {
@@ -20870,6 +21047,9 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       return repaired;
     },
     async _resolveTargetFields(prompt, modelId) {
+      const learned = IntentLearner.recall(prompt);
+      if (learned.length > 0)
+        return learned;
       if (AIService.hasApiKey && AIService.hasApiKey()) {
         if (!this._classifyInFlight) {
           this._classifyInFlight = this._classifyFields(prompt, modelId);
@@ -20896,7 +21076,10 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         if (!Array.isArray(parsed))
           return [];
         const picked = [...new Set(parsed.map((x) => String(x).trim()).filter((x) => valid.has(x)))];
-        return validIds.filter((id) => picked.includes(id));
+        const fields = validIds.filter((id) => picked.includes(id));
+        if (fields.length > 0)
+          IntentLearner.learn(prompt, fields);
+        return fields;
       } catch (_) {
         return [];
       } finally {
