@@ -12,13 +12,16 @@ import { Tokenizer } from './tokenizer.js';
 import { AiChat } from './aiChat.js';
 
 const Editor = {
+  /** @type {Array<{ field: string, prop: string, oldValue: any, newValue?: any }>} */
   _undoStack: [],
+  /** @type {Array<{ field: string, prop: string, oldValue: any, newValue?: any }>} */
   _redoStack: [],
   _maxUndo: 50,
   _undoCardId: null,
   // The field of the most recent undo snapshot. Used to coalesce continuous
   // edits to one field into a single undo step (per edit burst), so Ctrl+Z
   // reverts a whole burst instead of one character at a time.
+  /** @type {string | null} */
   _lastSnapField: null,
 
   _FIELD_MAP: {
@@ -105,6 +108,7 @@ const Editor = {
     if (!activeCard) return;
     this._lastSnapField = null;
     const entry = this._undoStack.pop();
+    if (!entry) return;
     this._redoStack.push({
       ...entry,
       oldValue: entry.oldValue,
@@ -133,6 +137,7 @@ const Editor = {
     if (!activeCard) return;
     this._lastSnapField = null;
     const entry = this._redoStack.pop();
+    if (!entry) return;
     this._undoStack.push({
       ...entry,
       oldValue: JSON.parse(JSON.stringify(this._subDefault(activeCard, entry.prop))),
@@ -229,6 +234,7 @@ const Editor = {
   _resetPreviewToggles() {
     document.querySelectorAll('.field-toggle-group').forEach(group => {
       const targetId = group.dataset.target;
+      if (!targetId) return;
       group.querySelectorAll('.field-toggle-btn').forEach(b => b.classList.remove('active'));
       const editBtn = group.querySelector('[data-mode="edit"]');
       if (editBtn) editBtn.classList.add('active');
@@ -368,7 +374,7 @@ const Editor = {
     for (const id of this._fieldIds) {
       const el = document.querySelector('#' + id);
       if (!el) continue;
-      let countEl = el.parentElement.querySelector('.char-count');
+      let countEl = el.parentElement?.querySelector('.char-count');
       // Lazily create a counter for fields that don't ship one in the markup;
       // updateCharCounts runs on every editor tab switch, so this keeps all
       // 12 fields consistent without hand-adding markup to each of them (#43).
@@ -440,8 +446,8 @@ const Editor = {
         // Flush any in-flight typed text into the array before re-rendering,
         // otherwise the characters typed in the last 500 ms are discarded (#74).
         self.syncGreetings();
-        window.AppState.activeCard.alternate_greetings.splice(parseInt(btn.dataset.idx, 10), 1);
-        self.renderGreetings(window.AppState.activeCard);
+        card.alternate_greetings.splice(parseInt(btn.dataset.idx, 10), 1);
+        self.renderGreetings(card);
         await self.syncEditorToCard();
         self.updateCharCounts();
       });
@@ -450,11 +456,11 @@ const Editor = {
     container.querySelectorAll('.greeting-set-default').forEach(btn => {
       btn.addEventListener('click', async () => {
         self.syncGreetings();
-        const g = window.AppState.activeCard.alternate_greetings[parseInt(btn.dataset.idx, 10)];
+        const g = card.alternate_greetings[parseInt(btn.dataset.idx, 10)];
         if (g) {
-          window.AppState.activeCard.first_mes = g;
+          card.first_mes = g;
           $('#editFirstMes').value = g;
-          self.renderGreetings(window.AppState.activeCard);
+          self.renderGreetings(card);
           await self.syncEditorToCard();
           Ui.showToast(I18n.t('toast.firstMesUpdated'), 'success');
         }
@@ -466,9 +472,9 @@ const Editor = {
         self.syncGreetings();
         const idx = parseInt(btn.dataset.idx, 10);
         if (idx > 0) {
-          const arr = window.AppState.activeCard.alternate_greetings;
+          const arr = card.alternate_greetings;
           [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
-          self.renderGreetings(window.AppState.activeCard);
+          self.renderGreetings(card);
           await self.syncEditorToCard();
         }
       });
@@ -478,10 +484,10 @@ const Editor = {
       btn.addEventListener('click', async () => {
         self.syncGreetings();
         const idx = parseInt(btn.dataset.idx, 10);
-        const arr = window.AppState.activeCard.alternate_greetings;
+        const arr = card.alternate_greetings;
         if (idx < arr.length - 1) {
           [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
-          self.renderGreetings(window.AppState.activeCard);
+          self.renderGreetings(card);
           await self.syncEditorToCard();
         }
       });
@@ -507,8 +513,8 @@ const Editor = {
           return;
         }
         const idx = parseInt(ta.dataset.greetingIdx, 10);
-        if (window.AppState.activeCard.alternate_greetings[idx] !== undefined) {
-          window.AppState.activeCard.alternate_greetings[idx] = ta.value;
+        if (card.alternate_greetings[idx] !== undefined) {
+          card.alternate_greetings[idx] = ta.value;
         }
         await self.syncEditorToCard();
         self.updateCharCounts();
@@ -716,8 +722,8 @@ const Editor = {
     container.querySelectorAll('.lorebook-delete-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        window.AppState.activeCard.character_book.entries.splice(parseInt(btn.dataset.idx, 10), 1);
-        self.renderLorebook(window.AppState.activeCard);
+        card.character_book.entries.splice(parseInt(btn.dataset.idx, 10), 1);
+        self.renderLorebook(card);
         await self.syncEditorToCard();
         self.updateCharCounts();
       });
@@ -736,8 +742,8 @@ const Editor = {
       ta.addEventListener('input', Ui.debounce(async () => {
         if (!ta.isConnected || gen !== self._loreGen) return; // re-render superseded this write
         const idx = parseInt(ta.dataset.loreIdx, 10);
-        if (window.AppState.activeCard.character_book.entries[idx]) {
-          window.AppState.activeCard.character_book.entries[idx].content = ta.value;
+        if (card.character_book.entries[idx]) {
+          card.character_book.entries[idx].content = ta.value;
           await self.syncEditorToCard();
           self.autoResizeTextareas();
           self.updateCharCounts();
@@ -748,8 +754,8 @@ const Editor = {
       input.addEventListener('input', Ui.debounce(async () => {
         if (!input.isConnected || gen !== self._loreGen) return;
         const idx = parseInt(input.dataset.loreKeyIdx, 10);
-        if (window.AppState.activeCard.character_book.entries[idx]) {
-          window.AppState.activeCard.character_book.entries[idx].key = input.value.trim();
+        if (card.character_book.entries[idx]) {
+          card.character_book.entries[idx].key = input.value.trim();
           await self.syncEditorToCard();
         }
       }, 600));
@@ -758,8 +764,8 @@ const Editor = {
       input.addEventListener('input', Ui.debounce(async () => {
         if (!input.isConnected || gen !== self._loreGen) return;
         const idx = parseInt(input.dataset.loreSecondaryIdx, 10);
-        if (window.AppState.activeCard.character_book.entries[idx]) {
-          window.AppState.activeCard.character_book.entries[idx].keysecondary = input.value.split(',').map(s => s.trim()).filter(Boolean);
+        if (card.character_book.entries[idx]) {
+          card.character_book.entries[idx].keysecondary = input.value.split(',').map(s => s.trim()).filter(Boolean);
           await self.syncEditorToCard();
         }
       }, 600));
@@ -768,8 +774,8 @@ const Editor = {
       input.addEventListener('input', Ui.debounce(async () => {
         if (!input.isConnected || gen !== self._loreGen) return;
         const idx = parseInt(input.dataset.loreCommentIdx, 10);
-        if (window.AppState.activeCard.character_book.entries[idx]) {
-          window.AppState.activeCard.character_book.entries[idx].comment = input.value;
+        if (card.character_book.entries[idx]) {
+          card.character_book.entries[idx].comment = input.value;
           await self.syncEditorToCard();
         }
       }, 600));
@@ -778,9 +784,9 @@ const Editor = {
       input.addEventListener('input', Ui.debounce(async () => {
         if (!input.isConnected || gen !== self._loreGen) return;
         const idx = parseInt(input.dataset.loreOrderIdx, 10);
-        if (window.AppState.activeCard.character_book.entries[idx]) {
+        if (card.character_book.entries[idx]) {
           const parsed = parseInt(input.value, 10);
-          window.AppState.activeCard.character_book.entries[idx].order = Number.isNaN(parsed) ? 100 : parsed;
+          card.character_book.entries[idx].order = Number.isNaN(parsed) ? 100 : parsed;
           await self.syncEditorToCard();
         }
       }, 600));
@@ -788,8 +794,8 @@ const Editor = {
     container.querySelectorAll('input[data-lore-constant-idx]').forEach(cb => {
       cb.addEventListener('change', async () => {
         const idx = parseInt(cb.dataset.loreConstantIdx, 10);
-        if (window.AppState.activeCard.character_book.entries[idx]) {
-          window.AppState.activeCard.character_book.entries[idx].constant = cb.checked;
+        if (card.character_book.entries[idx]) {
+          card.character_book.entries[idx].constant = cb.checked;
           await self.syncEditorToCard();
         }
       });
@@ -797,8 +803,8 @@ const Editor = {
     container.querySelectorAll('input[data-lore-selective-idx]').forEach(cb => {
       cb.addEventListener('change', async () => {
         const idx = parseInt(cb.dataset.loreSelectiveIdx, 10);
-        if (window.AppState.activeCard.character_book.entries[idx]) {
-          window.AppState.activeCard.character_book.entries[idx].selective = cb.checked;
+        if (card.character_book.entries[idx]) {
+          card.character_book.entries[idx].selective = cb.checked;
           await self.syncEditorToCard();
         }
       });
@@ -806,8 +812,8 @@ const Editor = {
     container.querySelectorAll('select[data-lore-position-idx]').forEach(sel => {
       sel.addEventListener('change', async () => {
         const idx = parseInt(sel.dataset.lorePositionIdx, 10);
-        if (window.AppState.activeCard.character_book.entries[idx]) {
-          window.AppState.activeCard.character_book.entries[idx].position = sel.value;
+        if (card.character_book.entries[idx]) {
+          card.character_book.entries[idx].position = sel.value;
           await self.syncEditorToCard();
         }
       });

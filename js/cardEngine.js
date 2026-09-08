@@ -10,6 +10,7 @@ const CardEngine = {
   THUMBNAIL_MAX_SIZE: 128,
   THUMBNAIL_JPEG_QUALITY: 0.8,
 
+  /** @returns {Promise<CardShape>} */
   async parseFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
     if (ext === 'json') {
@@ -179,9 +180,10 @@ const CardEngine = {
     }
   },
 
+  /** @returns {CardShape} */
   normalize(raw, filename) {
     const card = {
-      _id: '', _filename: filename, _hasImage: false, _imageBase64: null,
+      _id: '', _filename: filename, _hasImage: false, _imageBase64: undefined,
     };
 
     let source;
@@ -250,11 +252,12 @@ const CardEngine = {
     return card;
   },
 
+  /** @returns {CardShape} */
   createEmptyCard(name) {
     name = name || (I18n.t ? I18n.t('gen.newCharacter') : 'New Character');
     const card = {
       _id: this._uniqueId(),
-      _filename: name + '.json', _hasImage: false, _imageBase64: null,
+      _filename: name + '.json', _hasImage: false, _imageBase64: undefined,
       _createdAt: Date.now(), _fileSize: 0,
       spec: 'chara_card_v2', spec_version: '2.0',
       name: name, description: '', personality: '', scenario: '',

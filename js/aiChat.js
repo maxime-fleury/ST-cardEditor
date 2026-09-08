@@ -206,13 +206,14 @@ const AiChat = {
 
       const section = this._addFieldSection(groupedCard, field, fieldLabel(field));
       const contentEl = section.querySelector('.multi-field-content');
+      if (!contentEl) { console.error('aiChat: field section missing .multi-field-content'); return; }
 
       const history = this._getRecentHistory(10);
       AIService.chatStream(prompt, this.buildSystemPrompt(field, capturedGreetingCount), modelId,
         (fullText) => {
           contentEl.innerHTML = this._formatFieldText(fullText);
           const container = document.querySelector('#aiChatMessages');
-          container.scrollTop = container.scrollHeight;
+          if (container) container.scrollTop = container.scrollHeight;
         },
         controller.signal,
         false,
@@ -245,7 +246,7 @@ const AiChat = {
             section.classList.remove('streaming');
             const label = section.querySelector('.multi-field-label');
             if (label) label.innerHTML = label.innerHTML.replace(I18n.t ? I18n.t('ai.streaming') : 'streaming...', I18n.t ? I18n.t('ai.failed') : 'failed');
-            contentEl.textContent = err.name === 'AbortError' ? (I18n.t ? I18n.t('ai.cancelled') : 'Cancelled.') : (I18n.t ? I18n.t('ai.errorPrefix') : 'Error: ') + err.message;
+            if (contentEl) contentEl.textContent = err.name === 'AbortError' ? (I18n.t ? I18n.t('ai.cancelled') : 'Cancelled.') : (I18n.t ? I18n.t('ai.errorPrefix') : 'Error: ') + err.message;
           } catch (_) {}
 
           completedCount++;
@@ -444,7 +445,8 @@ const AiChat = {
       // Clean up previous listener if any
       if (this._copyAbort) this._copyAbort.abort();
       this._copyAbort = new AbortController();
-      let copyTimeout = null;
+      /** @type {ReturnType<typeof setTimeout> | null} */
+    let copyTimeout = null;
       const cleanupCopy = () => {
         if (copyTimeout) { clearTimeout(copyTimeout); copyTimeout = null; }
       };
@@ -627,7 +629,7 @@ const AiChat = {
           liveCount = Tokenizer.syncCount(lastOut);
         } catch (_) { liveCount = Math.ceil(lastOut.length / 3); }
       }
-      statusEl.textContent = lastOut
+      if (statusEl) statusEl.textContent = lastOut
         ? (I18n.t ? I18n.t('ai.streamLive', { tokens: liveCount, secs }) : liveCount + ' tokens · ' + secs)
         : (I18n.t ? I18n.t('ai.thinkingLive', { secs }) : 'Thinking… ' + secs);
     }, 500);
@@ -657,14 +659,15 @@ const AiChat = {
           const sk = streamingEl.querySelector('.ai-shimmer');
           if (sk) sk.remove();
         }
-        streamingEl.querySelector('.ai-message-content').innerHTML = Ui.escapeHtml(fullText)
+        const msgContent = streamingEl.querySelector('.ai-message-content');
+        if (msgContent) msgContent.innerHTML = Ui.escapeHtml(fullText)
           .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '<pre>$1</pre>')
           .replace(/`([^`]+)`/g, '<code>$1</code>')
           .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
           .replace(/\*(.+?)\*/g, '<em>$1</em>')
           .replace(/\n/g, '<br>');
         const container = document.querySelector('#aiChatMessages');
-        container.scrollTop = container.scrollHeight;
+        if (container) container.scrollTop = container.scrollHeight;
       },
       controller.signal,
       true,
@@ -1209,6 +1212,7 @@ const AiChat = {
 
     const acceptBtn = document.querySelector('#btnAcceptAI');
     const applyAllBtn = document.querySelector('#btnApplyAll');
+    if (!acceptBtn) return;
     if (this._previewCleanup) this._previewCleanup();
 
     // Apply the current change, then advance to the next unapplied one so a
@@ -1556,7 +1560,7 @@ const AiChat = {
         // Evict oldest entries if store exceeds limit
         if (ChatState.applyStore.size > 50) {
           const oldest = ChatState.applyStore.keys().next().value;
-          ChatState.applyStore.delete(oldest);
+          if (oldest !== undefined) ChatState.applyStore.delete(oldest);
         }
         el.setAttribute('data-apply-id', msgId);
         this._registerApply(el, applyData.field, applyData.content);
@@ -1580,7 +1584,7 @@ const AiChat = {
       retryBtn.title = I18n.t ? I18n.t('ai.retryTitle') : 'Regenerate this response';
       retryBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const idx = parseInt(el.dataset.historyIndex, 10);
+        const idx = parseInt(el.dataset.historyIndex ?? '', 10);
         this.retryLastMessage(Number.isNaN(idx) ? undefined : idx);
       });
       actionsWrap.appendChild(retryBtn);
@@ -1937,7 +1941,7 @@ const AiChat = {
 
     // Get the model's actual max output limit from the model data
     const modelData = (window.AppState.models || []).find(m => m.id === modelId);
-    const modelMaxOut = (modelData && modelData.max_output_tokens > 0)
+    const modelMaxOut = (modelData && typeof modelData.max_output_tokens === 'number' && modelData.max_output_tokens > 0)
       ? modelData.max_output_tokens
       : AIService.DEFAULT_MAX_TOKENS;
 
@@ -1958,7 +1962,7 @@ const AiChat = {
 
     // Show the meaningful ratio: input + expected output vs context
     const total = inputTokens + actualMaxOut;
-    const ratio = ctx > 0 ? total / ctx : 0;
+    const ratio = ctx && ctx > 0 ? total / ctx : 0;
     const pct = Math.min(100, Math.round(ratio * 100));
 
     bar.style.width = pct + '%';

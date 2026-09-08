@@ -10,14 +10,12 @@
     "strict": true,
     "noImplicitAny": false,
     "noImplicitThis": true,
-    "strictNullChecks": false,
+    "strictNullChecks": true,
     "useUnknownInCatchVariables": false,
-    // Incremental typing of legacy JS: strictNullChecks is OFF for now.
-    // The pre-existing code relies on elements/cards existing after init, so
-    // null-tracking produces ~70 lines of noise per file without catching new
-    // bugs. Type mismatches on data (unknown flows, wrong shapes, property
-    // typos) are still fully reported. Re-enable once the DOM access is
-    // extracted (Passe 4).
+    // strictNullChecks is ON (Passe 5): aiChat/cardManager/editor were hardened
+    // against null DOM lookups and possibly-undefined card fields, and
+    // cardEngine now types its card factories as CardShape instead of inferring
+    // `_imageBase64: null`. The unit + e2e suites guard the refactor.
     "alwaysStrict": true,
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,

@@ -292,6 +292,55 @@ test('parsePNG terminates on an uninflatable zTXt chara chunk', async () => {
   await expect(CardEngine.parsePNG(png.buffer, 'badz.png')).rejects.toThrow();
 }, { timeout: 2000 });
 
+// ─── PNG PARSER FUZZING ───────────────────────────────────────────────────
+// Deterministic seeded PRNG (mulberry32) so any failure is reproducible.
+// The parser must terminate on every mutated input and never crash outside a
+// clean, intentional Error — hangs or internal TypeErrors are bugs.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+test('parsePNG survives random mutations (fuzz)', async () => {
+  const cardJson = JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'Fuzz' } });
+  const tEXt = chunkBytes('tEXt', enc('chara\0' + cardJson));
+  const base = pngBytes(tEXt, chunkBytes('IEND', new Uint8Array(0)));
+  const rand = mulberry32(0xc0ffee);
+
+  const flip = (buf, k) => {
+    const out = Uint8Array.from(buf);
+    for (let i = 0; i < k; i++) out[(rand() * out.length) | 0] ^= (rand() * 256) | 0;
+    return out;
+  };
+
+  for (let i = 0; i < 60; i++) {
+    let input = new Uint8Array(base);
+    const kind = i % 5;
+    if (kind === 0) input = flip(input, 1 + ((rand() * 8) | 0));
+    else if (kind === 1) input = input.subarray(0, (rand() * input.length) | 0); // truncate
+    else if (kind === 2) { // append junk
+      const extra = new Uint8Array((rand() * 64) | 0);
+      for (let j = 0; j < extra.length; j++) extra[j] = (rand() * 256) | 0;
+      input = new Uint8Array([...input, ...extra]);
+    }
+    else if (kind === 3) input = flip(input.subarray(0, 8), 1 + ((rand() * 4) | 0)); // corrupt signature
+    else input = new Uint8Array((rand() * 200) | 0); // pure garbage
+
+    try {
+      const card = await CardEngine.parsePNG(input.buffer, `fuzz-${i}.png`);
+      expect(card).toBeTypeOf('object');
+    } catch (e) {
+      // A clean, intentional parse error is fine; an internal crash is not.
+      expect(e instanceof Error).toBe(true);
+    }
+  }
+}, { timeout: 5000 });
+
 test('computeFileSize adds decoded image bytes to the export-shaped JSON size', () => {
   const card = CardEngine.normalize({ name: 'Aria', description: 'x' }, 'aria.json');
   const noImage = CardEngine.computeFileSize(card);

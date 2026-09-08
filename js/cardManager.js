@@ -50,7 +50,7 @@ const CardManager = {
 
   async processFiles(fileList) {
     const validExts = ['png', 'webp', 'json'];
-    let loaded = 0, errors = 0, lastCardId = null;
+    let loaded = 0, errors = 0, lastCardId = '';
 
     for (const file of fileList) {
       const ext = file.name.split('.').pop().toLowerCase();
@@ -72,7 +72,7 @@ const CardManager = {
           await CardStorage.saveImage(card._id, card._imageBase64);
         }
         await CardStorage.upsertCard(card);
-        lastCardId = card._id;
+        lastCardId = card._id || '';
         loaded++;
       } catch (err) {
         console.error('Parse error:', file.name, err);
@@ -167,7 +167,7 @@ const CardManager = {
     if (!toolbar) return;
     if (this._selectedIds.size > 0) {
       toolbar.classList.remove('d-none');
-      count.textContent = I18n.t('left.selected', { count: this._selectedIds.size });
+      if (count) count.textContent = I18n.t('left.selected', { count: this._selectedIds.size });
       // Show compare button only when exactly 2 cards are selected
       if (compareBtn) compareBtn.classList.toggle('d-none', this._selectedIds.size !== 2);
     } else {
@@ -186,7 +186,8 @@ const CardManager = {
     this._selectedIds.clear();
     this._updateBatchToolbar();
     window.AppState.cards = CardStorage.getCards();
-    if (window.AppState.activeCard && !window.AppState.cards.find(c => c._id === window.AppState.activeCard._id)) {
+    const activeCard = window.AppState.activeCard;
+    if (activeCard && !window.AppState.cards.find(c => c._id === activeCard._id)) {
       window.AppState.activeCard = null;
       Editor.hideEditor();
     }
@@ -237,6 +238,7 @@ const CardManager = {
     const modal = (this._aiPreviewModal = this._aiPreviewModal || new bootstrap.Modal('#aiPreviewModal'));
     // Restore button visibility on close
     const modalEl = document.querySelector('#aiPreviewModal');
+    if (!modalEl) return;
     const restoreButtons = () => {
       if (acceptBtn) acceptBtn.classList.remove('d-none');
       if (discardBtn) discardBtn.classList.remove('d-none');
@@ -680,7 +682,7 @@ const CardManager = {
 
     try {
       const b64 = await CardStorage.getImage(fullCard._id);
-      if (b64) window.AppState.activeCard._imageBase64 = b64;
+      if (b64 && activeCard) activeCard._imageBase64 = b64;
     } catch (e) {
       console.error('Failed to load image from IndexedDB:', e);
     }
@@ -724,7 +726,8 @@ const CardManager = {
     window.AppState.cards = CardStorage.getCards();
     this.renderCardList();
     await this.selectCard(card);
-    document.querySelector('#editName').focus();
+    const nameEl = document.querySelector('#editName');
+    if (nameEl) nameEl.focus();
     Ui.showToast(I18n.t('toast.newBlank'), 'success');
   },
 
@@ -788,7 +791,8 @@ const CardManager = {
       + '<i class="bi bi-trash-fill text-danger"></i>' + I18n.t('toast.cardDeleted', { name: Ui.escapeHtml(snapshot.name || I18n.t('gen.unnamed')) })
       + '<button class="btn btn-sm btn-outline-accent ms-2" id="undoDeleteBtn">' + I18n.t('toast.undo') + '</button>'
       + '</div><div class="toast-timer" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">' + toastLabel + '</div><button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
-    document.querySelector('#toastContainer').appendChild(toastEl);
+    const toastContainer = document.querySelector('#toastContainer');
+    if (toastContainer) toastContainer.appendChild(toastEl);
     const toast = new bootstrap.Toast(toastEl, { delay: DURATION });
     toast.show();
     // Live countdown timer
@@ -822,6 +826,7 @@ const CardManager = {
       });
     }
     const undoBtn = toastEl.querySelector('#undoDeleteBtn');
+    if (!undoBtn) return;
     undoBtn.addEventListener('click', async () => {
       undone = true;
       toast.hide();
@@ -839,6 +844,7 @@ const CardManager = {
 
   // ─── Mini card preview ─────────────────────────────────
 
+  /** @type {{ show(): void; hide(): void } | null} */
   _previewModal: null,
   _previewCardId: null,
   // Full cards fetched for the hover tooltip / preview modal (id → full card).

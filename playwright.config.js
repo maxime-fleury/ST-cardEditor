@@ -5,6 +5,13 @@ import { defineConfig } from '@playwright/test';
 //
 // Locally: uses the installed Google Chrome (no browser download needed).
 // In CI:   falls back to the bundled Chromium, installed by the workflow.
+//
+// Port: defaults to 8182 everywhere except Windows, where the 8182-8205 range
+// can be reserved by the OS (Hyper-V/WinNAT) and the server fails to bind with
+// EACCES — there the suite uses 8300. A PORT env var always wins (e.g. CI).
+const PORT = process.env.PORT || (process.platform === 'win32' ? '8300' : '8182');
+const BASE = `http://localhost:${PORT}`;
+
 export default defineConfig({
   testDir: './tests',
   // The unit tests under tests/unit are Bun unit tests (bun:test) and must not
@@ -17,7 +24,7 @@ export default defineConfig({
   retries: 1,
   reporter: [['list']],
   use: {
-    baseURL: 'http://localhost:8182',
+    baseURL: BASE,
     channel: process.env.CI ? undefined : 'chrome',
     headless: true,
     viewport: { width: 1440, height: 900 },
@@ -25,10 +32,10 @@ export default defineConfig({
   },
   webServer: {
     command: 'bun run server.js',
-    url: 'http://localhost:8182',
+    url: BASE,
     // The ambient shell can export PORT=0 (random port); force the port the
     // suite expects so the server is findable at all.
-    env: { ...process.env, PORT: '8182' },
+    env: { ...process.env, PORT },
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
   },

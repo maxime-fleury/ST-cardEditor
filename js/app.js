@@ -17731,7 +17731,7 @@
         _id: "",
         _filename: filename,
         _hasImage: false,
-        _imageBase64: null
+        _imageBase64: undefined
       };
       let source;
       if (raw.spec === "chara_card_v2" || raw.spec === "chara_card_v3") {
@@ -17799,7 +17799,7 @@
         _id: this._uniqueId(),
         _filename: name + ".json",
         _hasImage: false,
-        _imageBase64: null,
+        _imageBase64: undefined,
         _createdAt: Date.now(),
         _fileSize: 0,
         spec: "chara_card_v2",
@@ -20035,11 +20035,16 @@ Each greeting should be an in-character opening message that could start a conve
         ChatState.abortControllers.push(controller);
         const section = this._addFieldSection(groupedCard, field, fieldLabel(field));
         const contentEl = section.querySelector(".multi-field-content");
+        if (!contentEl) {
+          console.error("aiChat: field section missing .multi-field-content");
+          return;
+        }
         const history = this._getRecentHistory(10);
         AIService.chatStream(prompt, this.buildSystemPrompt(field, capturedGreetingCount), modelId, (fullText) => {
           contentEl.innerHTML = this._formatFieldText(fullText);
           const container = document.querySelector("#aiChatMessages");
-          container.scrollTop = container.scrollHeight;
+          if (container)
+            container.scrollTop = container.scrollHeight;
         }, controller.signal, false, history).then((result) => {
           if (gen2 !== ChatState.gen)
             return;
@@ -20073,7 +20078,8 @@ Each greeting should be an in-character opening message that could start a conve
             const label = section.querySelector(".multi-field-label");
             if (label)
               label.innerHTML = label.innerHTML.replace(I18n.t ? I18n.t("ai.streaming") : "streaming...", I18n.t ? I18n.t("ai.failed") : "failed");
-            contentEl.textContent = err.name === "AbortError" ? I18n.t ? I18n.t("ai.cancelled") : "Cancelled." : (I18n.t ? I18n.t("ai.errorPrefix") : "Error: ") + err.message;
+            if (contentEl)
+              contentEl.textContent = err.name === "AbortError" ? I18n.t ? I18n.t("ai.cancelled") : "Cancelled." : (I18n.t ? I18n.t("ai.errorPrefix") : "Error: ") + err.message;
           } catch (_) {}
           completedCount++;
           if (completedCount === selectedFields2.length) {
@@ -20392,7 +20398,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
             liveCount = Math.ceil(lastOut.length / 3);
           }
         }
-        statusEl.textContent = lastOut ? I18n.t ? I18n.t("ai.streamLive", { tokens: liveCount, secs }) : liveCount + " tokens · " + secs : I18n.t ? I18n.t("ai.thinkingLive", { secs }) : "Thinking… " + secs;
+        if (statusEl)
+          statusEl.textContent = lastOut ? I18n.t ? I18n.t("ai.streamLive", { tokens: liveCount, secs }) : liveCount + " tokens · " + secs : I18n.t ? I18n.t("ai.thinkingLive", { secs }) : "Thinking… " + secs;
       }, 500);
       const cardJson = activeCard ? CardEngine.toJSON(this._cleanCardForPrompt(activeCard)) : "";
       const systemPrompt = [
@@ -20417,9 +20424,12 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
           if (sk)
             sk.remove();
         }
-        streamingEl.querySelector(".ai-message-content").innerHTML = Ui.escapeHtml(fullText).replace(/```(?:\w+)?\n?([\s\S]*?)```/g, "<pre>$1</pre>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>").replace(/\n/g, "<br>");
+        const msgContent = streamingEl.querySelector(".ai-message-content");
+        if (msgContent)
+          msgContent.innerHTML = Ui.escapeHtml(fullText).replace(/```(?:\w+)?\n?([\s\S]*?)```/g, "<pre>$1</pre>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>").replace(/\n/g, "<br>");
         const container = document.querySelector("#aiChatMessages");
-        container.scrollTop = container.scrollHeight;
+        if (container)
+          container.scrollTop = container.scrollHeight;
       }, controller.signal, true, this._getRecentHistory(10)).then((result) => {
         clearInterval(liveTimer);
         if (gen2 !== ChatState.gen) {
@@ -20945,6 +20955,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
         nextBtn.disabled = !showNav;
       const acceptBtn = document.querySelector("#btnAcceptAI");
       const applyAllBtn = document.querySelector("#btnApplyAll");
+      if (!acceptBtn)
+        return;
       if (this._previewCleanup)
         this._previewCleanup();
       const handler = () => {
@@ -21280,7 +21292,8 @@ Current:
           ChatState.applyStore.set(msgId, applyData);
           if (ChatState.applyStore.size > 50) {
             const oldest = ChatState.applyStore.keys().next().value;
-            ChatState.applyStore.delete(oldest);
+            if (oldest !== undefined)
+              ChatState.applyStore.delete(oldest);
           }
           el.setAttribute("data-apply-id", msgId);
           this._registerApply(el, applyData.field, applyData.content);
@@ -21303,7 +21316,7 @@ Current:
         retryBtn.title = I18n.t ? I18n.t("ai.retryTitle") : "Regenerate this response";
         retryBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          const idx = parseInt(el.dataset.historyIndex, 10);
+          const idx = parseInt(el.dataset.historyIndex ?? "", 10);
           this.retryLastMessage(Number.isNaN(idx) ? undefined : idx);
         });
         actionsWrap.appendChild(retryBtn);
@@ -21586,7 +21599,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
 ` + prompt);
       }
       const modelData = (window.AppState.models || []).find((m) => m.id === modelId);
-      const modelMaxOut = modelData && modelData.max_output_tokens > 0 ? modelData.max_output_tokens : AIService.DEFAULT_MAX_TOKENS;
+      const modelMaxOut = modelData && typeof modelData.max_output_tokens === "number" && modelData.max_output_tokens > 0 ? modelData.max_output_tokens : AIService.DEFAULT_MAX_TOKENS;
       const userMaxTokens = CardStorage.getMaxTokens();
       const outputCap = userMaxTokens > 0 ? Math.min(userMaxTokens, modelMaxOut) : modelMaxOut;
       const historyMsgs = history.map((m) => ({ role: m.role, content: m.content || "" }));
@@ -21596,7 +21609,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         return;
       const actualMaxOut = Math.min(outputCap, resolvedMax);
       const total = inputTokens + actualMaxOut;
-      const ratio = ctx > 0 ? total / ctx : 0;
+      const ratio = ctx && ctx > 0 ? total / ctx : 0;
       const pct = Math.min(100, Math.round(ratio * 100));
       bar.style.width = pct + "%";
       bar.classList.toggle("warn", ratio >= 0.9 && ratio < 1);
@@ -21725,6 +21738,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         return;
       this._lastSnapField = null;
       const entry = this._undoStack.pop();
+      if (!entry)
+        return;
       this._redoStack.push({
         ...entry,
         oldValue: entry.oldValue,
@@ -21755,6 +21770,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         return;
       this._lastSnapField = null;
       const entry = this._redoStack.pop();
+      if (!entry)
+        return;
       this._undoStack.push({
         ...entry,
         oldValue: JSON.parse(JSON.stringify(this._subDefault(activeCard, entry.prop))),
@@ -21849,6 +21866,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
     _resetPreviewToggles() {
       document.querySelectorAll(".field-toggle-group").forEach((group) => {
         const targetId = group.dataset.target;
+        if (!targetId)
+          return;
         group.querySelectorAll(".field-toggle-btn").forEach((b) => b.classList.remove("active"));
         const editBtn = group.querySelector('[data-mode="edit"]');
         if (editBtn)
@@ -21994,7 +22013,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         const el = document.querySelector("#" + id);
         if (!el)
           continue;
-        let countEl = el.parentElement.querySelector(".char-count");
+        let countEl = el.parentElement?.querySelector(".char-count");
         if (!countEl) {
           countEl = document.createElement("small");
           countEl.className = "char-count field-counter text-secondary d-block mt-1";
@@ -22037,8 +22056,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       container.querySelectorAll(".greeting-delete").forEach((btn) => {
         btn.addEventListener("click", async () => {
           self.syncGreetings();
-          window.AppState.activeCard.alternate_greetings.splice(parseInt(btn.dataset.idx, 10), 1);
-          self.renderGreetings(window.AppState.activeCard);
+          card.alternate_greetings.splice(parseInt(btn.dataset.idx, 10), 1);
+          self.renderGreetings(card);
           await self.syncEditorToCard();
           self.updateCharCounts();
         });
@@ -22046,11 +22065,11 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       container.querySelectorAll(".greeting-set-default").forEach((btn) => {
         btn.addEventListener("click", async () => {
           self.syncGreetings();
-          const g = window.AppState.activeCard.alternate_greetings[parseInt(btn.dataset.idx, 10)];
+          const g = card.alternate_greetings[parseInt(btn.dataset.idx, 10)];
           if (g) {
-            window.AppState.activeCard.first_mes = g;
+            card.first_mes = g;
             $("#editFirstMes").value = g;
-            self.renderGreetings(window.AppState.activeCard);
+            self.renderGreetings(card);
             await self.syncEditorToCard();
             Ui.showToast(I18n.t("toast.firstMesUpdated"), "success");
           }
@@ -22061,9 +22080,9 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
           self.syncGreetings();
           const idx = parseInt(btn.dataset.idx, 10);
           if (idx > 0) {
-            const arr = window.AppState.activeCard.alternate_greetings;
+            const arr = card.alternate_greetings;
             [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
-            self.renderGreetings(window.AppState.activeCard);
+            self.renderGreetings(card);
             await self.syncEditorToCard();
           }
         });
@@ -22072,10 +22091,10 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         btn.addEventListener("click", async () => {
           self.syncGreetings();
           const idx = parseInt(btn.dataset.idx, 10);
-          const arr = window.AppState.activeCard.alternate_greetings;
+          const arr = card.alternate_greetings;
           if (idx < arr.length - 1) {
             [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
-            self.renderGreetings(window.AppState.activeCard);
+            self.renderGreetings(card);
             await self.syncEditorToCard();
           }
         });
@@ -22097,8 +22116,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
             return;
           }
           const idx = parseInt(ta.dataset.greetingIdx, 10);
-          if (window.AppState.activeCard.alternate_greetings[idx] !== undefined) {
-            window.AppState.activeCard.alternate_greetings[idx] = ta.value;
+          if (card.alternate_greetings[idx] !== undefined) {
+            card.alternate_greetings[idx] = ta.value;
           }
           await self.syncEditorToCard();
           self.updateCharCounts();
@@ -22283,8 +22302,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       container.querySelectorAll(".lorebook-delete-btn").forEach((btn) => {
         btn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          window.AppState.activeCard.character_book.entries.splice(parseInt(btn.dataset.idx, 10), 1);
-          self.renderLorebook(window.AppState.activeCard);
+          card.character_book.entries.splice(parseInt(btn.dataset.idx, 10), 1);
+          self.renderLorebook(card);
           await self.syncEditorToCard();
           self.updateCharCounts();
         });
@@ -22306,8 +22325,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
           if (!ta.isConnected || gen2 !== self._loreGen)
             return;
           const idx = parseInt(ta.dataset.loreIdx, 10);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].content = ta.value;
+          if (card.character_book.entries[idx]) {
+            card.character_book.entries[idx].content = ta.value;
             await self.syncEditorToCard();
             self.autoResizeTextareas();
             self.updateCharCounts();
@@ -22319,8 +22338,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
           if (!input.isConnected || gen2 !== self._loreGen)
             return;
           const idx = parseInt(input.dataset.loreKeyIdx, 10);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].key = input.value.trim();
+          if (card.character_book.entries[idx]) {
+            card.character_book.entries[idx].key = input.value.trim();
             await self.syncEditorToCard();
           }
         }, 600));
@@ -22330,8 +22349,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
           if (!input.isConnected || gen2 !== self._loreGen)
             return;
           const idx = parseInt(input.dataset.loreSecondaryIdx, 10);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].keysecondary = input.value.split(",").map((s) => s.trim()).filter(Boolean);
+          if (card.character_book.entries[idx]) {
+            card.character_book.entries[idx].keysecondary = input.value.split(",").map((s) => s.trim()).filter(Boolean);
             await self.syncEditorToCard();
           }
         }, 600));
@@ -22341,8 +22360,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
           if (!input.isConnected || gen2 !== self._loreGen)
             return;
           const idx = parseInt(input.dataset.loreCommentIdx, 10);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].comment = input.value;
+          if (card.character_book.entries[idx]) {
+            card.character_book.entries[idx].comment = input.value;
             await self.syncEditorToCard();
           }
         }, 600));
@@ -22352,9 +22371,9 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
           if (!input.isConnected || gen2 !== self._loreGen)
             return;
           const idx = parseInt(input.dataset.loreOrderIdx, 10);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
+          if (card.character_book.entries[idx]) {
             const parsed = parseInt(input.value, 10);
-            window.AppState.activeCard.character_book.entries[idx].order = Number.isNaN(parsed) ? 100 : parsed;
+            card.character_book.entries[idx].order = Number.isNaN(parsed) ? 100 : parsed;
             await self.syncEditorToCard();
           }
         }, 600));
@@ -22362,8 +22381,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       container.querySelectorAll("input[data-lore-constant-idx]").forEach((cb) => {
         cb.addEventListener("change", async () => {
           const idx = parseInt(cb.dataset.loreConstantIdx, 10);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].constant = cb.checked;
+          if (card.character_book.entries[idx]) {
+            card.character_book.entries[idx].constant = cb.checked;
             await self.syncEditorToCard();
           }
         });
@@ -22371,8 +22390,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       container.querySelectorAll("input[data-lore-selective-idx]").forEach((cb) => {
         cb.addEventListener("change", async () => {
           const idx = parseInt(cb.dataset.loreSelectiveIdx, 10);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].selective = cb.checked;
+          if (card.character_book.entries[idx]) {
+            card.character_book.entries[idx].selective = cb.checked;
             await self.syncEditorToCard();
           }
         });
@@ -22380,8 +22399,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       container.querySelectorAll("select[data-lore-position-idx]").forEach((sel) => {
         sel.addEventListener("change", async () => {
           const idx = parseInt(sel.dataset.lorePositionIdx, 10);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].position = sel.value;
+          if (card.character_book.entries[idx]) {
+            card.character_book.entries[idx].position = sel.value;
             await self.syncEditorToCard();
           }
         });
@@ -22671,7 +22690,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
     },
     async processFiles(fileList) {
       const validExts = ["png", "webp", "json"];
-      let loaded = 0, errors = 0, lastCardId = null;
+      let loaded = 0, errors = 0, lastCardId = "";
       for (const file of fileList) {
         const ext = file.name.split(".").pop().toLowerCase();
         if (!validExts.includes(ext)) {
@@ -22691,7 +22710,7 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
             await CardStorage.saveImage(card._id, card._imageBase64);
           }
           await CardStorage.upsertCard(card);
-          lastCardId = card._id;
+          lastCardId = card._id || "";
           loaded++;
         } catch (err) {
           console.error("Parse error:", file.name, err);
@@ -22776,7 +22795,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         return;
       if (this._selectedIds.size > 0) {
         toolbar.classList.remove("d-none");
-        count.textContent = I18n.t("left.selected", { count: this._selectedIds.size });
+        if (count)
+          count.textContent = I18n.t("left.selected", { count: this._selectedIds.size });
         if (compareBtn)
           compareBtn.classList.toggle("d-none", this._selectedIds.size !== 2);
       } else {
@@ -22799,7 +22819,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       this._selectedIds.clear();
       this._updateBatchToolbar();
       window.AppState.cards = CardStorage.getCards();
-      if (window.AppState.activeCard && !window.AppState.cards.find((c) => c._id === window.AppState.activeCard._id)) {
+      const activeCard = window.AppState.activeCard;
+      if (activeCard && !window.AppState.cards.find((c) => c._id === activeCard._id)) {
         window.AppState.activeCard = null;
         Editor.hideEditor();
       }
@@ -22847,6 +22868,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         applyNav.style.display = "none";
       const modal = this._aiPreviewModal = this._aiPreviewModal || new bootstrap.Modal("#aiPreviewModal");
       const modalEl = document.querySelector("#aiPreviewModal");
+      if (!modalEl)
+        return;
       const restoreButtons = () => {
         if (acceptBtn)
           acceptBtn.classList.remove("d-none");
@@ -23250,8 +23273,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       AiChat._resetChat();
       try {
         const b64 = await CardStorage.getImage(fullCard._id);
-        if (b64)
-          window.AppState.activeCard._imageBase64 = b64;
+        if (b64 && activeCard)
+          activeCard._imageBase64 = b64;
       } catch (e) {
         console.error("Failed to load image from IndexedDB:", e);
       }
@@ -23290,7 +23313,9 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       window.AppState.cards = CardStorage.getCards();
       this.renderCardList();
       await this.selectCard(card);
-      document.querySelector("#editName").focus();
+      const nameEl = document.querySelector("#editName");
+      if (nameEl)
+        nameEl.focus();
       Ui.showToast(I18n.t("toast.newBlank"), "success");
     },
     async saveCurrentCard() {
@@ -23357,7 +23382,9 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       toastEl.className = "toast align-items-center border-0";
       toastEl.setAttribute("role", "alert");
       toastEl.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2 w-100"><div class="flex-grow-1 d-flex align-items-center gap-2">' + '<i class="bi bi-trash-fill text-danger"></i>' + I18n.t("toast.cardDeleted", { name: Ui.escapeHtml(snapshot.name || I18n.t("gen.unnamed")) }) + '<button class="btn btn-sm btn-outline-accent ms-2" id="undoDeleteBtn">' + I18n.t("toast.undo") + "</button>" + '</div><div class="toast-timer" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">' + toastLabel + '</div><button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
-      document.querySelector("#toastContainer").appendChild(toastEl);
+      const toastContainer = document.querySelector("#toastContainer");
+      if (toastContainer)
+        toastContainer.appendChild(toastEl);
       const toast = new bootstrap.Toast(toastEl, { delay: DURATION });
       toast.show();
       const timerEl = toastEl.querySelector(".toast-timer");
@@ -23399,6 +23426,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
         });
       }
       const undoBtn = toastEl.querySelector("#undoDeleteBtn");
+      if (!undoBtn)
+        return;
       undoBtn.addEventListener("click", async () => {
         undone = true;
         toast.hide();

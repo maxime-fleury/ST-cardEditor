@@ -5,11 +5,12 @@
     "": {
       "name": "st-card-editor",
       "devDependencies": {
-        "@eslint/js": "^10.0.1",
-        "@playwright/test": "^1.62.1",
-        "eslint": "^10.10.0",
-        "globals": "^17.12.0",
-        "typescript": "^7.0.2",
+        "@eslint/js": "10.0.1",
+        "@playwright/test": "1.62.1",
+        "eslint": "10.10.0",
+        "globals": "17.12.0",
+        "simple-git-hooks": "2.14.0",
+        "typescript": "7.0.2",
       },
     },
   },
@@ -205,6 +206,8 @@
     "shebang-command": ["shebang-command@2.0.0", "", { "dependencies": { "shebang-regex": "^3.0.0" } }, "sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA=="],
 
     "shebang-regex": ["shebang-regex@3.0.0", "", {}, "sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A=="],
+
+    "simple-git-hooks": ["simple-git-hooks@2.14.0", "", { "bin": { "simple-git-hooks": "cli.js" } }, "sha512-kkTORPAuxQz2g1QUuN0J8yGWT28tjGBfPOdJ4xT7Vbeu30veKUZQIoID2qGgCDAakaQn59UeZJJ4cFGB8PVP2A=="],
 
     "type-check": ["type-check@0.4.0", "", { "dependencies": { "prelude-ls": "^1.2.1" } }, "sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew=="],
 

@@ -14,14 +14,19 @@
     "test:headed": "playwright test --headed",
     "test:unit": "bun test --parallel tests/unit",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "prepare": "bunx simple-git-hooks"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "bun run lint && bun run typecheck && bun scripts/check-assets.mjs"
   },
   "dependencies": {},
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.62.1",
-    "eslint": "^10.10.0",
-    "globals": "^17.12.0",
-    "typescript": "^7.0.2"
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.62.1",
+    "eslint": "10.10.0",
+    "globals": "17.12.0",
+    "simple-git-hooks": "2.14.0",
+    "typescript": "7.0.2"
   }
 }
