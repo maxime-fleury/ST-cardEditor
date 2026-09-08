@@ -1,15 +1,25 @@
-import { test, expect, beforeAll } from 'bun:test';
+import { test, expect, beforeAll, mock } from 'bun:test';
 
-// exportUtils.js reads the CardEngine classic-script global inside
-// embedCharaChunk, so load cardEngine first and publish it as a global
-// (same stub pattern as the other module tests).
+// exportUtils.js now imports its dependencies as real ES modules (passe 4):
+// CardEngine stays REAL (embedCharaChunk exercises its PNG parsing); I18n /
+// Ui / CardStorage / Editor are mocked with mock.module.
 let CardEngine;
 let ExportUtils;
+const noop = () => {};
+
+const stubs = {
+  I18n: { t: (key) => key },
+  Ui: {},
+  CardStorage: {},
+  Editor: { syncEditorToCard: async () => {} },
+};
+mock.module('../../js/i18n.js', () => ({ I18n: stubs.I18n }));
+mock.module('../../js/ui.js', () => ({ Ui: stubs.Ui }));
+mock.module('../../js/storage.js', () => ({ CardStorage: stubs.CardStorage }));
+mock.module('../../js/editor.js', () => ({ Editor: stubs.Editor }));
 
 beforeAll(async () => {
-  globalThis.I18n = { t: (key) => key };
   CardEngine = (await import('../../js/cardEngine.js')).CardEngine;
-  globalThis.CardEngine = CardEngine;
   ExportUtils = (await import('../../js/exportUtils.js')).ExportUtils;
 });
 

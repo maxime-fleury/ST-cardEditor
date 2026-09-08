@@ -2,8 +2,25 @@
    ui.js — Main Controller: Utilities, Init, Event Binding
    ============================================================ */
 
+// Module dependencies (ES imports — window.* exports kept for compat).
+import { I18n } from './i18n.js';
+import { Anims } from './animations.js';
+import { AIService } from './aiService.js';
+import { CardStorage } from './storage.js';
+import { CardEngine } from './cardEngine.js';
+import { CardManager } from './cardManager.js';
+import { Editor } from './editor.js';
+import { ExportUtils } from './exportUtils.js';
+import { Settings } from './settings.js';
+import { AiChat } from './aiChat.js';
+import { Wizard } from './wizard.js';
+import { WaifuTab } from './waifuTab.js';
+
 // ─── Shared State ───────────────────────────────────────
-window.AppState = { cards: [], activeCard: null, models: [], chatHistory: [], isAiLoading: false, _dirty: false };
+// Guarded so the module is importable in non-browser runtimes (unit tests);
+// in the browser this always runs and is what the other modules read as
+// `window.AppState` at call time.
+if (typeof window !== 'undefined') window.AppState = { cards: [], activeCard: null, models: [], chatHistory: [], isAiLoading: false, _dirty: false };
 
 // ─── Utilities ──────────────────────────────────────────
 const Ui = {
@@ -1418,4 +1435,4 @@ async function handleStorageChange(e) {
 }
 
 // ─── BOOT ──────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', init);
+if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', init);

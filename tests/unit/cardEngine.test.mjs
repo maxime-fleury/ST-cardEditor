@@ -1,13 +1,12 @@
-import { test, expect, beforeAll } from 'bun:test';
+import { test, expect, beforeAll, mock } from 'bun:test';
 
-// cardEngine.js guards its error strings with a bare `I18n` global; provide a
-// stub so the module resolves it (Bun resolves undeclared identifiers via
-// globalThis). Static imports are hoisted, so load the module dynamically
-// after the stub is in place.
+// cardEngine.js imports I18n as an ES module (passe 4); mock it so the
+// guard strings resolve without a real translation table.
 let CardEngine;
 
+mock.module('../../js/i18n.js', () => ({ I18n: { t: (key) => key } }));
+
 beforeAll(async () => {
-  globalThis.I18n = { t: (key) => key };
   CardEngine = (await import('../../js/cardEngine.js')).CardEngine;
 });
 

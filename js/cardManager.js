@@ -3,6 +3,16 @@
    cardManager.js — Card List Rendering, Selection, CRUD
    ============================================================ */
 
+// Module dependencies (ES imports — window.* exports kept for compat).
+import { I18n } from './i18n.js';
+import { Ui } from './ui.js';
+import { Anims } from './animations.js';
+import { CardStorage } from './storage.js';
+import { CardEngine } from './cardEngine.js';
+import { Editor } from './editor.js';
+import { ExportUtils } from './exportUtils.js';
+import { AiChat } from './aiChat.js';
+
 // Same debounce delay as ui.js's DEBOUNCE_SEARCH_MS. Kept as a local copy
 // instead of an import: index.html loads the modules with ?v= cache-busters,
 // so an import specifier (bare path) would evaluate ui.js twice, registering

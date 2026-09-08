@@ -1,10 +1,8 @@
-import { test, expect, beforeAll, beforeEach, afterEach } from 'bun:test';
+import { test, expect, beforeAll, beforeEach, afterEach, mock } from 'bun:test';
 
-// cardManager.js is browser-glued: it reads window.AppState and uses the
-// CardStorage / AiChat / Editor / Ui / I18n / Anims globals. Provide minimal
-// fakes (same pattern as cardEngine.test.mjs) so only the code under test
-// runs. The module body is a plain object literal, so it imports safely;
-// the fakes only need to exist before its methods are called.
+// cardManager.js now imports its dependencies as real ES modules (passe 4),
+// so this suite mocks every one of them with mock.module and mutates the
+// stub objects per-test (window/document/localStorage remain free globals).
 let CardManager;
 // Tests that exercise _doSelect stub out renderCardList (it needs a real DOM);
 // restore the original afterwards so the tag-path tests run it for real.
@@ -41,10 +39,9 @@ function makeDom(ids) {
   };
 }
 
-beforeAll(async () => {
-  globalThis.window = globalThis;
-  globalThis.I18n = { t: (k) => k };
-  globalThis.Ui = {
+const stubs = {
+  I18n: { t: (k) => k },
+  Ui: {
     $(sel) { return globalThis.document.querySelector(sel); },
     escapeHtml: (s) => String(s),
     escapeAttr: (s) => String(s),
@@ -52,9 +49,27 @@ beforeAll(async () => {
     updateUIState: noop,
     showToast: noop,
     debounce: (fn) => fn,
-  };
-  globalThis.Anims = { staggerFadeIn: noop, _disabled: () => true };
-  globalThis.Editor = { syncEditorToCard: async () => {}, populateEditor: noop };
+  },
+  Anims: { staggerFadeIn: noop, _disabled: () => true },
+  Editor: { syncEditorToCard: async () => {}, populateEditor: noop },
+  CardStorage: {},
+  AiChat: {},
+  CardEngine: {},
+  ExportUtils: {},
+};
+mock.module('../../js/i18n.js', () => ({ I18n: stubs.I18n }));
+mock.module('../../js/ui.js', () => ({ Ui: stubs.Ui }));
+mock.module('../../js/animations.js', () => ({ Anims: stubs.Anims }));
+mock.module('../../js/editor.js', () => ({ Editor: stubs.Editor }));
+mock.module('../../js/storage.js', () => ({ CardStorage: stubs.CardStorage }));
+mock.module('../../js/cardEngine.js', () => ({ CardEngine: stubs.CardEngine }));
+mock.module('../../js/exportUtils.js', () => ({ ExportUtils: stubs.ExportUtils }));
+mock.module('../../js/aiChat.js', () => ({ AiChat: stubs.AiChat }));
+// NOTE: cardManager.js itself is NOT mocked — the suite exercises the real
+// module; only its dependencies above are stubbed.
+
+beforeAll(async () => {
+  globalThis.window = globalThis;
   globalThis.matchMedia = () => ({ matches: true });
   globalThis.document = makeDom([]);
   CardManager = (await import('../../js/cardManager.js')).CardManager;
@@ -107,21 +122,19 @@ test('switching cards aborts AI and clears the apply queue and session id', asyn
   window.AppState.activeCard = { _id: 'A' };
   window.AppState.isAiLoading = true;
 
-  globalThis.CardStorage = {
-    ...baseCardStorage(),
+  Object.assign(stubs.CardStorage, baseCardStorage(), {
     getChatHistory: (id) => ['history for ' + id],
     getChatSessions: () => [],
-  };
-  globalThis.AiChat = {
-    ...baseAiChat(),
+  });
+  Object.assign(stubs.AiChat, baseAiChat(), {
     _abortAll: () => { rendered.aborted = true; },
     _bumpGen: () => { rendered.genBumped = true; return 8; },
     _resetChat: () => { rendered.resetChat = true; }, // clears queue + session + render flag
     _setCurrentSession: () => { rendered.sessionSet = true; },
     renderChatHistory: () => { rendered.history = true; },
-  };
+  });
   const populated = [];
-  globalThis.Editor = { syncEditorToCard: async () => {}, populateEditor: (c) => populated.push(c) };
+  Object.assign(stubs.Editor, { syncEditorToCard: async () => {}, populateEditor: (c) => populated.push(c) });
 
   await CardManager._doSelect({ _id: 'B' });
 
@@ -140,18 +153,16 @@ test('switching cards aborts AI and clears the apply queue and session id', asyn
 test('restores the latest session messages and keeps its session id', async () => {
   CardManager.renderCardList = noop;
   const saves = [];
-  globalThis.CardStorage = {
-    ...baseCardStorage(),
+  Object.assign(stubs.CardStorage, baseCardStorage(), {
     getChatHistory: (id) => ['legacy ' + id],
     getChatSessions: () => [{ id: 's9' }], // sessions are sorted newest first
     getSessionMessages: () => ['msg-a', 'msg-b'],
     saveSessionMessages: (...args) => saves.push(args),
-  };
+  });
   const session = { id: null };
-  globalThis.AiChat = {
-    ...baseAiChat(),
+  Object.assign(stubs.AiChat, baseAiChat(), {
     _setCurrentSession: (id) => { session.id = id; },
-  };
+  });
 
   await CardManager._doSelect({ _id: 'B' });
 
@@ -163,18 +174,16 @@ test('restores the latest session messages and keeps its session id', async () =
 test('session fallback migrates only the new card\'s own history', async () => {
   CardManager.renderCardList = noop;
   const saves = [];
-  globalThis.CardStorage = {
-    ...baseCardStorage(),
+  Object.assign(stubs.CardStorage, baseCardStorage(), {
     getChatHistory: (id) => ['history for ' + id],
     getChatSessions: () => [{ id: 's1' }],
     getSessionMessages: () => [],
     saveSessionMessages: (...args) => saves.push(args),
-  };
+  });
   const session = { id: null };
-  globalThis.AiChat = {
-    ...baseAiChat(),
+  Object.assign(stubs.AiChat, baseAiChat(), {
     _setCurrentSession: (id) => { session.id = id; },
-  };
+  });
   window.AppState.chatHistory = ['history for A']; // stale leftover from the previous card
 
   await CardManager._doSelect({ _id: 'B' });

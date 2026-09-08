@@ -3,6 +3,14 @@
    editor.js — Editor Population, Sync, Greetings, Lorebook
    ============================================================ */
 
+// Module dependencies (ES imports — window.* exports kept for compat).
+import { I18n } from './i18n.js';
+import { Ui } from './ui.js';
+import { CardStorage } from './storage.js';
+import { CardEngine } from './cardEngine.js';
+import { Tokenizer } from './tokenizer.js';
+import { AiChat } from './aiChat.js';
+
 const Editor = {
   _undoStack: [],
   _redoStack: [],

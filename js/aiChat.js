@@ -3,6 +3,18 @@
    aiChat.js — AI Chat UI, Multi-Field Parallel Requests
    ============================================================ */
 
+// Module dependencies (ES imports — window.* exports kept for compat).
+import { I18n } from './i18n.js';
+import { Ui } from './ui.js';
+import { Anims } from './animations.js';
+import { AIService } from './aiService.js';
+import { CardStorage } from './storage.js';
+import { CardEngine } from './cardEngine.js';
+import { CardManager } from './cardManager.js';
+import { Editor } from './editor.js';
+import { Settings } from './settings.js';
+import { Tokenizer } from './tokenizer.js';
+
 // Mutable chat state (apply queue, selection, sessions, generation tokens)
 // lives in ChatState — see chatState.js. AiChat only holds static config
 // (FIELD_DEFS, limits) and methods; every `ChatState.applyQueue`-style field of
@@ -259,7 +271,7 @@ const AiChat = {
       ? I18n.t(this.FIELD_DEFS.find(d => d.id === targetField)?.labelKey || targetField)
       : targetField;
 
-    const cardForPrompt = activeCard ? { ...activeCard } : CardEngine.createEmptyCard();
+    const cardForPrompt = /** @type {CardShape} */ (activeCard ? { ...activeCard } : CardEngine.createEmptyCard());
     delete cardForPrompt._id; delete cardForPrompt._filename; delete cardForPrompt._hasImage;
     delete cardForPrompt._imageBase64; delete cardForPrompt._thumbnail;
     delete cardForPrompt._createdAt; delete cardForPrompt._fileSize;

@@ -1,8 +1,8 @@
-import { test, expect } from 'bun:test';
+import { test, expect, mock } from 'bun:test';
 
-// Settings reads CardStorage (and I18n) at call time only — stub the globals
-// with a tiny in-memory store before importing.
-globalThis.I18n = { t: (key) => key };
+// settings.js now imports its dependencies as real ES modules (passe 4);
+// mock each with mock.module, using a tiny in-memory store for CardStorage.
+const noop = () => {};
 const store = {
   provider: 'openrouter',
   defaultModel: '',
@@ -25,7 +25,27 @@ const store = {
     return out;
   },
 };
-globalThis.CardStorage = store;
+
+const stubs = {
+  I18n: { t: (key) => key },
+  CardStorage: store,
+  Ui: {},
+  AIService: {},
+  CardEngine: {},
+  CardManager: {},
+  Editor: {},
+  Anims: {},
+  AiChat: {},
+};
+mock.module('../../js/i18n.js', () => ({ I18n: stubs.I18n }));
+mock.module('../../js/storage.js', () => ({ CardStorage: stubs.CardStorage }));
+mock.module('../../js/ui.js', () => ({ Ui: stubs.Ui }));
+mock.module('../../js/aiService.js', () => ({ AIService: stubs.AIService }));
+mock.module('../../js/cardEngine.js', () => ({ CardEngine: stubs.CardEngine }));
+mock.module('../../js/cardManager.js', () => ({ CardManager: stubs.CardManager }));
+mock.module('../../js/editor.js', () => ({ Editor: stubs.Editor }));
+mock.module('../../js/animations.js', () => ({ Anims: stubs.Anims }));
+mock.module('../../js/aiChat.js', () => ({ AiChat: stubs.AiChat }));
 
 let Settings;
 test('module loads with stubbed globals', async () => {
@@ -73,7 +93,7 @@ test('_currentModelId falls back to the saved provider when no provider is given
 
 test('getAllProviderModelIds returns only non-empty entries', () => {
   store.providerModelIds = { deepseek: 'deepseek-chat', xai: '', nanogpt: 'gpt-x' };
-  expect(CardStorage.getAllProviderModelIds()).toEqual({ deepseek: 'deepseek-chat', nanogpt: 'gpt-x' });
+  expect(store.getAllProviderModelIds()).toEqual({ deepseek: 'deepseek-chat', nanogpt: 'gpt-x' });
 });
 
 // Service-worker activate filter: the CDN cache (no ':' in its name) must be

@@ -2,6 +2,17 @@
    settings.js — Settings Modal, Model List, Credits
    ============================================================ */
 
+// Module dependencies (ES imports — window.* exports kept for compat).
+import { I18n } from './i18n.js';
+import { Ui } from './ui.js';
+import { Anims } from './animations.js';
+import { AIService } from './aiService.js';
+import { CardStorage } from './storage.js';
+import { CardEngine } from './cardEngine.js';
+import { CardManager } from './cardManager.js';
+import { Editor } from './editor.js';
+import { AiChat } from './aiChat.js';
+
 const Settings = {
   // Canonical order of editable AI prompts. Drives auto-building the Settings
   // → Prompts tab fields, the save/open loops, and reset. Each maps to storage

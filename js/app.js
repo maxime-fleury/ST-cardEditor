@@ -1,6 +1,6 @@
 (() => {
   // js/tokenizer.js
-  var Tokenizer2 = {
+  var Tokenizer = {
     _lib: null,
     _loading: null,
     _lastFail: 0,
@@ -59,7544 +59,7 @@
     }
   };
   if (typeof window !== "undefined")
-    window.Tokenizer = Tokenizer2;
-
-  // js/cardEngine.js
-  var CardEngine2 = {
-    _utf8Decoder: new TextDecoder("utf-8"),
-    THUMBNAIL_MAX_SIZE: 128,
-    THUMBNAIL_JPEG_QUALITY: 0.8,
-    async parseFile(file) {
-      const ext = file.name.split(".").pop().toLowerCase();
-      if (ext === "json") {
-        const text = await file.text();
-        return this.parseJSON(text, file.name);
-      }
-      if (ext === "png") {
-        const buffer = await file.arrayBuffer();
-        const card = await this.parsePNG(buffer, file.name);
-        if (!card._imageBase64) {
-          const blob = new Blob([buffer], { type: "image/png" });
-          card._imageBase64 = await this._blobToBase64(blob);
-        }
-        card._hasImage = true;
-        card._thumbnail = await this._createThumbnail(card._imageBase64);
-        card._fileSize = this.computeFileSize(card);
-        return card;
-      }
-      if (ext === "webp") {
-        const buffer = await file.arrayBuffer();
-        const card = this._createEmptyCard(file.name);
-        const blob = new Blob([buffer], { type: "image/webp" });
-        card._imageBase64 = await this._blobToBase64(blob);
-        card._hasImage = true;
-        card._thumbnail = await this._createThumbnail(card._imageBase64);
-        card._fileSize = this.computeFileSize(card);
-        return card;
-      }
-      throw new Error(I18n.t ? I18n.t("error.unsupportedFile", { ext }) : "Unsupported file type: ." + ext);
-    },
-    _uniqueId() {
-      if (typeof crypto !== "undefined" && crypto.randomUUID) {
-        return "card_" + crypto.randomUUID();
-      }
-      return "card_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
-    },
-    parseJSON(jsonStr, filename) {
-      filename = filename || "untitled.json";
-      let raw;
-      try {
-        raw = JSON.parse(jsonStr);
-      } catch (e) {
-        throw new Error(I18n.t ? I18n.t("error.invalidJson", { message: e.message || "parse error" }) : "Invalid JSON: " + (e.message || "parse error"));
-      }
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-        throw new Error(I18n.t ? I18n.t("error.unknownFormat") : "Unknown card format — not a SillyTavern character card");
-      }
-      return this.normalize(raw, filename);
-    },
-    async parsePNG(buffer, filename) {
-      filename = filename || "untitled.png";
-      const bytes = new Uint8Array(buffer);
-      const sig = [137, 80, 78, 71, 13, 10, 26, 10];
-      for (let i = 0;i < 8; i++) {
-        if (bytes[i] !== sig[i])
-          throw new Error(I18n.t ? I18n.t("error.notPng") : "Not a valid PNG file");
-      }
-      let offset = 8;
-      let charaRaw = null;
-      let ccv3Raw = null;
-      let cardChunkUnreadable = false;
-      while (offset + 12 <= bytes.length) {
-        const len = this._readUint32(bytes, offset);
-        offset += 4;
-        const type = this._utf8Decoder.decode(bytes.slice(offset, offset + 4));
-        offset += 4;
-        if (type === "tEXt") {
-          const chunkData = bytes.slice(offset, offset + len);
-          const nullIdx = chunkData.indexOf(0);
-          if (nullIdx >= 0) {
-            const keyword = this._utf8Decoder.decode(chunkData.slice(0, nullIdx)).toLowerCase();
-            if (keyword === "chara") {
-              charaRaw = chunkData.slice(nullIdx + 1);
-            } else if (keyword === "ccv3") {
-              ccv3Raw = chunkData.slice(nullIdx + 1);
-            }
-          }
-        } else if (type === "iTXt" || type === "zTXt") {
-          const chunkData = bytes.slice(offset, offset + len);
-          const nullIdx = chunkData.indexOf(0);
-          if (nullIdx >= 0) {
-            const keyword = this._utf8Decoder.decode(chunkData.slice(0, nullIdx)).toLowerCase();
-            let valueBytes = null;
-            if (type === "iTXt") {
-              let p = nullIdx + 1;
-              const compressionFlag = chunkData[p];
-              p += 1;
-              p += 1;
-              const langEnd = chunkData.indexOf(0, p);
-              if (langEnd < 0) {
-                offset += len + 4;
-                continue;
-              }
-              p = langEnd + 1;
-              const transEnd = chunkData.indexOf(0, p);
-              if (transEnd < 0) {
-                offset += len + 4;
-                continue;
-              }
-              p = transEnd + 1;
-              valueBytes = chunkData.slice(p);
-              if (compressionFlag === 1)
-                valueBytes = await this._inflate(valueBytes);
-            } else {
-              const p = nullIdx + 2;
-              valueBytes = await this._inflate(chunkData.slice(p));
-            }
-            if (valueBytes) {
-              if (keyword === "chara")
-                charaRaw = valueBytes;
-              else if (keyword === "ccv3")
-                ccv3Raw = valueBytes;
-            } else if (keyword === "chara" || keyword === "ccv3") {
-              cardChunkUnreadable = true;
-            }
-          }
-        } else if (type === "IEND") {
-          break;
-        }
-        offset += len + 4;
-      }
-      const rawBytes = charaRaw || ccv3Raw;
-      if (rawBytes) {
-        const rawStr = this._utf8Decoder.decode(rawBytes);
-        const jsonStr = this._decodeCharaValue(rawStr);
-        return this.parseJSON(jsonStr, filename);
-      }
-      if (cardChunkUnreadable) {
-        throw new Error(I18n.t ? I18n.t("error.pngInflateFailed") : "This PNG contains character data that could not be decompressed.");
-      }
-      return this._createEmptyCard(filename);
-    },
-    async _inflate(bytes) {
-      let writer = null;
-      try {
-        if (typeof DecompressionStream === "undefined")
-          return null;
-        let ds;
-        try {
-          ds = new DecompressionStream("zlib");
-        } catch (e) {
-          if (bytes.length <= 6)
-            return null;
-          bytes = bytes.subarray(2, bytes.length - 4);
-          ds = new DecompressionStream("deflate");
-        }
-        writer = ds.writable.getWriter();
-        await writer.write(bytes);
-        await writer.close();
-        const ab = await new Response(ds.readable).arrayBuffer();
-        return new Uint8Array(ab);
-      } catch (e) {
-        console.error("zlib inflate failed", e);
-        return null;
-      } finally {
-        if (writer && typeof writer.releaseLock === "function") {
-          try {
-            writer.releaseLock();
-          } catch (_) {}
-        }
-      }
-    },
-    normalize(raw, filename) {
-      const card = {
-        _id: "",
-        _filename: filename,
-        _hasImage: false,
-        _imageBase64: null
-      };
-      let source;
-      if (raw.spec === "chara_card_v2" || raw.spec === "chara_card_v3") {
-        card.spec = raw.spec;
-        card.spec_version = raw.spec_version || (raw.spec === "chara_card_v3" ? "3.0" : "2.0");
-        source = raw.data || {};
-      } else if (raw.name !== undefined && !raw.spec) {
-        card.spec = "chara_card_v2";
-        card.spec_version = "2.0";
-        source = raw;
-      } else {
-        throw new Error(I18n.t ? I18n.t("error.unknownFormat") : "Unknown card format — not a SillyTavern character card");
-      }
-      const fields = [
-        "name",
-        "description",
-        "personality",
-        "scenario",
-        "first_mes",
-        "mes_example",
-        "creator_notes",
-        "system_prompt",
-        "post_history_instructions",
-        "creator",
-        "character_version"
-      ];
-      for (const f of fields)
-        card[f] = source[f] || "";
-      card.alternate_greetings = Array.isArray(source.alternate_greetings) ? [...source.alternate_greetings] : [];
-      card.tags = Array.isArray(source.tags) ? source.tags.filter((t) => t != null && t !== "").map((t) => String(t).trim()).filter(Boolean) : [];
-      card.character_book = source.character_book ? JSON.parse(JSON.stringify(source.character_book)) : { entries: [] };
-      card.extensions = source.extensions ? JSON.parse(JSON.stringify(source.extensions)) : {};
-      if (!card.character_book || !Array.isArray(card.character_book.entries)) {
-        card.character_book = { entries: [] };
-      } else {
-        card.character_book.entries = card.character_book.entries.map((e) => {
-          if (!e || typeof e !== "object") {
-            return { key: "", keysecondary: [], content: "", order: 100, constant: false, selective: false, position: "after_char", comment: "" };
-          }
-          if (e.keys != null && e.key == null)
-            e.key = e.keys;
-          if (e.secondary_keys != null && e.keysecondary == null)
-            e.keysecondary = e.secondary_keys;
-          if (e.insertion_order != null && e.order == null)
-            e.order = e.insertion_order;
-          if (e.enabled != null && e.disable == null)
-            e.disable = !e.enabled;
-          if (!Array.isArray(e.keysecondary)) {
-            e.keysecondary = e.keysecondary == null ? [] : String(e.keysecondary).split(",").map((s) => s.trim()).filter(Boolean);
-          }
-          if (e.key != null && !Array.isArray(e.key) && typeof e.key !== "string") {
-            e.key = String(e.key);
-          }
-          return e;
-        });
-      }
-      card._id = this._uniqueId();
-      card._createdAt = Date.now();
-      card._fileSize = JSON.stringify(card).length;
-      return card;
-    },
-    createEmptyCard(name) {
-      name = name || (I18n.t ? I18n.t("gen.newCharacter") : "New Character");
-      const card = {
-        _id: this._uniqueId(),
-        _filename: name + ".json",
-        _hasImage: false,
-        _imageBase64: null,
-        _createdAt: Date.now(),
-        _fileSize: 0,
-        spec: "chara_card_v2",
-        spec_version: "2.0",
-        name,
-        description: "",
-        personality: "",
-        scenario: "",
-        first_mes: "",
-        mes_example: "",
-        creator_notes: "",
-        system_prompt: "",
-        post_history_instructions: "",
-        alternate_greetings: [],
-        tags: [],
-        creator: "",
-        character_version: "1.0",
-        character_book: { entries: [] },
-        extensions: {}
-      };
-      card._fileSize = JSON.stringify(card).length;
-      return card;
-    },
-    computeFileSize(card) {
-      const jsonChars = JSON.stringify(this.toJSON(card || {})).length;
-      const b64 = card && card._imageBase64;
-      let imageBytes = 0;
-      if (typeof b64 === "string") {
-        const comma = b64.indexOf(",");
-        if (comma >= 0)
-          imageBytes = Math.round((b64.length - comma - 1) * 3 / 4);
-      }
-      return jsonChars + imageBytes;
-    },
-    toJSON(card) {
-      return JSON.stringify({
-        spec: card.spec || "chara_card_v2",
-        spec_version: card.spec_version || "2.0",
-        data: {
-          name: card.name || "",
-          description: card.description || "",
-          personality: card.personality || "",
-          scenario: card.scenario || "",
-          first_mes: card.first_mes || "",
-          mes_example: card.mes_example || "",
-          creator_notes: card.creator_notes || "",
-          system_prompt: card.system_prompt || "",
-          post_history_instructions: card.post_history_instructions || "",
-          alternate_greetings: card.alternate_greetings || [],
-          tags: card.tags || [],
-          creator: card.creator || "",
-          character_version: card.character_version || "",
-          character_book: card.character_book || { entries: [] },
-          extensions: card.extensions || {}
-        }
-      }, null, 2);
-    },
-    getTextContent(card, field) {
-      if (field && card[field] !== undefined)
-        return card[field] || "";
-      const fields = [
-        ["Name", card.name],
-        ["Description", card.description],
-        ["Personality", card.personality],
-        ["Scenario", card.scenario],
-        ["First Message", card.first_mes],
-        ["Example Messages", card.mes_example],
-        ["System Prompt", card.system_prompt],
-        ["Post-History Instructions", card.post_history_instructions]
-      ];
-      return fields.filter(([_, v]) => v && v.trim()).map(([label, value]) => `[${label}]
-${value}`).join(`
-
-`);
-    },
-    _decodeCharaValue(rawValue) {
-      try {
-        JSON.parse(rawValue);
-        return rawValue;
-      } catch (_) {}
-      try {
-        const binStr = atob(rawValue);
-        const bytes = Uint8Array.from(binStr, (c) => c.charCodeAt(0));
-        const decoded = this._utf8Decoder.decode(bytes);
-        JSON.parse(decoded);
-        return decoded;
-      } catch (_) {}
-      return rawValue;
-    },
-    _readUint32(bytes, offset) {
-      if (offset + 4 > bytes.length)
-        return 0;
-      return (bytes[offset] << 24 | bytes[offset + 1] << 16 | bytes[offset + 2] << 8 | bytes[offset + 3]) >>> 0;
-    },
-    _createEmptyCard(filename) {
-      return this.normalize({ name: filename.replace(/\.[^.]+$/, "") }, filename);
-    },
-    _blobToBase64(blob) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader;
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    },
-    _createThumbnail(base64) {
-      return new Promise((resolve) => {
-        if (!base64)
-          return resolve(null);
-        const img = new Image;
-        img.onload = () => {
-          try {
-            const canvas = document.createElement("canvas");
-            const ctx = canvas.getContext("2d");
-            const MAX = this.THUMBNAIL_MAX_SIZE;
-            let { width: w, height: h } = img;
-            if (w > h) {
-              if (w > MAX) {
-                h = Math.round(h * MAX / w);
-                w = MAX;
-              }
-            } else {
-              if (h > MAX) {
-                w = Math.round(w * MAX / h);
-                h = MAX;
-              }
-            }
-            canvas.width = w;
-            canvas.height = h;
-            ctx.drawImage(img, 0, 0, w, h);
-            let needsAlpha = false;
-            try {
-              const pixels = ctx.getImageData(0, 0, w, h).data;
-              for (let i = 3;i < pixels.length; i += 4) {
-                if (pixels[i] < 255) {
-                  needsAlpha = true;
-                  break;
-                }
-              }
-            } catch (_) {}
-            img.removeAttribute("src");
-            img.onload = null;
-            img.onerror = null;
-            resolve(needsAlpha ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", this.THUMBNAIL_JPEG_QUALITY));
-          } catch (_) {
-            img.removeAttribute("src");
-            img.onload = null;
-            img.onerror = null;
-            resolve(null);
-          }
-        };
-        img.onerror = () => {
-          img.removeAttribute("src");
-          img.onload = null;
-          img.onerror = null;
-          resolve(null);
-        };
-        img.src = base64;
-      });
-    }
-  };
-  if (typeof window !== "undefined")
-    window.CardEngine = CardEngine2;
-
-  // js/animations.js
-  var Anims2 = {
-    get _reducedMotion() {
-      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    },
-    _disabled() {
-      return this._reducedMotion || typeof anime === "undefined";
-    },
-    staggerFadeIn(selector, opts) {
-      if (this._disabled())
-        return;
-      let els = typeof selector === "string" ? document.querySelectorAll(selector) : selector;
-      if (els && typeof els.length !== "number")
-        els = [els];
-      if (!els || !els.length)
-        return;
-      anime({
-        targets: els,
-        opacity: [0, 1],
-        translateY: [opts?.from || 8, 0],
-        duration: opts?.duration || 250,
-        delay: anime.stagger(opts?.stagger || 30),
-        easing: opts?.easing || "easeOutCubic"
-      });
-    },
-    _slideToken: 0,
-    _activeTimeline: null,
-    slideStep(outEl, inEl, direction, onDone) {
-      if (this._activeTimeline) {
-        this._activeTimeline.pause();
-        this._activeTimeline = null;
-      }
-      if (this._pendingOutEl && this._pendingOutEl !== inEl && !this._pendingOutEl.classList.contains("d-none")) {
-        this._pendingOutEl.classList.add("d-none");
-        this._pendingOutEl.style.opacity = "";
-        this._pendingOutEl.style.transform = "";
-      }
-      this._pendingOutEl = outEl;
-      const token = ++this._slideToken;
-      if (outEl) {
-        outEl.style.opacity = "";
-        outEl.style.transform = "";
-      }
-      if (inEl) {
-        inEl.style.opacity = "";
-        inEl.style.transform = "";
-      }
-      if (this._disabled()) {
-        if (outEl)
-          outEl.classList.add("d-none");
-        if (inEl)
-          inEl.classList.remove("d-none");
-        this._pendingOutEl = null;
-        if (onDone)
-          onDone();
-        return;
-      }
-      const xOut = direction === "next" ? -20 : 20;
-      const xIn = direction === "next" ? 20 : -20;
-      const tl = anime.timeline({ easing: "easeOutCubic" });
-      this._activeTimeline = tl;
-      const finish = () => {
-        if (token !== this._slideToken)
-          return;
-        if (this._activeTimeline === tl)
-          this._activeTimeline = null;
-        if (onDone)
-          onDone();
-      };
-      if (outEl) {
-        tl.add({ targets: outEl, opacity: [1, 0], translateX: [0, xOut], duration: 180, complete: () => {
-          if (token === this._slideToken)
-            outEl.classList.add("d-none");
-          if (!inEl) {
-            finish();
-          }
-        } });
-      }
-      if (inEl) {
-        inEl.classList.remove("d-none");
-        inEl.style.opacity = "0";
-        tl.add({ targets: inEl, opacity: [0, 1], translateX: [xIn, 0], duration: 220, complete: () => {
-          if (inEl)
-            inEl.style.opacity = "";
-          if (this._pendingOutEl === outEl)
-            this._pendingOutEl = null;
-          finish();
-        } }, outEl ? "-=60" : 0);
-      } else if (!outEl) {
-        finish();
-      }
-    },
-    pulseIcon(el) {
-      if (this._disabled() || !el)
-        return;
-      anime({ targets: el, scale: [1, 1.25, 1], duration: 300, easing: "easeOutCubic" });
-    },
-    shakeElement(el) {
-      if (this._disabled() || !el)
-        return;
-      anime({ targets: el, translateX: [0, -6, 6, -4, 4, -2, 2, 0], duration: 400, easing: "easeOutCubic" });
-    },
-    scaleClick(el) {
-      if (this._disabled() || !el)
-        return;
-      anime({ targets: el, scale: [1, 0.96, 1], duration: 150, easing: "easeOutCubic" });
-    },
-    progressBounce(el) {
-      if (this._disabled() || !el)
-        return;
-      anime({ targets: el, scale: [1, 1.08, 1], duration: 350, easing: "easeOutElastic(1, .6)" });
-    },
-    chevronRotate(el, isOpen) {
-      if (this._disabled() || !el)
-        return;
-      anime({ targets: el, rotateZ: isOpen ? 180 : 0, duration: 250, easing: "easeOutCubic" });
-    },
-    iconSpin(el) {
-      if (this._disabled() || !el)
-        return;
-      anime({ targets: el, rotateZ: 360, duration: 400, easing: "easeOutCubic" });
-    },
-    skeletonReveal(selector) {
-      if (this._disabled())
-        return;
-      let els = typeof selector === "string" ? document.querySelectorAll(selector) : selector;
-      if (els && typeof els.length !== "number")
-        els = [els];
-      if (!els || !els.length)
-        return;
-      anime({
-        targets: els,
-        opacity: [0, 1],
-        translateY: [6, 0],
-        duration: 200,
-        delay: anime.stagger(50),
-        easing: "easeOutCubic"
-      });
-    },
-    toastEnter(el) {
-      if (this._disabled() || !el)
-        return;
-      anime({ targets: el, translateX: [40, 0], opacity: [0, 1], duration: 250, easing: "easeOutCubic" });
-    }
-  };
-  if (typeof window !== "undefined")
-    window.Anims = Anims2;
-
-  // js/aiService.js
-  var AIService2 = {
-    DEFAULT_TEMPERATURE: 0.7,
-    DEFAULT_MAX_TOKENS: 16384,
-    PROVIDERS: {
-      openrouter: { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", requiresKey: true },
-      nanogpt: { name: "NanoGPT", baseUrl: "https://api.nano-gpt.com/api/v1", requiresKey: true },
-      xai: { name: "xAI (Grok)", baseUrl: "https://api.x.ai/v1", requiresKey: true },
-      zai: { name: "Z.AI (GLM)", baseUrl: "https://api.z.ai/api/paas/v4", requiresKey: true },
-      chutes: { name: "Chutes", baseUrl: "https://llm.chutes.ai/v1", requiresKey: true },
-      deepseek: { name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", requiresKey: true },
-      custom: { name: "Custom", baseUrl: "", requiresKey: false }
-    },
-    FREE_MODEL_PATTERNS: [":free", "openrouter/free"],
-    _provider: "openrouter",
-    _apiKey: "",
-    _customApiUrl: "",
-    getProviderInfo(id) {
-      return this.PROVIDERS[id] || this.PROVIDERS.custom;
-    },
-    setProvider(provider, customKey) {
-      this._provider = provider || "openrouter";
-      this._apiKey = customKey || "";
-      this._customApiUrl = "";
-    },
-    _getBaseUrl() {
-      const info = this.getProviderInfo(this._provider);
-      if (this._provider === "custom") {
-        return (this._customApiUrl || CardStorage.getCustomApiUrl() || "").replace(/\/+$/, "");
-      }
-      return info.baseUrl;
-    },
-    _getApiKeyForProvider() {
-      if (this._apiKey)
-        return this._apiKey;
-      if (this._provider === "openrouter")
-        return CardStorage.getApiKey();
-      if (this._provider === "custom")
-        return CardStorage.getCustomApiKey();
-      return CardStorage.getProviderKey(this._provider);
-    },
-    _resolveModel(model) {
-      if (model)
-        return model;
-      if (this._provider === "custom")
-        return CardStorage.getCustomModelId() || "";
-      return CardStorage.getProviderModelId(this._provider) || "";
-    },
-    async setApiKey(key) {
-      this._apiKey = key;
-      if (this._provider === "openrouter")
-        await CardStorage.setApiKey(key);
-      else if (this._provider === "custom")
-        await CardStorage.setCustomApiKey(key);
-      else
-        await CardStorage.setProviderKey(this._provider, key);
-    },
-    getApiKey() {
-      return this._getApiKeyForProvider();
-    },
-    hasApiKey() {
-      const info = this.getProviderInfo(this._provider);
-      if (!info.requiresKey)
-        return true;
-      return !!this._getApiKeyForProvider();
-    },
-    _isFreeModelId(modelId, pricing) {
-      const pPrompt = pricing?.prompt;
-      const pCompletion = pricing?.completion;
-      if (parseFloat(pPrompt) === 0 && parseFloat(pCompletion) === 0)
-        return true;
-      if (modelId && this.FREE_MODEL_PATTERNS.some((p) => modelId.includes(p)))
-        return true;
-      return false;
-    },
-    _parsePrice(val) {
-      if (val === null || val === undefined)
-        return null;
-      const num = typeof val === "string" ? parseFloat(val) : val;
-      if (isNaN(num))
-        return null;
-      return num * 1e6;
-    },
-    async fetchModels() {
-      if (this._provider === "custom") {
-        return this._fetchCustomModels();
-      }
-      if (!this._getApiKeyForProvider())
-        throw new Error(I18n.t("error.apiKeyNotSet"));
-      const resp = await fetch(`${this._getBaseUrl()}/models`, {
-        headers: {
-          Authorization: `Bearer ${this._getApiKeyForProvider()}`,
-          "Content-Type": "application/json"
-        },
-        signal: AbortSignal.timeout(30000)
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error?.message || `HTTP ${resp.status}`);
-      }
-      const data = await resp.json();
-      const models = (data.data || []).map((m) => {
-        const pricing = m.pricing || {};
-        const promptPrice = this._parsePrice(pricing.prompt);
-        const completionPrice = this._parsePrice(pricing.completion);
-        return {
-          id: m.id,
-          name: m.name || m.id,
-          description: m.description || "",
-          context_length: m.context_length || 0,
-          max_output_tokens: m.top_provider?.max_completion_tokens || m.max_completion_tokens || 0,
-          pricing: {
-            prompt: promptPrice,
-            completion: completionPrice
-          },
-          is_free: this._isFreeModelId(m.id, pricing),
-          provider: (m.id || "").split("/")[0]
-        };
-      }).sort((a, b) => {
-        if (a.is_free !== b.is_free)
-          return a.is_free ? -1 : 1;
-        const aPrice = (a.pricing.prompt || 0) + (a.pricing.completion || 0);
-        const bPrice = (b.pricing.prompt || 0) + (b.pricing.completion || 0);
-        return aPrice - bPrice;
-      });
-      return models;
-    },
-    async _fetchCustomModels() {
-      const baseUrl = this._getBaseUrl();
-      if (!baseUrl)
-        throw new Error(I18n.t ? I18n.t("error.customUrlNotSet") : "Custom API base URL is not set");
-      const apiBaseUrl = this._v1BaseUrl(baseUrl);
-      const headers = { "Content-Type": "application/json" };
-      const apiKey = this._getApiKeyForProvider();
-      if (apiKey)
-        headers["Authorization"] = "Bearer " + apiKey;
-      let resp;
-      try {
-        resp = await fetch(apiBaseUrl + "/models", {
-          headers,
-          signal: AbortSignal.timeout(15000)
-        });
-      } catch (err) {
-        throw new Error(I18n.t ? I18n.t("error.customUnreachable", { url: apiBaseUrl }) : "Cannot reach " + apiBaseUrl + ". Check the URL and that the server is running.");
-      }
-      if (resp.status === 404) {
-        const pathname = apiBaseUrl.split("?")[0].split("#")[0].replace(/\/+$/, "");
-        const alternateBase = pathname.endsWith("/v1") ? pathname.slice(0, -3) : pathname;
-        const alternateUrl = alternateBase + "/models";
-        try {
-          resp = await fetch(alternateUrl, {
-            headers,
-            signal: AbortSignal.timeout(15000)
-          });
-        } catch (err) {
-          throw new Error(I18n.t ? I18n.t("error.customUnreachable", { url: alternateUrl }) : "Cannot reach " + alternateUrl + ".");
-        }
-      }
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        if (err.error?.message)
-          throw new Error(err.error.message);
-        if (resp.status === 401 || resp.status === 403) {
-          throw new Error(I18n.t ? I18n.t("error.customAuthFailed", { status: resp.status }) : "Authentication failed (HTTP " + resp.status + "). Check the API key for this endpoint.");
-        }
-        if (resp.status === 404) {
-          throw new Error(I18n.t ? I18n.t("error.customPathNotFound") : "Endpoint not found (HTTP 404). Check that the API Base URL includes /v1.");
-        }
-        throw new Error(I18n.t ? I18n.t("error.fetchModelsFailed", { status: resp.status }) : "Failed to fetch models (HTTP " + resp.status + ")");
-      }
-      const data = await resp.json().catch(() => ({}));
-      if (data.error) {
-        const msg = (typeof data.error === "string" ? data.error : data.error.message) || "";
-        throw new Error(I18n.t ? I18n.t("error.customServerError", { detail: msg }) : "The server returned an error: " + msg);
-      }
-      const customModelId = CardStorage.getCustomModelId();
-      const returnedModels = Array.isArray(data.data) ? data.data : [];
-      if (returnedModels.length) {
-        return returnedModels.map((m) => ({
-          id: m.id,
-          name: m.name || m.id,
-          description: m.description || "",
-          context_length: m.context_length || m.max_context_length || 0,
-          max_output_tokens: m.max_output_tokens || m.max_tokens || 0,
-          pricing: { prompt: null, completion: null },
-          is_free: true,
-          provider: "custom"
-        }));
-      }
-      if (customModelId) {
-        return [{ id: customModelId, name: customModelId, description: I18n.t ? I18n.t("settings.customModelDesc") : "Custom model", context_length: 0, max_output_tokens: 0, pricing: { prompt: null, completion: null }, is_free: true, provider: "custom" }];
-      }
-      return [];
-    },
-    async fetchKeyInfo() {
-      if (this._provider !== "openrouter")
-        throw new Error(I18n.t ? I18n.t("gen.notAvailable") : "N/A");
-      if (!this._getApiKeyForProvider())
-        throw new Error(I18n.t("error.apiKeyNotSet"));
-      const resp = await fetch(`${this._getBaseUrl()}/key`, {
-        headers: {
-          Authorization: `Bearer ${this._getApiKeyForProvider()}`,
-          "Content-Type": "application/json"
-        },
-        signal: this._withTimeout(null)
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error?.message || `HTTP ${resp.status}`);
-      }
-      const data = await resp.json();
-      const key = data.data || {};
-      return {
-        label: key.label || "Unknown",
-        limit: key.limit ?? null,
-        limit_remaining: key.limit_remaining ?? null,
-        usage: key.usage || 0,
-        is_free_tier: key.is_free_tier || false
-      };
-    },
-    _buildRequestBody(model, messages, { jsonMode = false, stream = false } = {}) {
-      const body = {
-        model,
-        messages,
-        temperature: this.DEFAULT_TEMPERATURE,
-        stream
-      };
-      const userMax = CardStorage.getMaxTokens();
-      if (userMax > 0)
-        body.max_tokens = userMax;
-      if (jsonMode)
-        body.response_format = { type: "json_object" };
-      if (stream)
-        body.stream_options = { include_usage: true };
-      return body;
-    },
-    _extractApiError(err, status) {
-      if (err && typeof err === "object") {
-        const e = err.error;
-        if (typeof e === "string")
-          return e;
-        if (e && typeof e === "object" && e.message)
-          return e.message;
-      }
-      return `HTTP ${status}`;
-    },
-    _isUnsupportedFormatError(errMsg) {
-      if (!errMsg)
-        return false;
-      const lower = errMsg.toLowerCase();
-      if (!lower.includes("response_format"))
-        return false;
-      return lower.includes("unsupported") || lower.includes("not support") || lower.includes("invalid") || lower.includes("not allowed") || lower.includes("does not support") || lower.includes("must be") || lower.includes("only supports");
-    },
-    _buildMessages(systemPrompt, prompt, history = []) {
-      const messages = [];
-      if (systemPrompt)
-        messages.push({ role: "system", content: systemPrompt });
-      for (const msg of history) {
-        if (msg.role === "user" || msg.role === "assistant") {
-          messages.push({ role: msg.role, content: msg.content || "" });
-        }
-      }
-      messages.push({ role: "user", content: prompt });
-      return messages;
-    },
-    _v1BaseUrl(baseUrl) {
-      const url = String(baseUrl || "").trim();
-      const path = url.split("?")[0].split("#")[0].replace(/\/+$/, "");
-      const lastSegment = path.split("/").pop() || "";
-      if (/^v\d/.test(lastSegment))
-        return url.replace(/\/+$/, "");
-      return url.replace(/\/+$/, "") + "/v1";
-    },
-    _withTimeout(signal) {
-      const timeout = AbortSignal.timeout(120000);
-      if (!signal)
-        return timeout;
-      if (typeof AbortSignal.any === "function")
-        return AbortSignal.any([signal, timeout]);
-      return signal;
-    },
-    _getChatBaseUrl() {
-      const baseUrl = this._getBaseUrl();
-      if (this._provider === "custom")
-        return this._v1BaseUrl(baseUrl);
-      return baseUrl;
-    },
-    async chat(prompt, systemPrompt = "", model = "", opts = {}) {
-      const safeOpts = typeof opts === "object" && opts !== null ? opts : {};
-      const { jsonMode = false, signal, history = [] } = safeOpts;
-      const apiKey = this._getApiKeyForProvider();
-      const info = this.getProviderInfo(this._provider);
-      if (!apiKey && info.requiresKey)
-        throw new Error(I18n.t("error.apiKeyNotSet"));
-      const messages = this._buildMessages(systemPrompt, prompt, history);
-      const useModel = this._resolveModel(model);
-      if (!useModel)
-        throw new Error(I18n.t("error.noModel"));
-      const baseUrl = this._getBaseUrl();
-      if (!baseUrl)
-        throw new Error(I18n.t ? I18n.t("error.customUrlNotSet") : "Custom API base URL is not set");
-      const apiBaseUrl = this._getChatBaseUrl();
-      const headers = { "Content-Type": "application/json" };
-      if (apiKey)
-        headers["Authorization"] = "Bearer " + apiKey;
-      if (this._provider === "openrouter") {
-        headers["HTTP-Referer"] = "https://github.com/st-card-editor";
-        headers["X-Title"] = "ST Card Editor";
-      }
-      const fetchChat = async (useJsonMode) => {
-        const resp = await fetch(`${apiBaseUrl}/chat/completions`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: false })),
-          signal: this._withTimeout(signal)
-        });
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          if (resp.status === 402)
-            throw new Error(I18n.t("error.insufficientCredits"));
-          throw new Error(this._extractApiError(err, resp.status));
-        }
-        return resp.json();
-      };
-      let data;
-      try {
-        data = await fetchChat(jsonMode);
-      } catch (e) {
-        if (jsonMode && this._isUnsupportedFormatError(e.message)) {
-          data = await fetchChat(false);
-        } else {
-          throw e;
-        }
-      }
-      const choice = data.choices?.[0];
-      if (!choice)
-        throw new Error(I18n.t ? I18n.t("error.noChoices") : "API returned no response choices");
-      return {
-        content: choice?.message?.content || "",
-        usage: data.usage ? {
-          prompt_tokens: data.usage.prompt_tokens || 0,
-          completion_tokens: data.usage.completion_tokens || 0,
-          total_tokens: data.usage.total_tokens || 0,
-          cost: data.usage.cost || 0
-        } : null,
-        model: data.model || useModel
-      };
-    },
-    formatPrice(perMillion) {
-      if (perMillion === null || perMillion === undefined)
-        return "—";
-      const n = Number(perMillion);
-      if (!isFinite(n))
-        return "—";
-      if (n === 0)
-        return I18n.t ? I18n.t("gen.free") : "Free";
-      if (n < 0.001)
-        return `$${n.toFixed(6)}/M`;
-      return `$${n.toFixed(3)}/M`;
-    },
-    async chatStream(prompt, systemPrompt = "", model = "", onChunk, signal, jsonMode = false, history = []) {
-      const apiKey = this._getApiKeyForProvider();
-      const info = this.getProviderInfo(this._provider);
-      if (!apiKey && info.requiresKey)
-        throw new Error(I18n.t("error.apiKeyNotSet"));
-      const messages = this._buildMessages(systemPrompt, prompt, history);
-      const useModel = this._resolveModel(model);
-      if (!useModel)
-        throw new Error(I18n.t("error.noModelSimple"));
-      const baseUrl = this._getBaseUrl();
-      if (!baseUrl)
-        throw new Error(I18n.t ? I18n.t("error.customUrlNotSet") : "Custom API base URL is not set");
-      const apiBaseUrl = this._getChatBaseUrl();
-      const headers = { "Content-Type": "application/json" };
-      if (apiKey)
-        headers["Authorization"] = "Bearer " + apiKey;
-      if (this._provider === "openrouter") {
-        headers["HTTP-Referer"] = "https://github.com/st-card-editor";
-        headers["X-Title"] = "ST Card Editor";
-      }
-      const doStream = async (useJsonMode) => {
-        const resp2 = await fetch(`${apiBaseUrl}/chat/completions`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: true })),
-          signal: this._withTimeout(signal)
-        });
-        if (!resp2.ok) {
-          const err = await resp2.json().catch(() => ({}));
-          if (resp2.status === 402)
-            throw new Error(I18n.t("error.insufficientCredits"));
-          throw new Error(this._extractApiError(err, resp2.status));
-        }
-        return resp2;
-      };
-      let resp;
-      try {
-        resp = await doStream(jsonMode);
-      } catch (e) {
-        if (jsonMode && this._isUnsupportedFormatError(e.message)) {
-          resp = await doStream(false);
-        } else {
-          throw e;
-        }
-      }
-      if (!resp.body)
-        throw new Error(I18n.t ? I18n.t("error.emptyResponse") : "Empty response from API (no body)");
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder;
-      let full = "";
-      let usage = null;
-      let eventType = "";
-      let streamDone = false;
-      const handleLine = (line) => {
-        const trimmed = line.trim();
-        if (!trimmed)
-          return false;
-        if (trimmed.startsWith("event: ")) {
-          eventType = trimmed.slice(7).trim();
-          return false;
-        }
-        if (trimmed.startsWith(":"))
-          return false;
-        if (!trimmed.startsWith("data: "))
-          return false;
-        const data = trimmed.slice(6).trim();
-        if (data === "[DONE]") {
-          eventType = "";
-          return true;
-        }
-        try {
-          const parsed = JSON.parse(data);
-          const delta = parsed.choices?.[0]?.delta?.content;
-          if (delta) {
-            full += delta;
-            onChunk(full, delta);
-          }
-          if (parsed.usage)
-            usage = parsed.usage;
-          if (eventType === "error") {
-            const msg = parsed.error?.message || parsed.detail || data;
-            throw new Error(msg);
-          }
-        } catch (e) {
-          if (e instanceof SyntaxError) {
-            console.warn("aiService: dropped unparseable SSE chunk:", data);
-          } else {
-            throw e;
-          }
-        }
-        return false;
-      };
-      try {
-        let bufferStr = "";
-        while (!streamDone) {
-          const { done, value } = await reader.read();
-          if (done)
-            break;
-          bufferStr += decoder.decode(value, { stream: true });
-          const lines = bufferStr.split(`
-`);
-          bufferStr = lines.pop();
-          for (const line of lines) {
-            if (handleLine(line)) {
-              streamDone = true;
-              break;
-            }
-          }
-        }
-        if (!streamDone && bufferStr) {
-          handleLine(bufferStr);
-        }
-      } finally {
-        reader.cancel().catch(() => {});
-      }
-      return {
-        content: full,
-        usage: usage ? {
-          prompt_tokens: usage.prompt_tokens || 0,
-          completion_tokens: usage.completion_tokens || 0,
-          total_tokens: usage.total_tokens || 0,
-          cost: usage.cost || 0
-        } : null,
-        model: useModel
-      };
-    },
-    async resolveMaxTokens(modelId, messages = []) {
-      const ctxLength = this._getContextLength(modelId);
-      let inputTokens = 0;
-      try {
-        if (window.Tokenizer && typeof window.Tokenizer.count === "function") {
-          const counts = await Promise.all((messages || []).map((m) => window.Tokenizer.count(m.content || "")));
-          inputTokens = counts.reduce((sum, n) => sum + (n || 0), 0);
-        }
-      } catch (_) {
-        inputTokens = 0;
-      }
-      if (!inputTokens && messages?.length) {
-        inputTokens = (messages || []).reduce((sum, m) => {
-          return sum + Tokenizer.syncCount(m.content || "");
-        }, 0);
-      }
-      const safetyMargin = Math.max(512, Math.floor(ctxLength * 0.05));
-      const available = Math.max(512, ctxLength - inputTokens - safetyMargin);
-      let maxTokens = this.DEFAULT_MAX_TOKENS;
-      if (modelId && window.AppState.models) {
-        const m = window.AppState.models.find((x) => x.id === modelId);
-        if (m && m.max_output_tokens > 0)
-          maxTokens = m.max_output_tokens;
-      }
-      return Math.min(maxTokens, available);
-    },
-    getContextLength(modelId) {
-      return this._getContextLength(modelId);
-    },
-    _getContextLength(modelId) {
-      if (modelId && window.AppState.models) {
-        const m = window.AppState.models.find((x) => x.id === modelId);
-        if (m && m.context_length > 0)
-          return m.context_length;
-      }
-      return 128000;
-    }
-  };
-  if (typeof window !== "undefined")
-    window.AIService = AIService2;
-
-  // js/storage.js
-  var CardStorage2 = {
-    PREFIX: "stce_",
-    CHAT_HISTORY_LIMIT: 100,
-    DB: {
-      dbName: "stce_data",
-      version: 1,
-      stores: { cards: "cards", images: "images" },
-      _db: null,
-      _dbPromise: null,
-      async init() {
-        if (this._db)
-          return this._db;
-        if (!this._dbPromise) {
-          this._dbPromise = new Promise((resolve, reject) => {
-            const req = indexedDB.open(this.dbName, this.version);
-            req.onupgradeneeded = (e) => {
-              const db = e.target.result;
-              if (!db.objectStoreNames.contains(this.stores.cards)) {
-                db.createObjectStore(this.stores.cards);
-              }
-              if (!db.objectStoreNames.contains(this.stores.images)) {
-                db.createObjectStore(this.stores.images);
-              }
-            };
-            req.onsuccess = () => {
-              this._db = req.result;
-              this._db.onclose = () => {
-                this._db = null;
-                this._dbPromise = null;
-              };
-              resolve(this._db);
-            };
-            req.onerror = () => {
-              this._dbPromise = null;
-              reject(req.error);
-            };
-          });
-        }
-        return this._dbPromise;
-      },
-      async get(store, id) {
-        const db = await this.init();
-        return new Promise((resolve, reject) => {
-          const req = db.transaction(store, "readonly").objectStore(store).get(id);
-          req.onsuccess = () => resolve(req.result);
-          req.onerror = () => reject(req.error);
-        });
-      },
-      async set(store, id, data) {
-        const db = await this.init();
-        return new Promise((resolve, reject) => {
-          const req = db.transaction(store, "readwrite").objectStore(store).put(data, id);
-          req.onsuccess = () => resolve();
-          req.onerror = () => reject(req.error && req.error.name === "QuotaExceededError" ? new Error(I18n.t ? I18n.t("error.storageFull") : "Storage full! Try removing some cards or exporting them.") : req.error);
-        });
-      },
-      async delete(store, id) {
-        const db = await this.init();
-        return new Promise((resolve, reject) => {
-          const req = db.transaction(store, "readwrite").objectStore(store).delete(id);
-          req.onsuccess = () => resolve();
-          req.onerror = () => reject(req.error);
-        });
-      },
-      async clear(store) {
-        const db = await this.init();
-        return new Promise((resolve, reject) => {
-          const req = db.transaction(store, "readwrite").objectStore(store).clear();
-          req.onsuccess = () => resolve();
-          req.onerror = () => reject(req.error);
-        });
-      },
-      async getAll(store) {
-        const db = await this.init();
-        return new Promise((resolve, reject) => {
-          const req = db.transaction(store, "readonly").objectStore(store).getAll();
-          req.onsuccess = () => resolve(req.result || []);
-          req.onerror = () => reject(req.error);
-        });
-      }
-    },
-    _keys: {
-      apiKey: "apiKey",
-      defaultModel: "defaultModel",
-      cardIndex: "cardIndex",
-      activeCardId: "activeCardId",
-      aiChatHistory: "aiChatHistory",
-      maxTokens: "maxTokens",
-      injectCopyright: "injectCopyright",
-      provider: "provider",
-      customApiUrl: "customApiUrl",
-      customApiKey: "customApiKey",
-      customModelId: "customModelId",
-      providerModelIds: "providerModelIds",
-      providerApiKeys: "providerApiKeys",
-      darkAccent: "darkAccent",
-      lightAccent: "lightAccent",
-      glassDensity: "glassDensity",
-      vignette: "vignette",
-      cardRadius: "cardRadius",
-      promptAssistant: "promptAssistant",
-      promptFullCard: "promptFullCard",
-      promptWizard: "promptWizard",
-      promptEnhance: "promptEnhance",
-      promptPersonality: "promptPersonality",
-      promptFirstmes: "promptFirstmes",
-      promptScenario: "promptScenario",
-      promptShorten: "promptShorten",
-      promptTone: "promptTone",
-      promptGrammar: "promptGrammar",
-      promptGreetings: "promptGreetings",
-      promptSystemprompt: "promptSystemprompt",
-      promptTranslate: "promptTranslate",
-      promptTags: "promptTags",
-      promptTagsSystem: "promptTagsSystem",
-      promptFullCardInstr: "promptFullCardInstr",
-      promptFieldsEdit: "promptFieldsEdit",
-      promptGreetingsSystem: "promptGreetingsSystem"
-    },
-    getAccent(theme) {
-      const key = theme === "light" ? this._keys.lightAccent : this._keys.darkAccent;
-      return localStorage.getItem(this.PREFIX + key) || "";
-    },
-    setAccent(theme, color) {
-      const key = theme === "light" ? this._keys.lightAccent : this._keys.darkAccent;
-      if (color)
-        localStorage.setItem(this.PREFIX + key, color);
-      else
-        localStorage.removeItem(this.PREFIX + key);
-    },
-    getPrompt(name) {
-      if (!name || typeof name !== "string" || !name.length)
-        return "";
-      const key = this._keys["prompt" + name[0].toUpperCase() + name.slice(1)];
-      if (!key)
-        return "";
-      return localStorage.getItem(this.PREFIX + key) || "";
-    },
-    setPrompt(name, value) {
-      const key = this._keys["prompt" + name[0].toUpperCase() + name.slice(1)];
-      localStorage.setItem(this.PREFIX + key, value || "");
-    },
-    _secrets: { apiKey: "", customApiKey: "", providerKeys: {} },
-    _secretWarn: { apiKey: false, customApiKey: false },
-    _secretUnlocked: false,
-    _encSecretPrefix: "encv1:",
-    _bufToB64(buf) {
-      const bytes = new Uint8Array(buf);
-      let bin = "";
-      for (let i = 0;i < bytes.length; i++)
-        bin += String.fromCharCode(bytes[i]);
-      return btoa(bin);
-    },
-    _b64ToBuf(b64) {
-      const bin = atob(b64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0;i < bin.length; i++)
-        bytes[i] = bin.charCodeAt(i);
-      return bytes.buffer;
-    },
-    async _deriveSecretKey() {
-      const enc = new TextEncoder;
-      const base = typeof location !== "undefined" && location.origin ? location.origin : "st-card-editor";
-      const importKey = await crypto.subtle.importKey("raw", enc.encode("st-card-editor-secret:" + base), "PBKDF2", false, ["deriveKey"]);
-      return crypto.subtle.deriveKey({ name: "PBKDF2", salt: enc.encode("stce-salt:" + base), iterations: 200000, hash: "SHA-256" }, importKey, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
-    },
-    async _encryptSecret(plain) {
-      const key = await this._deriveSecretKey();
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(plain));
-      return this._encSecretPrefix + JSON.stringify({
-        v: 1,
-        iv: this._bufToB64(iv),
-        ct: this._bufToB64(ct)
-      });
-    },
-    async _decryptSecret(stored) {
-      if (typeof stored !== "string" || !stored.startsWith(this._encSecretPrefix)) {
-        return null;
-      }
-      try {
-        const obj = JSON.parse(stored.slice(this._encSecretPrefix.length));
-        const key = await this._deriveSecretKey();
-        const iv = this._b64ToBuf(obj.iv);
-        const ct = this._b64ToBuf(obj.ct);
-        const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-        return new TextDecoder().decode(plain);
-      } catch (err) {
-        return null;
-      }
-    },
-    async _unlockKeys() {
-      if (this._secretUnlocked)
-        return;
-      this._secretUnlocked = true;
-      for (const name of ["apiKey", "customApiKey"]) {
-        const rawKey = this.PREFIX + this._keys[name];
-        const raw = localStorage.getItem(rawKey);
-        this._secretWarn[name] = false;
-        if (!raw) {
-          this._secrets[name] = "";
-          continue;
-        }
-        if (!raw.startsWith(this._encSecretPrefix)) {
-          try {
-            const enc = await this._encryptSecret(raw);
-            localStorage.setItem(rawKey, enc);
-            this._secrets[name] = raw;
-          } catch (_) {
-            this._secrets[name] = raw;
-          }
-          continue;
-        }
-        const plain = await this._decryptSecret(raw);
-        if (plain !== null) {
-          this._secrets[name] = plain;
-        } else {
-          this._secrets[name] = "";
-          this._secretWarn[name] = true;
-        }
-      }
-      await this._unlockProviderKeys();
-    },
-    async _unlockProviderKeys() {
-      const rawKey = this.PREFIX + this._keys.providerApiKeys;
-      const raw = localStorage.getItem(rawKey);
-      this._secrets.providerKeys = {};
-      if (!raw)
-        return;
-      let map;
-      try {
-        map = JSON.parse(raw);
-      } catch (_) {
-        localStorage.removeItem(rawKey);
-        return;
-      }
-      if (!map || typeof map !== "object")
-        return;
-      for (const provider of Object.keys(map)) {
-        const stored = map[provider];
-        if (typeof stored !== "string" || !stored.startsWith(this._encSecretPrefix)) {
-          this._secrets.providerKeys[provider] = stored;
-          continue;
-        }
-        const plain = await this._decryptSecret(stored);
-        if (plain !== null)
-          this._secrets.providerKeys[provider] = plain;
-      }
-    },
-    async _persistProviderKeys() {
-      const map = {};
-      for (const provider of Object.keys(this._secrets.providerKeys)) {
-        const plain = this._secrets.providerKeys[provider];
-        if (!plain)
-          continue;
-        try {
-          map[provider] = await this._encryptSecret(plain);
-        } catch (_) {
-          map[provider] = plain;
-        }
-      }
-      const rawKey = this.PREFIX + this._keys.providerApiKeys;
-      if (!Object.keys(map).length) {
-        localStorage.removeItem(rawKey);
-        return;
-      }
-      try {
-        localStorage.setItem(rawKey, JSON.stringify(map));
-      } catch (_) {}
-    },
-    getProviderKey(provider) {
-      return this._secrets.providerKeys[provider] || "";
-    },
-    async setProviderKey(provider, key) {
-      const clean = key || "";
-      if (clean)
-        this._secrets.providerKeys[provider] = clean;
-      else
-        delete this._secrets.providerKeys[provider];
-      await this._persistProviderKeys();
-    },
-    getApiKey() {
-      return this._secrets.apiKey;
-    },
-    async setApiKey(key) {
-      const clean = key || "";
-      this._secrets.apiKey = clean;
-      if (!clean) {
-        localStorage.removeItem(this.PREFIX + this._keys.apiKey);
-        return;
-      }
-      try {
-        localStorage.setItem(this.PREFIX + this._keys.apiKey, await this._encryptSecret(clean));
-      } catch (_) {
-        try {
-          localStorage.setItem(this.PREFIX + this._keys.apiKey, clean);
-        } catch (_2) {}
-      }
-    },
-    getDefaultModel() {
-      return localStorage.getItem(this.PREFIX + this._keys.defaultModel) || "";
-    },
-    setDefaultModel(modelId) {
-      localStorage.setItem(this.PREFIX + this._keys.defaultModel, modelId);
-    },
-    getMaxTokens() {
-      const val = localStorage.getItem(this.PREFIX + this._keys.maxTokens);
-      return val ? parseInt(val, 10) : 0;
-    },
-    setMaxTokens(tokens) {
-      localStorage.setItem(this.PREFIX + this._keys.maxTokens, String(tokens));
-    },
-    getInjectCopyright() {
-      const val = localStorage.getItem(this.PREFIX + this._keys.injectCopyright);
-      return val === null ? true : val === "true";
-    },
-    getGlassDensity() {
-      return localStorage.getItem(this.PREFIX + this._keys.glassDensity) || "default";
-    },
-    setGlassDensity(density) {
-      localStorage.setItem(this.PREFIX + this._keys.glassDensity, String(density));
-    },
-    getVignette() {
-      const val = localStorage.getItem(this.PREFIX + this._keys.vignette);
-      return val === null ? true : val === "true";
-    },
-    setVignette(on) {
-      localStorage.setItem(this.PREFIX + this._keys.vignette, String(!!on));
-    },
-    getCardRadius() {
-      return localStorage.getItem(this.PREFIX + this._keys.cardRadius) || "compact";
-    },
-    setCardRadius(radius) {
-      localStorage.setItem(this.PREFIX + this._keys.cardRadius, String(radius));
-    },
-    getSortMode() {
-      const val = localStorage.getItem(this.PREFIX + "sortMode");
-      return val || "";
-    },
-    setSortMode(mode) {
-      localStorage.setItem(this.PREFIX + "sortMode", String(mode));
-    },
-    getProvider() {
-      return localStorage.getItem(this.PREFIX + this._keys.provider) || "openrouter";
-    },
-    setProvider(provider) {
-      localStorage.setItem(this.PREFIX + this._keys.provider, provider);
-    },
-    getCustomApiUrl() {
-      return localStorage.getItem(this.PREFIX + this._keys.customApiUrl) || "";
-    },
-    setCustomApiUrl(url) {
-      localStorage.setItem(this.PREFIX + this._keys.customApiUrl, url);
-    },
-    getCustomApiKey() {
-      return this._secrets.customApiKey;
-    },
-    async setCustomApiKey(key) {
-      const clean = key || "";
-      this._secrets.customApiKey = clean;
-      if (!clean) {
-        localStorage.removeItem(this.PREFIX + this._keys.customApiKey);
-        return;
-      }
-      try {
-        localStorage.setItem(this.PREFIX + this._keys.customApiKey, await this._encryptSecret(clean));
-      } catch (_) {
-        try {
-          localStorage.setItem(this.PREFIX + this._keys.customApiKey, clean);
-        } catch (_2) {}
-      }
-    },
-    getCustomModelId() {
-      return localStorage.getItem(this.PREFIX + this._keys.customModelId) || "";
-    },
-    setCustomModelId(id) {
-      localStorage.setItem(this.PREFIX + this._keys.customModelId, id);
-    },
-    getProviderModelId(provider) {
-      if (!provider)
-        return "";
-      try {
-        const raw = localStorage.getItem(this.PREFIX + this._keys.providerModelIds);
-        const map = raw ? JSON.parse(raw) : {};
-        return map && typeof map === "object" && map[provider] || "";
-      } catch {
-        return "";
-      }
-    },
-    setProviderModelId(provider, id) {
-      if (!provider)
-        return;
-      try {
-        const raw = localStorage.getItem(this.PREFIX + this._keys.providerModelIds);
-        const map = raw ? JSON.parse(raw) : {};
-        if (map && typeof map === "object") {
-          if (id)
-            map[provider] = id;
-          else
-            delete map[provider];
-          localStorage.setItem(this.PREFIX + this._keys.providerModelIds, JSON.stringify(map));
-        }
-      } catch (_) {}
-    },
-    getAllProviderModelIds() {
-      try {
-        const raw = localStorage.getItem(this.PREFIX + this._keys.providerModelIds);
-        const map = raw ? JSON.parse(raw) : {};
-        if (!map || typeof map !== "object")
-          return {};
-        const out = {};
-        for (const [prov, id] of Object.entries(map)) {
-          if (prov && id)
-            out[prov] = id;
-        }
-        return out;
-      } catch {
-        return {};
-      }
-    },
-    setInjectCopyright(val) {
-      localStorage.setItem(this.PREFIX + this._keys.injectCopyright, String(val));
-    },
-    _migrationDone: false,
-    async _checkMigration() {
-      if (this._migrationDone)
-        return;
-      const oldRaw = localStorage.getItem(this.PREFIX + "cards");
-      if (!oldRaw) {
-        this._migrationDone = true;
-        return;
-      }
-      try {
-        const oldCards = JSON.parse(oldRaw);
-        if (!Array.isArray(oldCards)) {
-          this._migrationDone = true;
-          return;
-        }
-        const index = [];
-        for (const card of oldCards) {
-          if (!card || !card._id)
-            continue;
-          await this.DB.set(this.DB.stores.cards, card._id, card);
-          index.push(this._extractMeta(card));
-        }
-        localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
-        localStorage.removeItem(this.PREFIX + "cards");
-        this._migrationDone = true;
-      } catch (e) {
-        console.error("Migration failed (will retry on next load):", e);
-      }
-    },
-    async migrateCardsToIndexedDB() {
-      const keysToMigrate = [];
-      for (let i = 0;i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(this.PREFIX + "card_") && key !== this.PREFIX + this._keys.cardIndex) {
-          keysToMigrate.push(key);
-        }
-      }
-      if (keysToMigrate.length === 0)
-        return;
-      for (const key of keysToMigrate) {
-        try {
-          const raw = localStorage.getItem(key);
-          if (!raw)
-            continue;
-          const card = JSON.parse(raw);
-          if (!card || !card._id)
-            continue;
-          await this.DB.set(this.DB.stores.cards, card._id, card);
-          localStorage.removeItem(key);
-        } catch (e) {
-          console.error("Failed to migrate card to IndexedDB:", key, e);
-        }
-      }
-    },
-    _extractMeta(card) {
-      return {
-        _id: card._id,
-        name: card.name,
-        creator: card.creator,
-        tags: card.tags,
-        spec_version: card.spec_version,
-        _thumbnail: card._thumbnail,
-        _createdAt: card._createdAt || 0,
-        _fileSize: card._fileSize || 0
-      };
-    },
-    getCards() {
-      try {
-        const raw = localStorage.getItem(this.PREFIX + this._keys.cardIndex);
-        return raw ? JSON.parse(raw) : [];
-      } catch {
-        return [];
-      }
-    },
-    async getCard(id) {
-      try {
-        const card = await this.DB.get(this.DB.stores.cards, id);
-        if (card)
-          return card;
-        const raw = localStorage.getItem(this.PREFIX + "card_" + id);
-        return raw ? JSON.parse(raw) : null;
-      } catch {
-        return null;
-      }
-    },
-    saveCardIndex(index) {
-      try {
-        localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
-      } catch (e) {
-        if (e.name === "QuotaExceededError") {
-          throw new Error(I18n.t ? I18n.t("error.storageFull") : "Storage full! Try removing some cards or exporting them.");
-        }
-        throw e;
-      }
-    },
-    async upsertCard(card) {
-      const toSave = { ...card };
-      delete toSave._imageBase64;
-      await this.DB.set(this.DB.stores.cards, card._id, toSave);
-      const index = this.getCards();
-      const idx = index.findIndex((c) => c._id === card._id);
-      const meta = this._extractMeta(card);
-      if (idx >= 0) {
-        index[idx] = meta;
-      } else {
-        index.unshift(meta);
-      }
-      try {
-        localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
-      } catch (e) {
-        if (e.name === "QuotaExceededError") {
-          throw new Error(I18n.t ? I18n.t("error.storageFull") : "Storage full! Try removing some cards or exporting them.");
-        }
-        throw e;
-      }
-    },
-    async deleteCard(id) {
-      await Promise.all([
-        this.deleteImage(id),
-        this.DB.delete(this.DB.stores.cards, id)
-      ]);
-      this.clearChatHistory(id);
-      const index = this.getCards().filter((c) => c._id !== id);
-      localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
-      if (this.getActiveCardId() === id) {
-        this.setActiveCardId(null);
-      }
-    },
-    getActiveCardId() {
-      return localStorage.getItem(this.PREFIX + this._keys.activeCardId) || null;
-    },
-    setActiveCardId(id) {
-      if (id) {
-        localStorage.setItem(this.PREFIX + this._keys.activeCardId, id);
-      } else {
-        localStorage.removeItem(this.PREFIX + this._keys.activeCardId);
-      }
-    },
-    async getActiveCard() {
-      const id = this.getActiveCardId();
-      if (!id)
-        return null;
-      return this.getCard(id);
-    },
-    _chatKey(cardId) {
-      return this.PREFIX + this._keys.aiChatHistory + "_" + (cardId || "global");
-    },
-    _storageFullWarnedAt: 0,
-    _notifyStorageFull(e) {
-      console.error("Chat history write failed:", e);
-      const now = Date.now();
-      if (now - this._storageFullWarnedAt < 5000)
-        return;
-      this._storageFullWarnedAt = now;
-      if (window.Ui && typeof window.Ui.showToast === "function") {
-        Ui.showToast(I18n.t ? I18n.t("error.storageFull") : "Storage full! Try removing some cards or exporting them.", "danger");
-      }
-    },
-    _sessionKey(cardId) {
-      return this.PREFIX + "chatSessions_" + (cardId || "global");
-    },
-    getChatHistory(cardId) {
-      try {
-        const raw = localStorage.getItem(this._chatKey(cardId));
-        return raw ? JSON.parse(raw) : [];
-      } catch {
-        return [];
-      }
-    },
-    saveChatHistory(messages, cardId) {
-      try {
-        if (messages.length > this.CHAT_HISTORY_LIMIT) {
-          console.warn("Chat history truncated to last " + this.CHAT_HISTORY_LIMIT + " messages for card " + (cardId || "global"));
-        }
-        const trimmed = messages.slice(-this.CHAT_HISTORY_LIMIT);
-        localStorage.setItem(this._chatKey(cardId), JSON.stringify(trimmed));
-      } catch (e) {
-        this._notifyStorageFull(e);
-      }
-    },
-    clearChatHistory(cardId) {
-      if (cardId) {
-        localStorage.removeItem(this._chatKey(cardId));
-        const sessions = this.getChatSessions(cardId);
-        sessions.forEach((s) => localStorage.removeItem(this._sessionMsgKey(cardId, s.id)));
-        localStorage.removeItem(this._sessionKey(cardId));
-      } else {
-        localStorage.removeItem(this._chatKey("global"));
-        const sessions = this.getChatSessions("global");
-        sessions.forEach((s) => localStorage.removeItem(this._sessionMsgKey("global", s.id)));
-        localStorage.removeItem(this._sessionKey("global"));
-      }
-    },
-    getChatSessions(cardId) {
-      try {
-        const raw = localStorage.getItem(this._sessionKey(cardId));
-        return raw ? JSON.parse(raw) : [];
-      } catch {
-        return [];
-      }
-    },
-    saveChatSession(cardId, session) {
-      try {
-        const sessions = this.getChatSessions(cardId);
-        const idx = sessions.findIndex((s) => s.id === session.id);
-        if (idx >= 0) {
-          sessions[idx] = session;
-        } else {
-          sessions.unshift(session);
-        }
-        localStorage.setItem(this._sessionKey(cardId), JSON.stringify(sessions));
-      } catch (e) {
-        this._notifyStorageFull(e);
-      }
-    },
-    deleteChatSession(cardId, sessionId) {
-      try {
-        const sessions = this.getChatSessions(cardId).filter((s) => s.id !== sessionId);
-        localStorage.setItem(this._sessionKey(cardId), JSON.stringify(sessions));
-        localStorage.removeItem(this._sessionMsgKey(cardId, sessionId));
-      } catch {}
-    },
-    _sessionMsgKey(cardId, sessionId) {
-      return this.PREFIX + "sessionMsgs_" + (cardId || "global") + "_" + sessionId;
-    },
-    getSessionMessages(cardId, sessionId) {
-      try {
-        const raw = localStorage.getItem(this._sessionMsgKey(cardId, sessionId));
-        return raw ? JSON.parse(raw) : [];
-      } catch {
-        return [];
-      }
-    },
-    saveSessionMessages(cardId, sessionId, messages) {
-      try {
-        const trimmed = messages.slice(-this.CHAT_HISTORY_LIMIT);
-        localStorage.setItem(this._sessionMsgKey(cardId, sessionId), JSON.stringify(trimmed));
-      } catch (e) {
-        this._notifyStorageFull(e);
-      }
-    },
-    deleteSessionMessages(cardId, sessionId) {
-      try {
-        localStorage.removeItem(this._sessionMsgKey(cardId, sessionId));
-      } catch {}
-    },
-    async clearAll() {
-      const keysToRemove = [];
-      for (let i = 0;i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(this.PREFIX)) {
-          keysToRemove.push(key);
-        }
-      }
-      keysToRemove.forEach((k) => localStorage.removeItem(k));
-      await Promise.all([
-        this.DB.clear(this.DB.stores.cards).catch(() => {}),
-        this.DB.clear(this.DB.stores.images).catch(() => {})
-      ]);
-      this._secrets = { apiKey: "", customApiKey: "", providerKeys: {} };
-      this._secretWarn = { apiKey: false, customApiKey: false };
-      this._secretUnlocked = false;
-      this._migrationDone = false;
-    },
-    getImage(id) {
-      return this.DB.get(this.DB.stores.images, id);
-    },
-    saveImage(id, base64) {
-      return this.DB.set(this.DB.stores.images, id, base64);
-    },
-    deleteImage(id) {
-      return this.DB.delete(this.DB.stores.images, id);
-    },
-    async getUsageEstimate() {
-      let total = 0;
-      for (let i = 0;i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(this.PREFIX)) {
-          const val = localStorage.getItem(key);
-          if (val)
-            total += val.length * 2;
-        }
-      }
-      try {
-        for (const store of Object.values(this.DB.stores)) {
-          const records = await this.DB.getAll(store);
-          for (const rec of records) {
-            if (typeof rec === "string") {
-              total += rec.length * 2;
-            } else if (rec && typeof rec === "object") {
-              total += JSON.stringify(rec).length * 2;
-            }
-          }
-        }
-      } catch (_) {}
-      return total;
-    }
-  };
-  if (typeof window !== "undefined")
-    window.CardStorage = CardStorage2;
-
-  // js/exportUtils.js
-  var ExportUtils2 = {
-    EDITOR_CREDIT: "Made using https://maxime-fleury.github.io/ST-cardEditor/",
-    injectCopyright(card) {
-      const note = card.creator_notes || "";
-      if (!note.includes(this.EDITOR_CREDIT)) {
-        card.creator_notes = note ? note.trimEnd() + `
-
-` + this.EDITOR_CREDIT : this.EDITOR_CREDIT;
-      }
-      return card;
-    },
-    async exportAsJSON() {
-      const { activeCard } = window.AppState;
-      if (!activeCard)
-        return;
-      await Editor.syncEditorToCard();
-      if (!activeCard.name)
-        Ui.showToast(I18n.t("toast.noNameWarning"), "warning");
-      const clone = JSON.parse(JSON.stringify(activeCard));
-      if (CardStorage.getInjectCopyright())
-        this.injectCopyright(clone);
-      Ui.downloadFile((activeCard.name || "character") + ".json", CardEngine.toJSON(clone), "application/json");
-      Ui.showToast(I18n.t("toast.exportedJson"), "success");
-    },
-    async exportAsPNG() {
-      const { activeCard } = window.AppState;
-      if (!activeCard)
-        return;
-      await Editor.syncEditorToCard();
-      const clone = JSON.parse(JSON.stringify(activeCard));
-      if (CardStorage.getInjectCopyright())
-        this.injectCopyright(clone);
-      const json = CardEngine.toJSON(clone);
-      try {
-        let pngBytes = null;
-        if (activeCard._imageBase64) {
-          pngBytes = this._dataUrlToBytes(activeCard._imageBase64);
-          if (!pngBytes) {
-            pngBytes = await this.imageBase64ToPNGBytes(activeCard._imageBase64);
-          }
-        }
-        if (!pngBytes) {
-          pngBytes = await this.createMinimalPNGBytes();
-        }
-        const blob = new Blob([this.embedCharaChunk(pngBytes, json)], { type: "image/png" });
-        Ui.downloadBlob(blob, (activeCard.name || "character") + ".png");
-        Ui.showToast(I18n.t("toast.exportedPng"), "success");
-      } catch (err) {
-        console.error("PNG export failed:", err);
-        Ui.showToast(I18n.t("toast.exportFailed"), "warning");
-        this.exportAsJSON();
-      }
-    },
-    async imageBase64ToPNGBytes(imageBase64) {
-      try {
-        const img = await new Promise((resolve, reject) => {
-          const el = new Image;
-          el.onload = () => resolve(el);
-          el.onerror = reject;
-          el.src = imageBase64;
-        });
-        const canvas = document.createElement("canvas");
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0);
-        return new Promise((resolve) => {
-          canvas.toBlob((blob) => {
-            if (!blob)
-              return resolve(null);
-            const reader = new FileReader;
-            reader.onload = () => resolve(new Uint8Array(reader.result));
-            reader.readAsArrayBuffer(blob);
-          }, "image/png");
-        });
-      } catch (err) {
-        console.error("Failed to convert image to PNG:", err);
-        return null;
-      }
-    },
-    async embedJSONInPNG(imageBase64, jsonStr) {
-      try {
-        const pngBytes = await this.imageBase64ToPNGBytes(imageBase64);
-        if (!pngBytes)
-          return null;
-        return new Blob([this.embedCharaChunk(pngBytes, jsonStr)], { type: "image/png" });
-      } catch (err) {
-        console.error("Failed to embed PNG chunk:", err);
-        return null;
-      }
-    },
-    _dataUrlToBytes(dataUrl) {
-      try {
-        if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/png"))
-          return null;
-        const comma = dataUrl.indexOf(",");
-        if (comma < 0)
-          return null;
-        const bin = atob(dataUrl.slice(comma + 1));
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0;i < bin.length; i++)
-          bytes[i] = bin.charCodeAt(i);
-        const PNG_SIG = [137, 80, 78, 71, 13, 10, 26, 10];
-        for (let i = 0;i < PNG_SIG.length; i++) {
-          if (bytes[i] !== PNG_SIG[i])
-            return null;
-        }
-        return bytes;
-      } catch (e) {
-        console.error("Failed to decode data URL:", e);
-        return null;
-      }
-    },
-    async createMinimalPNGBytes() {
-      const canvas = document.createElement("canvas");
-      canvas.width = 64;
-      canvas.height = 64;
-      const ctx = canvas.getContext("2d");
-      const g = ctx.createLinearGradient(0, 0, 64, 64);
-      g.addColorStop(0, "#772ce8");
-      g.addColorStop(1, "#ec4899");
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, 64, 64);
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 11px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(I18n.t ? I18n.t("export.minimalPngLabel") : "ST Card", 32, 36);
-      return new Promise((resolve) => {
-        let settled = false;
-        const settle = (bytes) => {
-          if (!settled) {
-            settled = true;
-            resolve(bytes);
-          }
-        };
-        canvas.toBlob((blob) => {
-          if (!blob) {
-            try {
-              const dataUrl = canvas.toDataURL("image/png");
-              const bin = atob(dataUrl.split(",")[1]);
-              const out = new Uint8Array(bin.length);
-              for (let i = 0;i < bin.length; i++)
-                out[i] = bin.charCodeAt(i);
-              settle(out);
-            } catch (e) {
-              settle(new Uint8Array(0));
-            }
-            return;
-          }
-          const reader = new FileReader;
-          reader.onload = () => settle(new Uint8Array(reader.result));
-          reader.onerror = () => settle(new Uint8Array(0));
-          reader.readAsArrayBuffer(blob);
-        }, "image/png");
-      });
-    },
-    embedCharaChunk(pngBytes, jsonStr) {
-      const bytes = new Uint8Array(pngBytes);
-      let offset = 8, iendPos = -1;
-      const kept = [];
-      while (offset + 12 <= bytes.length) {
-        const length = CardEngine._readUint32(bytes, offset);
-        if (offset + 12 + length > bytes.length)
-          break;
-        const type = String.fromCharCode(bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7]);
-        if (type === "IEND") {
-          iendPos = offset;
-          break;
-        }
-        const isCharaText = type === "tEXt" && (() => {
-          const nullIdx = bytes.indexOf(0, offset + 8);
-          if (nullIdx < 0 || nullIdx > offset + 8 + 79)
-            return false;
-          const kw = String.fromCharCode.apply(null, bytes.subarray(offset + 8, nullIdx));
-          return kw === "chara";
-        })();
-        if (!isCharaText) {
-          kept.push(bytes.subarray(offset, offset + 12 + length));
-        }
-        offset += 12 + length;
-      }
-      if (iendPos < 0) {
-        console.warn("exportUtils: PNG missing IEND chunk — card data was not embedded");
-        return bytes;
-      }
-      const keyword = "chara";
-      const jsonBytes = new TextEncoder().encode(jsonStr);
-      let b64 = "";
-      const CHUNK = 32768;
-      for (let i = 0;i < jsonBytes.length; i += CHUNK) {
-        b64 += String.fromCharCode.apply(null, jsonBytes.subarray(i, i + CHUNK));
-      }
-      b64 = btoa(b64);
-      const textData = new TextEncoder().encode(keyword + "\x00" + b64);
-      const typeBytes = new TextEncoder().encode("tEXt");
-      const crcData = new Uint8Array(4 + textData.length);
-      crcData.set(typeBytes, 0);
-      crcData.set(textData, 4);
-      const crc = this.crc32(crcData);
-      const chunk = new Uint8Array(12 + textData.length);
-      new DataView(chunk.buffer).setUint32(0, textData.length, false);
-      chunk.set(typeBytes, 4);
-      chunk.set(textData, 8);
-      new DataView(chunk.buffer).setUint32(8 + textData.length, crc, false);
-      const keptSize = kept.reduce((n, c) => n + c.length, 0);
-      const result = new Uint8Array(8 + keptSize + chunk.length + (bytes.length - iendPos));
-      result.set(bytes.subarray(0, 8), 0);
-      let pos = 8;
-      for (const c of kept) {
-        result.set(c, pos);
-        pos += c.length;
-      }
-      result.set(chunk, pos);
-      pos += chunk.length;
-      result.set(bytes.subarray(iendPos), pos);
-      return result;
-    },
-    crc32(data) {
-      let crc = 4294967295;
-      for (let i = 0;i < data.length; i++) {
-        crc ^= data[i];
-        for (let j = 0;j < 8; j++)
-          crc = crc & 1 ? crc >>> 1 ^ 3988292384 : crc >>> 1;
-      }
-      return (crc ^ 4294967295) >>> 0;
-    }
-  };
-  if (typeof window !== "undefined")
-    window.ExportUtils = ExportUtils2;
-
-  // js/editor.js
-  var Editor2 = {
-    _undoStack: [],
-    _redoStack: [],
-    _maxUndo: 50,
-    _undoCardId: null,
-    _lastSnapField: null,
-    _FIELD_MAP: {
-      firstMes: "first_mes",
-      mesExample: "mes_example",
-      creatorNotes: "creator_notes",
-      systemPrompt: "system_prompt",
-      postHistory: "post_history_instructions",
-      version: "character_version"
-    },
-    _toCardProp(field) {
-      return this._FIELD_MAP[field] || field;
-    },
-    _fieldToDomId(field) {
-      const map = {
-        name: "editName",
-        description: "editDescription",
-        personality: "editPersonality",
-        scenario: "editScenario",
-        firstMes: "editFirstMes",
-        mesExample: "editMesExample",
-        creatorNotes: "editCreatorNotes",
-        systemPrompt: "editSystemPrompt",
-        postHistory: "editPostHistory",
-        creator: "editCreator",
-        version: "editVersion",
-        tags: "editTags"
-      };
-      return map[field] || "edit" + field.charAt(0).toUpperCase() + field.slice(1);
-    },
-    _snapshot(field) {
-      const { activeCard } = window.AppState;
-      if (!activeCard)
-        return;
-      const prop = this._toCardProp(field);
-      const val = activeCard[prop];
-      const oldVal = Array.isArray(val) || val && typeof val === "object" ? JSON.parse(JSON.stringify(val)) : val || "";
-      this._undoStack.push({ field, prop, oldValue: oldVal });
-      if (this._undoStack.length > this._maxUndo)
-        this._undoStack.shift();
-      this._redoStack = [];
-    },
-    _SUB_MAP: { greetings: "alternate_greetings", lorebook: "character_book", extensions: "extensions" },
-    _subDefault(activeCard, prop) {
-      if (prop === "alternate_greetings")
-        return activeCard[prop] || [];
-      if (prop === "character_book")
-        return activeCard[prop] || { entries: [] };
-      if (prop === "extensions")
-        return activeCard[prop] || {};
-      return activeCard[prop] || "";
-    },
-    _snapshotSub(kind) {
-      const { activeCard } = window.AppState;
-      if (!activeCard)
-        return;
-      const prop = this._SUB_MAP[kind];
-      if (!prop)
-        return;
-      let def;
-      if (prop === "character_book")
-        def = { entries: [] };
-      else if (prop === "extensions")
-        def = {};
-      else
-        def = [];
-      this._undoStack.push({
-        field: kind,
-        prop,
-        oldValue: JSON.parse(JSON.stringify(activeCard[prop] || def))
-      });
-      if (this._undoStack.length > this._maxUndo)
-        this._undoStack.shift();
-      this._redoStack = [];
-    },
-    _applySubEntry(entry, newValue) {
-      const { activeCard } = window.AppState;
-      if (!activeCard)
-        return;
-      if (entry.prop === "alternate_greetings") {
-        activeCard.alternate_greetings = newValue;
-        this.renderGreetings(activeCard);
-      } else if (entry.prop === "character_book") {
-        activeCard.character_book = newValue;
-        this.renderLorebook(activeCard);
-      } else if (entry.prop === "extensions") {
-        activeCard.extensions = newValue;
-        this.renderExtensions(activeCard);
-      }
-    },
-    async undo() {
-      if (!this._undoStack.length)
-        return;
-      const { activeCard } = window.AppState;
-      if (!activeCard)
-        return;
-      this._lastSnapField = null;
-      const entry = this._undoStack.pop();
-      this._redoStack.push({
-        ...entry,
-        oldValue: entry.oldValue,
-        newValue: JSON.parse(JSON.stringify(this._subDefault(activeCard, entry.prop)))
-      });
-      if (entry.prop === "alternate_greetings" || entry.prop === "character_book" || entry.prop === "extensions") {
-        this._applySubEntry(entry, entry.oldValue);
-        await this.syncEditorToCard();
-        AiChat.updateContextBar();
-        Ui.showToast(I18n.t("toast.undo") + ": " + entry.field, "info");
-        return;
-      }
-      activeCard[entry.prop] = entry.oldValue;
-      const el = document.querySelector("#" + this._fieldToDomId(entry.field));
-      if (el)
-        el.value = entry.oldValue;
-      await Editor2.syncEditorToCard();
-      this.updateCharCounts();
-      this.autoResizeTextareas();
-      AiChat.updateContextBar();
-      Ui.showToast(I18n.t("toast.undo") + ": " + entry.field, "info");
-    },
-    async redo() {
-      if (!this._redoStack.length)
-        return;
-      const { activeCard } = window.AppState;
-      if (!activeCard)
-        return;
-      this._lastSnapField = null;
-      const entry = this._redoStack.pop();
-      this._undoStack.push({
-        ...entry,
-        oldValue: JSON.parse(JSON.stringify(this._subDefault(activeCard, entry.prop))),
-        newValue: entry.newValue
-      });
-      if (entry.prop === "alternate_greetings" || entry.prop === "character_book" || entry.prop === "extensions") {
-        this._applySubEntry(entry, entry.newValue);
-        await this.syncEditorToCard();
-        AiChat.updateContextBar();
-        Ui.showToast(I18n.t("toast.redo") + ": " + entry.field, "info");
-        return;
-      }
-      activeCard[entry.prop] = entry.newValue;
-      const el = document.querySelector("#" + this._fieldToDomId(entry.field));
-      if (el)
-        el.value = entry.newValue;
-      await Editor2.syncEditorToCard();
-      this.updateCharCounts();
-      this.autoResizeTextareas();
-      AiChat.updateContextBar();
-      Ui.showToast(I18n.t("toast.redo") + ": " + entry.field, "info");
-    },
-    populateEditor(card) {
-      const $ = Ui.$;
-      function safeStyle(id, displayVal) {
-        const el = $(id);
-        if (el)
-          el.style.display = displayVal;
-      }
-      this._renderedCardId = card._id;
-      if (card._id !== this._undoCardId) {
-        this._undoStack = [];
-        this._redoStack = [];
-        this._lastSnapField = null;
-        this._undoCardId = card._id;
-      }
-      $("#editName").value = card.name || "";
-      $("#editDescription").value = card.description || "";
-      $("#editPersonality").value = card.personality || "";
-      $("#editScenario").value = card.scenario || "";
-      $("#editFirstMes").value = card.first_mes || "";
-      $("#editMesExample").value = card.mes_example || "";
-      $("#editCreatorNotes").value = card.creator_notes || "";
-      $("#editSystemPrompt").value = card.system_prompt || "";
-      $("#editPostHistory").value = card.post_history_instructions || "";
-      $("#editCreator").value = card.creator || "";
-      $("#editVersion").value = card.character_version || "";
-      $("#editTags").value = (card.tags || []).join(", ");
-      const allTags = new Set;
-      (window.AppState.cards || []).forEach((c) => (c.tags || []).forEach((t) => allTags.add(t)));
-      const datalist = document.querySelector("#tagSuggestions");
-      if (datalist)
-        datalist.innerHTML = [...allTags].map((t) => '<option value="' + Ui.escapeAttr(t) + '">').join("");
-      document.querySelectorAll(".field-toggle-group").forEach((group) => {
-        const targetId = group.dataset.target;
-        group.querySelectorAll(".field-toggle-btn").forEach((b) => b.classList.remove("active"));
-        const editBtn = group.querySelector('[data-mode="edit"]');
-        if (editBtn)
-          editBtn.classList.add("active");
-        const textarea = document.getElementById(targetId);
-        const previewId = "preview" + targetId.replace("edit", "");
-        const preview = document.getElementById(previewId);
-        if (textarea)
-          textarea.style.display = "";
-        if (preview) {
-          preview.classList.remove("visible");
-          preview.innerHTML = "";
-        }
-      });
-      this.renderGreetings(card);
-      const metaCreator = $("#metaCreator");
-      if (metaCreator) {
-        metaCreator.textContent = card.creator ? I18n.t("gen.byCreator", { name: card.creator }) : "";
-        safeStyle("#metaCreator", card.creator ? "" : "none");
-      }
-      safeStyle("#metaVersion", card.character_version ? "" : "none");
-      const metaVersion = $("#metaVersion");
-      if (metaVersion) {
-        metaVersion.textContent = card.character_version ? "v" + card.character_version : "";
-      }
-      safeStyle("#metaTags", card.tags?.length ? "" : "none");
-      const metaTags = $("#metaTags");
-      if (metaTags) {
-        metaTags.textContent = (card.tags || []).slice(0, 3).join(", ");
-      }
-      if (card._imageBase64) {
-        const img = $("#charAvatarImg");
-        if (img) {
-          img.src = card._imageBase64;
-          img.hidden = false;
-        }
-        safeStyle("#avatarPlaceholder", "none");
-      } else {
-        safeStyle("#avatarPlaceholder", "");
-        const img = $("#charAvatarImg");
-        if (img)
-          img.hidden = true;
-      }
-      this.renderLorebook(card);
-      this.renderExtensions(card);
-      this.showEditor();
-      this.updateCharCounts();
-      this.autoResizeTextareas();
-      window.syncFloatingLabels?.();
-      window.Ui.updateUIState();
-    },
-    _captureFields(activeCard) {
-      const $ = Ui.$;
-      activeCard.name = $("#editName").value.trim();
-      activeCard.description = $("#editDescription").value;
-      activeCard.personality = $("#editPersonality").value;
-      activeCard.scenario = $("#editScenario").value;
-      activeCard.first_mes = $("#editFirstMes").value;
-      activeCard.mes_example = $("#editMesExample").value;
-      activeCard.creator_notes = $("#editCreatorNotes").value;
-      activeCard.system_prompt = $("#editSystemPrompt").value;
-      activeCard.post_history_instructions = $("#editPostHistory").value;
-      this.syncGreetings();
-      activeCard.creator = $("#editCreator").value.trim();
-      activeCard.character_version = $("#editVersion").value.trim();
-      activeCard.tags = $("#editTags").value.split(/[,，\n]/).map((s) => s.trim()).filter(Boolean);
-      activeCard._fileSize = CardEngine.computeFileSize(activeCard);
-    },
-    async syncEditorToCard() {
-      const { activeCard } = window.AppState;
-      if (!activeCard)
-        return;
-      const prev = this._pendingSync || Promise.resolve();
-      const run = prev.then(() => this._doSync(activeCard));
-      this._pendingSync = run.catch(() => {});
-      return run;
-    },
-    async _doSync(activeCard) {
-      if (this._renderedCardId && this._renderedCardId !== activeCard._id)
-        return;
-      this._captureFields(activeCard);
-      if (!activeCard.name && !this._nameWarned) {
-        this._nameWarned = true;
-        Ui.showToast(I18n.t("toast.noNameWarning"), "warning");
-      } else if (activeCard.name && this._nameWarned) {
-        this._nameWarned = false;
-      }
-      await CardStorage.upsertCard(activeCard);
-      window.AppState.cards = CardStorage.getCards();
-      window.AppState._dirty = true;
-      Ui.setDirty(true);
-    },
-    syncEditorToCardSync() {
-      const { activeCard } = window.AppState;
-      if (!activeCard)
-        return;
-      if (this._renderedCardId && this._renderedCardId !== activeCard._id)
-        return;
-      this._captureFields(activeCard);
-      try {
-        CardStorage.upsertCard(activeCard).catch(() => {});
-      } catch (_) {}
-      const index = CardStorage.getCards();
-      const idx = index.findIndex((c) => c._id === activeCard._id);
-      const meta = CardStorage._extractMeta(activeCard);
-      if (idx >= 0) {
-        index[idx] = meta;
-      } else {
-        index.unshift(meta);
-      }
-      try {
-        localStorage.setItem(CardStorage.PREFIX + CardStorage._keys.cardIndex, JSON.stringify(index));
-      } catch (_) {}
-      window.AppState._dirty = true;
-    },
-    showEditor() {
-      const $ = Ui.$;
-      $("#noCardSelected").classList.add("d-none");
-      $("#editorContainer").classList.remove("d-none");
-    },
-    async setAvatar(file) {
-      const $ = Ui.$;
-      const { activeCard } = window.AppState;
-      if (!activeCard) {
-        Ui.showToast(I18n.t("toast.selectCard"), "warning");
-        return;
-      }
-      try {
-        const b64 = await CardEngine._blobToBase64(file);
-        activeCard._imageBase64 = b64;
-        activeCard._hasImage = true;
-        activeCard._thumbnail = await CardEngine._createThumbnail(b64);
-        const img = $("#charAvatarImg");
-        if (img) {
-          img.src = b64;
-          img.hidden = false;
-        }
-        const ph = $("#avatarPlaceholder");
-        if (ph)
-          ph.style.display = "none";
-        await CardStorage.saveImage(activeCard._id, b64);
-        await this.syncEditorToCard();
-        Ui.showToast(I18n.t("toast.avatarUpdated"), "success");
-      } catch (e) {
-        console.error("Avatar load failed", e);
-        Ui.showToast(I18n.t("toast.imgFailed"), "danger");
-      }
-    },
-    hideEditor() {
-      const $ = Ui.$;
-      $("#noCardSelected").classList.remove("d-none");
-      $("#editorContainer").classList.add("d-none");
-    },
-    _fieldIds: [
-      "editName",
-      "editDescription",
-      "editPersonality",
-      "editScenario",
-      "editFirstMes",
-      "editMesExample",
-      "editCreatorNotes",
-      "editSystemPrompt",
-      "editPostHistory",
-      "editCreator",
-      "editVersion",
-      "editTags"
-    ],
-    autoResizeTextareas() {
-      document.querySelectorAll(".editor-textarea").forEach((ta) => {
-        if (ta.offsetParent === null)
-          return;
-        ta.style.height = "auto";
-        ta.style.height = Math.min(ta.scrollHeight, 800) + "px";
-      });
-    },
-    updateCharCounts() {
-      const maxTokens = typeof CardStorage !== "undefined" && CardStorage.getMaxTokens ? CardStorage.getMaxTokens() : 0;
-      for (const id of this._fieldIds) {
-        const el = document.querySelector("#" + id);
-        if (!el)
-          continue;
-        let countEl = el.parentElement.querySelector(".char-count");
-        if (!countEl) {
-          countEl = document.createElement("small");
-          countEl.className = "char-count field-counter text-secondary d-block mt-1";
-          countEl.style.fontSize = "0.7rem";
-          el.insertAdjacentElement("afterend", countEl);
-        }
-        countEl.classList.add("field-counter");
-        countEl.classList.remove("is-warn", "is-danger");
-        const len = (el.value || "").length;
-        const tokens = Tokenizer.syncCount(el.value || "");
-        countEl.textContent = I18n.t ? I18n.t("editor.charCount", { chars: len, tokens }) : len + " chars ~" + tokens + " tokens";
-        if (maxTokens > 0) {
-          if (tokens > maxTokens) {
-            countEl.classList.add("is-danger");
-            countEl.title = I18n.t ? I18n.t("editor.counterDanger", { tokens, max: maxTokens }) : "Exceeds the output token limit (" + maxTokens + ").";
-          } else if (tokens > maxTokens * 0.75) {
-            countEl.classList.add("is-warn");
-            countEl.title = I18n.t ? I18n.t("editor.counterWarn", { tokens, max: maxTokens }) : "Approaching the output token limit (" + maxTokens + ").";
-          }
-        }
-      }
-      this._updateCardTokenTotal();
-    },
-    renderGreetings(card) {
-      const $ = Ui.$;
-      const container = $("#greetingsList");
-      const count = $("#greetingCount");
-      const greetings = card.alternate_greetings || [];
-      const gen = this._greetGen = (this._greetGen || 0) + 1;
-      count.textContent = greetings.length ? "(" + greetings.length + ")" : "";
-      if (!greetings.length) {
-        container.innerHTML = '<div style="font-size:0.82rem;padding:0.5rem 0;color:var(--text-secondary);"><i class="bi bi-info-circle me-1" style="color:var(--purple-400);"></i>' + (I18n.t ? I18n.t("editor.noGreetings") : "No greetings yet. Click <strong>Add Greeting</strong> or use AI to generate some.") + "</div>";
-        return;
-      }
-      container.innerHTML = greetings.map((g, idx) => {
-        const isDefault = idx === greetings.indexOf(card.first_mes);
-        return '<div class="greeting-item' + (isDefault ? " default-greeting" : "") + '" data-greeting-idx="' + idx + '">' + '<div class="greeting-item-actions">' + '<button class="btn btn-outline-secondary btn-sm greeting-up" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t("editor.greetingMoveUp") : "Move up") + '"><i class="bi bi-chevron-up"></i></button>' + '<button class="btn btn-outline-secondary btn-sm greeting-down" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t("editor.greetingMoveDown") : "Move down") + '"><i class="bi bi-chevron-down"></i></button>' + (isDefault ? '<span class="greeting-item-badge bg-purple" title="' + (I18n.t ? I18n.t("editor.greetingIsDefault") : "This is the current first message") + '"><i class="bi bi-star-fill"></i></span>' : '<button class="btn btn-outline-accent btn-sm greeting-set-default" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t("editor.greetingSetDefault") : "Set as first message") + '"><i class="bi bi-star"></i></button>') + '<button class="btn btn-outline-danger btn-sm greeting-delete" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t("editor.greetingRemove") : "Remove") + '"><i class="bi bi-x-lg"></i></button>' + "</div>" + '<textarea class="form-control greeting-textarea" rows="4" placeholder="' + (I18n.t ? I18n.t("editor.greetingPlaceholder", { num: idx + 1 }) : "Greeting " + (idx + 1) + "...") + '" data-greeting-idx="' + idx + '">' + Ui.escapeHtml(g) + "</textarea>" + "</div>";
-      }).join("");
-      const self = this;
-      container.querySelectorAll(".greeting-delete").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          self.syncGreetings();
-          window.AppState.activeCard.alternate_greetings.splice(parseInt(btn.dataset.idx), 1);
-          self.renderGreetings(window.AppState.activeCard);
-          await self.syncEditorToCard();
-          self.updateCharCounts();
-        });
-      });
-      container.querySelectorAll(".greeting-set-default").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          self.syncGreetings();
-          const g = window.AppState.activeCard.alternate_greetings[parseInt(btn.dataset.idx)];
-          if (g) {
-            window.AppState.activeCard.first_mes = g;
-            $("#editFirstMes").value = g;
-            self.renderGreetings(window.AppState.activeCard);
-            await self.syncEditorToCard();
-            Ui.showToast(I18n.t("toast.firstMesUpdated"), "success");
-          }
-        });
-      });
-      container.querySelectorAll(".greeting-up").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          self.syncGreetings();
-          const idx = parseInt(btn.dataset.idx);
-          if (idx > 0) {
-            const arr = window.AppState.activeCard.alternate_greetings;
-            [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
-            self.renderGreetings(window.AppState.activeCard);
-            await self.syncEditorToCard();
-          }
-        });
-      });
-      container.querySelectorAll(".greeting-down").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          self.syncGreetings();
-          const idx = parseInt(btn.dataset.idx);
-          const arr = window.AppState.activeCard.alternate_greetings;
-          if (idx < arr.length - 1) {
-            [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
-            self.renderGreetings(window.AppState.activeCard);
-            await self.syncEditorToCard();
-          }
-        });
-      });
-      container.querySelectorAll(".greeting-textarea").forEach((ta) => {
-        ta.addEventListener("focus", () => {
-          self._lastSnapField = null;
-        });
-        ta.addEventListener("beforeinput", () => {
-          if (self._lastSnapField !== "greetings") {
-            self._snapshotSub("greetings");
-            self._lastSnapField = "greetings";
-          }
-        });
-        ta.addEventListener("input", Ui.debounce(async () => {
-          if (!ta.isConnected || gen !== self._greetGen) {
-            self.syncGreetings();
-            await self.syncEditorToCard();
-            return;
-          }
-          const idx = parseInt(ta.dataset.greetingIdx);
-          if (window.AppState.activeCard.alternate_greetings[idx] !== undefined) {
-            window.AppState.activeCard.alternate_greetings[idx] = ta.value;
-          }
-          await self.syncEditorToCard();
-          self.updateCharCounts();
-        }, 500));
-      });
-    },
-    syncGreetings() {
-      const { activeCard } = window.AppState;
-      if (!activeCard)
-        return;
-      const $ = Ui.$;
-      const greetings = [];
-      const list = $("#greetingsList");
-      if (list) {
-        list.querySelectorAll(".greeting-textarea").forEach((ta) => {
-          greetings.push(ta.value);
-        });
-      }
-      activeCard.alternate_greetings = greetings;
-    },
-    async addGreeting() {
-      const { activeCard } = window.AppState;
-      if (!activeCard)
-        return;
-      const $ = Ui.$;
-      if (!activeCard.alternate_greetings)
-        activeCard.alternate_greetings = [];
-      activeCard.alternate_greetings.push("");
-      this.renderGreetings(activeCard);
-      await this.syncEditorToCard();
-      const allTas = $("#greetingsList").querySelectorAll(".greeting-textarea");
-      const last = allTas[allTas.length - 1];
-      if (last)
-        last.focus();
-    },
-    renderExtensions(card) {
-      if (!card)
-        return;
-      const el = document.querySelector("#editExtensions");
-      const st = document.querySelector("#extensionsStatus");
-      if (!el)
-        return;
-      el.value = card.extensions && typeof card.extensions === "object" ? JSON.stringify(card.extensions, null, 2) : "{}";
-      el.classList.remove("is-invalid-json");
-      if (st) {
-        st.textContent = "";
-        st.classList.remove("is-danger");
-      }
-    },
-    async _applyExtensionsFromDom() {
-      const { activeCard } = window.AppState;
-      const el = document.querySelector("#editExtensions");
-      const st = document.querySelector("#extensionsStatus");
-      if (!activeCard || !el)
-        return false;
-      const val = el.value.trim();
-      let parsed = {};
-      if (val) {
-        try {
-          parsed = JSON.parse(val);
-        } catch (_) {
-          el.classList.add("is-invalid-json");
-          if (st) {
-            st.textContent = I18n.t ? I18n.t("editor.extensionsParseError") : "Invalid JSON — keeping the last valid extensions.";
-            st.classList.add("is-danger");
-          }
-          return false;
-        }
-        if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
-          el.classList.add("is-invalid-json");
-          if (st) {
-            st.textContent = I18n.t ? I18n.t("editor.extensionsParseError") : "Invalid JSON — expected an object.";
-            st.classList.add("is-danger");
-          }
-          return false;
-        }
-      }
-      el.classList.remove("is-invalid-json");
-      if (st) {
-        st.textContent = "";
-        st.classList.remove("is-danger");
-      }
-      activeCard.extensions = parsed;
-      await this.syncEditorToCard();
-      this.updateCharCounts();
-      return true;
-    },
-    _cardTotals() {
-      let chars = 0;
-      let tokens = 0;
-      for (const id of this._fieldIds) {
-        const el = document.querySelector("#" + id);
-        if (!el)
-          continue;
-        const v = el.value || "";
-        chars += v.length;
-        tokens += Tokenizer.syncCount(v);
-      }
-      const extra = [];
-      const extEl = document.querySelector("#editExtensions");
-      if (extEl && extEl.value && !extEl.classList.contains("is-invalid-json"))
-        extra.push(extEl.value);
-      const gr = document.querySelector("#greetingsList");
-      if (gr)
-        gr.querySelectorAll(".greeting-textarea").forEach((ta) => extra.push(ta.value || ""));
-      const lb = document.querySelector("#lorebookEntries");
-      if (lb)
-        lb.querySelectorAll("textarea[data-lore-idx]").forEach((ta) => extra.push(ta.value || ""));
-      for (const v of extra) {
-        chars += v.length;
-        tokens += Tokenizer.syncCount(v);
-      }
-      return { chars, tokens };
-    },
-    _updateCardTokenTotal() {
-      const el = document.querySelector("#metaTokens");
-      if (!el)
-        return;
-      const { chars, tokens } = this._cardTotals();
-      const fmt = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : String(n);
-      const label = I18n.t ? I18n.t("editor.cardTokenTotal", { tokens: fmt(tokens), chars: fmt(chars) }) : "~" + tokens + " tokens · " + chars + " chars";
-      el.textContent = label;
-      const maxTokens = CardStorage.getMaxTokens ? CardStorage.getMaxTokens() : 0;
-      el.classList.toggle("is-warn", maxTokens > 0 && tokens > maxTokens);
-      el.title = "";
-    },
-    _lorebookEntryMatches(entry, query) {
-      const toStr = (v) => Array.isArray(v) ? v.join(" ") : v == null ? "" : String(v);
-      const q = query.toLowerCase();
-      return toStr(entry && entry.key).toLowerCase().includes(q) || toStr(entry && entry.keysecondary).toLowerCase().includes(q) || toStr(entry && entry.content).toLowerCase().includes(q) || toStr(entry && entry.comment).toLowerCase().includes(q);
-    },
-    renderLorebook(card) {
-      const $ = Ui.$;
-      const container = $("#lorebookEntries");
-      const entries = (card.character_book?.entries || []).map((e) => {
-        if (!e || typeof e !== "object") {
-          return { key: "", keysecondary: [], content: "", order: 100, constant: false, selective: false, position: "after_char", comment: "" };
-        }
-        if (!Array.isArray(e.keysecondary)) {
-          e.keysecondary = e.keysecondary == null ? [] : String(e.keysecondary).split(",").map((s) => s.trim()).filter(Boolean);
-        }
-        if (e.key != null && !Array.isArray(e.key) && typeof e.key !== "string") {
-          e.key = String(e.key);
-        }
-        return e;
-      });
-      const gen = this._loreGen = (this._loreGen || 0) + 1;
-      const searchInput = $("#lorebookSearchInput");
-      const searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : "";
-      if (entries.length === 0) {
-        container.innerHTML = '<div class="text-center py-4" id="lorebookEmpty" style="color:var(--text-secondary);"><i class="bi bi-journal-text d-block mb-2" style="font-size: 2.5rem;color:var(--purple-400);"></i><span style="font-size:0.85rem;">' + I18n.t("editor.lorebookEmpty") + "</span></div>";
-        return;
-      }
-      let filteredEntries = entries.map((entry, idx) => ({ entry, idx }));
-      if (searchQuery) {
-        filteredEntries = filteredEntries.filter(({ entry }) => this._lorebookEntryMatches(entry, searchQuery));
-      }
-      if (filteredEntries.length === 0) {
-        container.innerHTML = '<div class="text-muted text-center py-3">' + (I18n.t ? I18n.t("editor.noEntriesMatch", { query: Ui.escapeHtml(searchQuery) }) : 'No entries match "' + Ui.escapeHtml(searchQuery) + '"') + "</div>";
-        return;
-      }
-      container.innerHTML = '<div class="lorebook-accordion">' + filteredEntries.map(({ entry, idx }) => {
-        const keys = (Array.isArray(entry.key) ? entry.key : (entry.key || "").split(",")).map((s) => String(s).trim()).filter(Boolean);
-        const secondary = entry.keysecondary || [];
-        const label = entry.comment || (Array.isArray(entry.key) ? entry.key.join(", ") : entry.key) || (I18n.t ? I18n.t("editor.loreEntry", { num: idx + 1 }) : "Entry " + (idx + 1));
-        const keyTagsHtml = keys.slice(0, 3).map((k) => '<span class="lorebook-key-tag primary">' + Ui.escapeHtml(k) + "</span>").join("") + secondary.slice(0, 2).map((k) => '<span class="lorebook-key-tag secondary">' + Ui.escapeHtml(k) + "</span>").join("");
-        return '<div class="lorebook-accordion-item" data-entry-idx="' + idx + '">' + '<div class="lorebook-accordion-header" data-lore-toggle="' + idx + '" role="button" tabindex="0" aria-expanded="false">' + '<i class="bi bi-chevron-right lorebook-chevron"></i>' + '<span class="lorebook-entry-label">' + Ui.escapeHtml(label) + "</span>" + '<div class="lorebook-key-tags">' + keyTagsHtml + "</div>" + '<button class="btn btn-outline-danger btn-sm lorebook-delete-btn" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t("editor.loreDeleteEntry") : "Delete entry") + '"><i class="bi bi-trash"></i></button>' + "</div>" + '<div class="lorebook-accordion-body">' + '<div class="row g-2 mb-2" style="font-size:0.8rem;">' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.lorePrimaryKeys") : "Primary Keywords") + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((Array.isArray(entry.key) ? entry.key.join(", ") : entry.key) || "") + '" placeholder="' + (I18n.t ? I18n.t("editor.lorePrimaryKeysPlaceholder") : "Primary keywords — comma separated") + '" data-lore-key-idx="' + idx + '"></div>' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.loreSecondaryKeys") : "Secondary Keywords") + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(", ")) + '" placeholder="' + (I18n.t ? I18n.t("editor.loreSecondaryKeysPlaceholder") : "Secondary keywords") + '" data-lore-secondary-idx="' + idx + '"></div>' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.loreComment") : "Comment") + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || "") + '" placeholder="' + (I18n.t ? I18n.t("editor.loreCommentPlaceholder") : "Comment") + '" data-lore-comment-idx="' + idx + '"></div>' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.loreOrder") : "Order") + '</label><input type="number" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.order ?? 100) + '" placeholder="' + (I18n.t ? I18n.t("editor.loreOrderPlaceholder") : "Order") + '" data-lore-order-idx="' + idx + '"></div>' + "</div>" + '<div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">' + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? " checked" : "") + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">' + (I18n.t ? I18n.t("editor.loreConstant") : "Constant") + "</label></div>" + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.selective ? " checked" : "") + ' data-lore-selective-idx="' + idx + '"><label class="form-check-label">' + (I18n.t ? I18n.t("editor.loreSelective") : "Selective") + "</label></div>" + '<select class="form-select form-select-sm" style="width:auto;" data-lore-position-idx="' + idx + '">' + '<option value="before_char"' + (entry.position === "before_char" ? " selected" : "") + ">" + (I18n.t ? I18n.t("editor.loreBeforeChar") : "Before char") + "</option>" + '<option value="after_char"' + (entry.position === "after_char" ? " selected" : "") + ">" + (I18n.t ? I18n.t("editor.loreAfterChar") : "After char") + "</option></select>" + "</div>" + '<label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.loreContent") : "Content") + "</label>" + '<textarea class="form-control editor-textarea font-mono" rows="6" placeholder="' + (I18n.t ? I18n.t("editor.loreContentPlaceholder") : "Entry content...") + '" data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || "") + "</textarea>" + "</div>" + "</div>";
-      }).join("") + "</div>";
-      container.querySelectorAll("[data-lore-toggle]").forEach((header) => {
-        const toggle = (e) => {
-          if (e.target.closest(".lorebook-delete-btn"))
-            return;
-          const item = header.closest(".lorebook-accordion-item");
-          if (item) {
-            item.classList.toggle("open");
-            header.setAttribute("aria-expanded", item.classList.contains("open") ? "true" : "false");
-          }
-        };
-        header.addEventListener("click", toggle);
-        header.addEventListener("keydown", (e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            toggle(e);
-          }
-        });
-      });
-      const self = this;
-      container.querySelectorAll(".lorebook-delete-btn").forEach((btn) => {
-        btn.addEventListener("click", async (e) => {
-          e.stopPropagation();
-          window.AppState.activeCard.character_book.entries.splice(parseInt(btn.dataset.idx), 1);
-          self.renderLorebook(window.AppState.activeCard);
-          await self.syncEditorToCard();
-          self.updateCharCounts();
-        });
-      });
-      const loreFields = container.querySelectorAll("textarea[data-lore-idx], input[data-lore-key-idx], input[data-lore-secondary-idx], input[data-lore-comment-idx], input[data-lore-order-idx]");
-      loreFields.forEach((fld) => {
-        fld.addEventListener("focus", () => {
-          self._lastSnapField = null;
-        });
-        fld.addEventListener("beforeinput", () => {
-          if (self._lastSnapField !== "lorebook") {
-            self._snapshotSub("lorebook");
-            self._lastSnapField = "lorebook";
-          }
-        });
-      });
-      container.querySelectorAll("textarea[data-lore-idx]").forEach((ta) => {
-        ta.addEventListener("input", Ui.debounce(async () => {
-          if (!ta.isConnected || gen !== self._loreGen)
-            return;
-          const idx = parseInt(ta.dataset.loreIdx);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].content = ta.value;
-            await self.syncEditorToCard();
-            self.autoResizeTextareas();
-            self.updateCharCounts();
-          }
-        }, 600));
-      });
-      container.querySelectorAll("input[data-lore-key-idx]").forEach((input) => {
-        input.addEventListener("input", Ui.debounce(async () => {
-          if (!input.isConnected || gen !== self._loreGen)
-            return;
-          const idx = parseInt(input.dataset.loreKeyIdx);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].key = input.value.trim();
-            await self.syncEditorToCard();
-          }
-        }, 600));
-      });
-      container.querySelectorAll("input[data-lore-secondary-idx]").forEach((input) => {
-        input.addEventListener("input", Ui.debounce(async () => {
-          if (!input.isConnected || gen !== self._loreGen)
-            return;
-          const idx = parseInt(input.dataset.loreSecondaryIdx);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].keysecondary = input.value.split(",").map((s) => s.trim()).filter(Boolean);
-            await self.syncEditorToCard();
-          }
-        }, 600));
-      });
-      container.querySelectorAll("input[data-lore-comment-idx]").forEach((input) => {
-        input.addEventListener("input", Ui.debounce(async () => {
-          if (!input.isConnected || gen !== self._loreGen)
-            return;
-          const idx = parseInt(input.dataset.loreCommentIdx);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].comment = input.value;
-            await self.syncEditorToCard();
-          }
-        }, 600));
-      });
-      container.querySelectorAll("input[data-lore-order-idx]").forEach((input) => {
-        input.addEventListener("input", Ui.debounce(async () => {
-          if (!input.isConnected || gen !== self._loreGen)
-            return;
-          const idx = parseInt(input.dataset.loreOrderIdx);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            const parsed = parseInt(input.value, 10);
-            window.AppState.activeCard.character_book.entries[idx].order = Number.isNaN(parsed) ? 100 : parsed;
-            await self.syncEditorToCard();
-          }
-        }, 600));
-      });
-      container.querySelectorAll("input[data-lore-constant-idx]").forEach((cb) => {
-        cb.addEventListener("change", async () => {
-          const idx = parseInt(cb.dataset.loreConstantIdx);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].constant = cb.checked;
-            await self.syncEditorToCard();
-          }
-        });
-      });
-      container.querySelectorAll("input[data-lore-selective-idx]").forEach((cb) => {
-        cb.addEventListener("change", async () => {
-          const idx = parseInt(cb.dataset.loreSelectiveIdx);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].selective = cb.checked;
-            await self.syncEditorToCard();
-          }
-        });
-      });
-      container.querySelectorAll("select[data-lore-position-idx]").forEach((sel) => {
-        sel.addEventListener("change", async () => {
-          const idx = parseInt(sel.dataset.lorePositionIdx);
-          if (window.AppState.activeCard.character_book.entries[idx]) {
-            window.AppState.activeCard.character_book.entries[idx].position = sel.value;
-            await self.syncEditorToCard();
-          }
-        });
-      });
-    },
-    async addLorebookEntry() {
-      const { activeCard } = window.AppState;
-      if (!activeCard)
-        return;
-      if (!activeCard.character_book)
-        activeCard.character_book = { entries: [] };
-      if (!activeCard.character_book.entries)
-        activeCard.character_book.entries = [];
-      activeCard.character_book.entries.push({ key: I18n.t ? I18n.t("editor.loreNewEntry") : "New Entry", content: "", keysecondary: [], constant: false, selective: false, position: "after_char", order: 100, comment: "" });
-      this.renderLorebook(activeCard);
-      await this.syncEditorToCard();
-    }
-  };
-  if (typeof window !== "undefined")
-    window.Editor = Editor2;
-
-  // js/cardManager.js
-  var DEBOUNCE_SEARCH_MS = 300;
-  var CardManager2 = {
-    async migrateImagesToIndexedDB() {
-      const all = CardStorage.getCards();
-      for (const meta of all) {
-        const full = await CardStorage.getCard(meta._id);
-        if (!full || !full._imageBase64)
-          continue;
-        try {
-          await CardStorage.saveImage(full._id, full._imageBase64);
-          full._thumbnail = full._thumbnail || await CardEngine._createThumbnail(full._imageBase64);
-          full._hasImage = true;
-          delete full._imageBase64;
-          await CardStorage.upsertCard(full);
-        } catch (e) {
-          console.error("Image migration failed for", full._id, e);
-        }
-      }
-      window.AppState.cards = CardStorage.getCards();
-    },
-    handleFileSelect(e) {
-      if (e.target.files?.length) {
-        this.processFiles(Array.from(e.target.files));
-      }
-      e.target.value = "";
-    },
-    async processFiles(fileList) {
-      const validExts = ["png", "webp", "json"];
-      let loaded = 0, errors = 0, lastCardId = null;
-      for (const file of fileList) {
-        const ext = file.name.split(".").pop().toLowerCase();
-        if (!validExts.includes(ext)) {
-          errors++;
-          continue;
-        }
-        try {
-          const card = await CardEngine.parseFile(file);
-          const trimmedName = (card.name || "").trim();
-          if (trimmedName) {
-            const existing = CardStorage.getCards().find((c) => (c.name || "").trim().toLowerCase() === trimmedName.toLowerCase());
-            if (existing) {
-              let existingFull = null;
-              try {
-                existingFull = await CardStorage.getCard(existing._id);
-              } catch (_) {}
-              if (existingFull && this._cardSignature(card) === this._cardSignature(existingFull)) {
-                const base = trimmedName;
-                let n = 2;
-                const used = new Set(CardStorage.getCards().map((c) => (c.name || "").toLowerCase()));
-                let candidate = base + " (" + n + ")";
-                while (used.has(candidate.toLowerCase())) {
-                  n++;
-                  candidate = base + " (" + n + ")";
-                }
-                card.name = candidate;
-                Ui.showToast(I18n.t("toast.importDupe", { name: candidate }), "info");
-              }
-            }
-          }
-          if (card._imageBase64) {
-            const approxBytes = Math.round(card._imageBase64.length * 3 / 4);
-            if (approxBytes > 5 * 1024 * 1024) {
-              Ui.showToast(I18n.t("toast.largeImage", { name: file.name, size: (approxBytes / (1024 * 1024)).toFixed(1) }), "warning");
-            }
-            await CardStorage.saveImage(card._id, card._imageBase64);
-          }
-          await CardStorage.upsertCard(card);
-          lastCardId = card._id;
-          loaded++;
-        } catch (err) {
-          console.error("Parse error:", file.name, err);
-          errors++;
-          Ui.showToast(I18n.t("toast.loadFailed", { name: file.name + " — " + err.message }), "danger");
-        }
-      }
-      if (loaded > 0) {
-        window.AppState.cards = CardStorage.getCards();
-        this.renderCardList();
-        if (loaded === 1 && lastCardId) {
-          const meta = window.AppState.cards.find((c) => c._id === lastCardId);
-          if (meta)
-            await this.selectCard(meta);
-        }
-        Ui.showToast(I18n.t("toast.loaded", { count: loaded }), "success");
-      }
-      if (errors > 0 && loaded === 0)
-        Ui.showToast(I18n.t("toast.noValid"), "warning");
-    },
-    _cardListBound: false,
-    _cardSignature(card) {
-      const tags = (card.tags || []).map((t) => String(t == null ? "" : t).trim().toLowerCase()).filter(Boolean);
-      return JSON.stringify([
-        card.spec_version || "",
-        (card.description || "").trim(),
-        (card.first_mes || "").trim(),
-        (card.personality || "").trim(),
-        (card.scenario || "").trim(),
-        (card.mes_example || "").trim(),
-        (card.creator_notes || "").trim(),
-        (card.system_prompt || "").trim(),
-        (card.post_history_instructions || "").trim(),
-        (card.character_version || "").trim(),
-        tags.join("|")
-      ]);
-    },
-    _tagSet(card) {
-      return new Set((card.tags || []).map((t) => String(t == null ? "" : t).trim().toLowerCase()).filter(Boolean));
-    },
-    _searchQuery: "",
-    _selectedIds: new Set,
-    _sortMode: "manual",
-    _activeTagFilters: new Set,
-    _collapsedGroups: new Set,
-    _toggleBatchSelect(cardId) {
-      if (this._selectedIds.has(cardId))
-        this._selectedIds.delete(cardId);
-      else
-        this._selectedIds.add(cardId);
-      this._updateBatchToolbar();
-    },
-    _updateBatchToolbar() {
-      const toolbar = document.querySelector("#batchToolbar");
-      const count = document.querySelector("#batchCount");
-      const compareBtn = document.querySelector("#btnBatchCompare");
-      if (!toolbar)
-        return;
-      if (this._selectedIds.size > 0) {
-        toolbar.classList.remove("d-none");
-        count.textContent = I18n.t("left.selected", { count: this._selectedIds.size });
-        if (compareBtn)
-          compareBtn.classList.toggle("d-none", this._selectedIds.size !== 2);
-      } else {
-        toolbar.classList.add("d-none");
-      }
-    },
-    async batchDelete() {
-      if (this._selectedIds.size === 0) {
-        Ui.showToast(I18n.t("toast.noSelected"), "info");
-        return;
-      }
-      if (!await Ui.confirm({
-        title: I18n.t("batch.deleteTitle", { count: this._selectedIds.size }),
-        message: I18n.t("batch.deleteConfirm", { count: this._selectedIds.size }),
-        buttonLabel: I18n.t("dialog.delete")
-      }))
-        return;
-      for (const id of this._selectedIds)
-        await CardStorage.deleteCard(id);
-      this._selectedIds.clear();
-      this._updateBatchToolbar();
-      window.AppState.cards = CardStorage.getCards();
-      if (window.AppState.activeCard && !window.AppState.cards.find((c) => c._id === window.AppState.activeCard._id)) {
-        window.AppState.activeCard = null;
-        Editor.hideEditor();
-      }
-      this.renderCardList();
-      Ui.showToast(I18n.t("toast.cardsDeleted"), "warning");
-    },
-    async batchCompare() {
-      if (this._selectedIds.size !== 2) {
-        Ui.showToast(I18n.t ? I18n.t("batch.select2ForCompare") : "Select exactly 2 cards to compare", "info");
-        return;
-      }
-      const [idA, idB] = [...this._selectedIds];
-      const cardA = await CardStorage.getCard(idA);
-      const cardB = await CardStorage.getCard(idB);
-      if (!cardA || !cardB) {
-        Ui.showToast(I18n.t ? I18n.t("batch.compareLoadFailed") : "Failed to load cards for comparison", "danger");
-        return;
-      }
-      const jsonA = CardEngine.toJSON(cardA);
-      const jsonB = CardEngine.toJSON(cardB);
-      const oldEl = document.querySelector("#aiDiffOld");
-      const newEl = document.querySelector("#aiDiffNew");
-      const titleEl = document.querySelector("#aiPreviewModal .modal-title");
-      if (!oldEl || !newEl)
-        return;
-      if (titleEl)
-        titleEl.innerHTML = '<i class="bi bi-layout-sidebar-inset me-2 text-accent"></i>' + (I18n.t ? I18n.t("batch.comparePrefix") : "Compare: ") + Ui.escapeHtml(cardA.name || (I18n.t ? I18n.t("batch.cardA") : "Card A")) + (I18n.t ? I18n.t("batch.compareVs") : " vs ") + Ui.escapeHtml(cardB.name || (I18n.t ? I18n.t("batch.cardB") : "Card B"));
-      AiChat._renderDiff(jsonA, jsonB);
-      const acceptBtn = document.querySelector("#btnAcceptAI");
-      const discardBtn = document.querySelector("#btnDiscardAI");
-      if (acceptBtn)
-        acceptBtn.classList.add("d-none");
-      if (discardBtn)
-        discardBtn.classList.add("d-none");
-      const applyNav = document.querySelector("#applyNavGroup");
-      if (applyNav)
-        applyNav.style.display = "none";
-      const modal = this._aiPreviewModal = this._aiPreviewModal || new bootstrap.Modal("#aiPreviewModal");
-      const modalEl = document.querySelector("#aiPreviewModal");
-      const restoreButtons = () => {
-        if (acceptBtn)
-          acceptBtn.classList.remove("d-none");
-        if (discardBtn)
-          discardBtn.classList.remove("d-none");
-        modalEl.removeEventListener("hidden.bs.modal", restoreButtons);
-      };
-      modalEl.addEventListener("hidden.bs.modal", restoreButtons);
-      modal.show();
-    },
-    async batchExportJSON() {
-      if (this._selectedIds.size === 0) {
-        Ui.showToast(I18n.t("toast.noSelected"), "info");
-        return;
-      }
-      const cards = [];
-      for (const id of this._selectedIds) {
-        const card = await CardStorage.getCard(id);
-        if (card) {
-          const clone = JSON.parse(JSON.stringify(card));
-          delete clone._id;
-          delete clone._filename;
-          delete clone._createdAt;
-          delete clone._fileSize;
-          delete clone._thumbnail;
-          delete clone._imageBase64;
-          if (CardStorage.getInjectCopyright())
-            ExportUtils.injectCopyright(clone);
-          cards.push(clone);
-        }
-      }
-      if (cards.length === 1) {
-        Ui.downloadFile((cards[0].name || "character") + ".json", CardEngine.toJSON(cards[0]), "application/json");
-      } else {
-        Ui.downloadFile("cards_export.json", JSON.stringify(cards, null, 2), "application/json");
-      }
-      Ui.showToast(I18n.t("toast.exported", { count: cards.length }), "success");
-    },
-    _sortCards(cards) {
-      const mode = this._sortMode;
-      const sorted = [...cards];
-      switch (mode) {
-        case "name-asc":
-          sorted.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-          break;
-        case "name-desc":
-          sorted.sort((a, b) => (b.name || "").localeCompare(a.name || ""));
-          break;
-        case "newest":
-          sorted.sort((a, b) => (b._createdAt || 0) - (a._createdAt || 0));
-          break;
-        case "oldest":
-          sorted.sort((a, b) => (a._createdAt || 0) - (b._createdAt || 0));
-          break;
-        case "largest":
-          sorted.sort((a, b) => (b._fileSize || 0) - (a._fileSize || 0));
-          break;
-        case "smallest":
-          sorted.sort((a, b) => (a._fileSize || 0) - (b._fileSize || 0));
-          break;
-        case "manual":
-          break;
-      }
-      return sorted;
-    },
-    _renderTagCloud() {
-      const tagCloudEl = document.querySelector("#tagCloud");
-      if (!tagCloudEl)
-        return;
-      const tagCounts = {};
-      (window.AppState.cards || []).forEach((c) => {
-        (c.tags || []).forEach((t) => {
-          tagCounts[t] = (tagCounts[t] || 0) + 1;
-        });
-      });
-      const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
-      if (sortedTags.length === 0) {
-        tagCloudEl.innerHTML = '<span style="font-size:0.68rem;color:var(--text-muted);">' + I18n.t("gen.untagged") + "</span>";
-        return;
-      }
-      tagCloudEl.innerHTML = sortedTags.map(([tag, count]) => {
-        const isActive = this._activeTagFilters.has(tag);
-        return '<span class="tag-chip' + (isActive ? " active" : "") + '" data-tag="' + Ui.escapeAttr(tag) + '">' + Ui.escapeHtml(tag) + ' <span class="tag-count">' + count + "</span>" + "</span>";
-      }).join("");
-      tagCloudEl.querySelectorAll(".tag-chip").forEach((chip) => {
-        chip.addEventListener("click", () => {
-          const tag = chip.dataset.tag;
-          if (this._activeTagFilters.has(tag)) {
-            this._activeTagFilters.delete(tag);
-          } else {
-            this._activeTagFilters.add(tag);
-          }
-          this.renderCardList();
-        });
-      });
-    },
-    _rowHtml(card, activeCard) {
-      const isActive = activeCard && activeCard._id === card._id;
-      const isBatch = this._selectedIds.has(card._id);
-      const tags = (card.tags || []).slice(0, 2);
-      const thumb = card._thumbnail || card._imageBase64;
-      const desc = (card.description || "").slice(0, 300);
-      const fileSize = card._fileSize ? Ui.formatFileSize(card._fileSize) : "";
-      return '<div class="card-list-item' + (isActive ? " active" : "") + (isBatch ? " batch-selected" : "") + '" data-card-id="' + card._id + '" role="option" aria-selected="' + isActive + '">' + '<div class="card-list-avatar">' + (thumb ? '<img src="' + Ui.escapeAttr(thumb) + '" alt="">' : '<i class="bi bi-person-fill"></i>') + "</div>" + '<div class="card-list-info">' + '<div class="card-list-name">' + Ui.escapeHtml(card.name || I18n.t("gen.unnamed")) + "</div>" + '<div class="card-list-meta">' + (card.creator ? Ui.escapeHtml(card.creator) : "") + (card.creator && tags.length ? " · " : "") + tags.map((t) => Ui.escapeHtml(t)).join(", ") + (fileSize ? ' <span class="meta-filesize">' + fileSize + "</span>" : "") + "</div></div>" + '<button type="button" class="card-preview-btn" data-card-id="' + card._id + '" title="' + (I18n.t ? I18n.t("preview.open") : "Preview card") + '" aria-label="' + (I18n.t ? I18n.t("preview.open") : "Preview card") + '"><i class="bi bi-eye"></i></button>' + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? " checked" : "") + ">" + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"><i class="bi bi-grip-vertical"></i></span>' + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + "</span>" : "") + '<div class="card-preview-tooltip">' + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : "") + '<div class="fw-semibold">' + Ui.escapeHtml(card.name || I18n.t("gen.unnamed")) + "</div>" + (card.creator ? '<div class="text-muted" style="font-size:0.7rem;">' + I18n.t("gen.byCreator", { name: Ui.escapeHtml(card.creator) }) + "</div>" : "") + (desc ? '<div class="preview-desc">' + Ui.escapeHtml(desc) + "</div>" : "") + "</div></div>";
-    },
-    _groupCards(list) {
-      if (this._sortMode !== "name-asc" && this._sortMode !== "name-desc") {
-        return [{ letter: "", items: list }];
-      }
-      const groups = [];
-      const byLetter = new Map;
-      for (const card of list) {
-        const name = (card.name || "").trim();
-        let letter = "#", ch = name ? name[0] : "";
-        if (/[A-Za-z0-9]/.test(ch))
-          letter = ch.toUpperCase();
-        let g = byLetter.get(letter);
-        if (!g) {
-          g = { letter, items: [] };
-          byLetter.set(letter, g);
-          groups.push(g);
-        }
-        g.items.push(card);
-      }
-      if (this._sortMode === "name-desc") {
-        groups.sort((a, b) => a.letter < b.letter ? 1 : a.letter > b.letter ? -1 : 0);
-      }
-      return groups;
-    },
-    _renderTagChipStrip() {
-      const el = document.querySelector("#tagChipStrip");
-      if (!el)
-        return;
-      const counts = {};
-      (window.AppState.cards || []).forEach((c) => (c.tags || []).forEach((t) => counts[t] = (counts[t] || 0) + 1));
-      const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 12);
-      if (sorted.length === 0) {
-        el.style.display = "none";
-        el.innerHTML = "";
-        return;
-      }
-      el.style.display = "";
-      el.innerHTML = sorted.map(([tag]) => {
-        const active = this._activeTagFilters.has(tag);
-        return '<button type="button" class="tag-chip-strip-chip' + (active ? " active" : "") + '" data-tag="' + Ui.escapeAttr(tag) + '">#' + Ui.escapeHtml(tag) + "</button>";
-      }).join("") + (this._activeTagFilters.size ? '<button type="button" class="tag-chip-strip-clear" data-clear="1" aria-label="Clear filters">×</button>' : "");
-      el.querySelectorAll(".tag-chip-strip-chip, .tag-chip-strip-clear").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          if (btn.dataset.clear)
-            this._activeTagFilters.clear();
-          else {
-            const t = btn.dataset.tag;
-            this._activeTagFilters.has(t) ? this._activeTagFilters.delete(t) : this._activeTagFilters.add(t);
-          }
-          this.renderCardList();
-        });
-      });
-    },
-    renderCardList() {
-      const $ = Ui.$;
-      const { cards, activeCard } = window.AppState;
-      const container = $("#cardList");
-      const emptyState = $("#emptyState");
-      const searchWrap = $("#cardSearchWrap");
-      const controlsWrap = $("#libraryControls");
-      $("#cardCount").textContent = I18n.t("left.cards", { count: cards.length });
-      if (searchWrap)
-        searchWrap.style.display = cards.length > 3 ? "" : "none";
-      if (controlsWrap)
-        controlsWrap.style.display = cards.length > 3 ? "" : "none";
-      this._renderTagCloud();
-      this._renderTagChipStrip();
-      let filtered = cards;
-      if (this._searchQuery) {
-        const q = this._searchQuery.toLowerCase();
-        filtered = cards.filter((c) => (c.name || "").toLowerCase().includes(q) || (c.creator || "").toLowerCase().includes(q) || [...this._tagSet(c)].some((t) => t.includes(q)));
-      }
-      if (this._activeTagFilters.size > 0) {
-        filtered = filtered.filter((c) => {
-          const cardTags = this._tagSet(c);
-          for (const filter of this._activeTagFilters) {
-            if (!cardTags.has(filter.toLowerCase()))
-              return false;
-          }
-          return true;
-        });
-      }
-      filtered = this._sortCards(filtered);
-      if (filtered.length === 0 && (this._searchQuery || this._activeTagFilters.size > 0)) {
-        container.innerHTML = '<div class="text-center text-muted py-4">' + I18n.t("gen.noMatch") + "</div>";
-        emptyState.style.display = "none";
-        return;
-      }
-      if (filtered.length === 0) {
-        container.innerHTML = "";
-        emptyState.style.display = "flex";
-        return;
-      }
-      emptyState.style.display = "none";
-      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      container.innerHTML = this._groupCards(filtered).map((group) => {
-        const rows = group.items.map((card) => this._rowHtml(card, activeCard)).join("");
-        const collapsed = group.letter ? this._collapsedGroups.has(group.letter) : false;
-        return '<div class="card-list-group" data-letter="' + Ui.escapeAttr(group.letter) + '">' + (group.letter ? '<button type="button" class="card-group-header" data-letter="' + Ui.escapeAttr(group.letter) + '" aria-expanded="' + (collapsed ? "false" : "true") + '"><span class="card-group-letter">' + Ui.escapeHtml(group.letter) + '</span><span class="card-group-count">' + group.items.length + "</span></button>" : "") + '<div class="card-group-body' + (collapsed ? " collapsed" : "") + '">' + rows + "</div>" + "</div>";
-      }).join("");
-      Anims.staggerFadeIn(container.querySelectorAll(".card-list-item"), { stagger: 25, duration: 200 });
-      if (!reducedMotion) {
-        container.querySelectorAll(".card-list-item").forEach((item) => {
-          item.addEventListener("mousemove", (e) => {
-            const rect = item.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            const centerX = rect.width / 2;
-            const centerY = rect.height / 2;
-            const rotateX = (y - centerY) / centerY * -4;
-            const rotateY = (x - centerX) / centerX * 4;
-            item.style.transform = "perspective(400px) rotateX(" + rotateX + "deg) rotateY(" + rotateY + "deg) scale(1.01)";
-            item.style.setProperty("--mouse-x", x / rect.width * 100 + "%");
-            item.style.setProperty("--mouse-y", y / rect.height * 100 + "%");
-          });
-          item.addEventListener("mouseleave", () => {
-            item.style.transform = "";
-          });
-        });
-      }
-      if (!this._previewHoverBound && container) {
-        this._previewHoverBound = true;
-        container.addEventListener("mouseover", (e) => {
-          const item = e.target.closest(".card-list-item");
-          if (!item)
-            return;
-          const descEl = item.querySelector(".preview-desc");
-          if (!descEl || descEl.dataset.filled)
-            return;
-          const id = item.dataset.cardId;
-          if (this._previewCache.has(id)) {
-            this._fillTooltipDesc(descEl, id);
-            return;
-          }
-          CardStorage.getCard(id).then((full) => {
-            if (full) {
-              this._previewCache.set(id, full);
-              this._fillTooltipDesc(descEl, id);
-            }
-          }).catch(() => {});
-        });
-      }
-      if (!this._cardListBound && container) {
-        this._cardListBound = true;
-        container.addEventListener("click", (e) => {
-          const groupHeader = e.target.closest(".card-group-header");
-          if (groupHeader) {
-            const letter = groupHeader.dataset.letter;
-            const body = groupHeader.parentElement && groupHeader.parentElement.querySelector(".card-group-body");
-            if (body) {
-              const collapsed = body.classList.toggle("collapsed");
-              groupHeader.setAttribute("aria-expanded", collapsed ? "false" : "true");
-              if (collapsed)
-                this._collapsedGroups.add(letter);
-              else
-                this._collapsedGroups.delete(letter);
-            }
-            return;
-          }
-          const previewBtn = e.target.closest(".card-preview-btn");
-          if (previewBtn) {
-            e.stopPropagation();
-            CardManager2.showCardPreview(previewBtn.dataset.cardId);
-            return;
-          }
-          const checkbox = e.target.closest(".card-batch-check");
-          if (checkbox) {
-            e.stopPropagation();
-            CardManager2._toggleBatchSelect(checkbox.dataset.cardId);
-            return;
-          }
-          const item = e.target.closest(".card-list-item");
-          if (!item)
-            return;
-          const card = window.AppState.cards.find((c) => c._id === item.dataset.cardId);
-          if (card)
-            CardManager2.selectCard(card);
-        });
-        const searchInput = $("#cardSearchInput");
-        if (searchInput) {
-          searchInput.addEventListener("input", Ui.debounce(() => {
-            this._searchQuery = searchInput.value.trim();
-            this.renderCardList();
-          }, DEBOUNCE_SEARCH_MS));
-        }
-        let dragId = null;
-        container.addEventListener("dragstart", (e) => {
-          const handle = e.target.closest(".card-drag-handle");
-          if (!handle)
-            return;
-          dragId = handle.dataset.cardId;
-          if (e.dataTransfer)
-            e.dataTransfer.effectAllowed = "move";
-          const dragItem = handle.closest(".card-list-item");
-          if (dragItem && !Anims._disabled()) {
-            dragItem.style.transition = "transform 150ms ease, opacity 150ms ease";
-            dragItem.style.transform = "scale(0.97)";
-            dragItem.style.opacity = "0.7";
-          }
-        });
-        container.addEventListener("dragover", (e) => {
-          e.preventDefault();
-          const item = e.target.closest(".card-list-item");
-          if (item)
-            item.classList.add("drag-over");
-        });
-        container.addEventListener("dragleave", (e) => {
-          const item = e.target.closest(".card-list-item");
-          if (item)
-            item.classList.remove("drag-over");
-        });
-        container.addEventListener("drop", (e) => {
-          e.preventDefault();
-          const item = e.target.closest(".card-list-item");
-          if (item)
-            item.classList.remove("drag-over");
-          if (!dragId || !item)
-            return;
-          if (this._searchQuery || this._activeTagFilters.size > 0) {
-            Ui.showToast(I18n.t("toast.reorderFiltered"), "info");
-            dragId = null;
-            return;
-          }
-          if (this._sortMode !== "manual") {
-            Ui.showToast(I18n.t("toast.reorderManual"), "info");
-            dragId = null;
-            return;
-          }
-          const dropId = item.dataset.cardId;
-          if (dragId === dropId)
-            return;
-          const cards2 = window.AppState.cards;
-          const fromIdx = cards2.findIndex((c) => c._id === dragId);
-          const toIdx = cards2.findIndex((c) => c._id === dropId);
-          if (fromIdx < 0 || toIdx < 0)
-            return;
-          const [moved] = cards2.splice(fromIdx, 1);
-          const adjustedTo = toIdx > fromIdx ? toIdx - 1 : toIdx;
-          cards2.splice(adjustedTo, 0, moved);
-          CardStorage.saveCardIndex(cards2);
-          this.renderCardList();
-          dragId = null;
-        });
-        container.addEventListener("dragend", () => {
-          const dragItem = container.querySelector('.card-list-item[style*="scale"]');
-          if (dragItem) {
-            dragItem.style.transform = "";
-            dragItem.style.opacity = "";
-          }
-          dragId = null;
-        });
-      }
-    },
-    _switchPromise: Promise.resolve(),
-    async selectCard(cardMeta) {
-      if (!cardMeta || !cardMeta._id)
-        return;
-      const run = () => this._doSelect(cardMeta);
-      const next = this._switchPromise.then(run, run);
-      this._switchPromise = next.catch(() => {});
-      return next;
-    },
-    async _doSelect(cardMeta) {
-      const { activeCard, isAiLoading } = window.AppState;
-      if (isAiLoading) {
-        AiChat._abortAll();
-        AiChat._bumpGen();
-        window.AppState.isAiLoading = false;
-        AiChat.updateSendButton();
-      }
-      if (activeCard && activeCard._id !== cardMeta._id)
-        await Editor.syncEditorToCard();
-      const fullCard = await CardStorage.getCard(cardMeta._id);
-      if (!fullCard)
-        return;
-      window.AppState.activeCard = fullCard;
-      CardStorage.setActiveCardId(fullCard._id);
-      AiChat._resetChat();
-      try {
-        const b64 = await CardStorage.getImage(fullCard._id);
-        if (b64)
-          window.AppState.activeCard._imageBase64 = b64;
-      } catch (e) {
-        console.error("Failed to load image from IndexedDB:", e);
-      }
-      const cardHistory = CardStorage.getChatHistory(fullCard._id);
-      window.AppState.chatHistory = cardHistory;
-      const sessions = CardStorage.getChatSessions(fullCard._id);
-      if (sessions.length > 0) {
-        const latestSession = sessions[0];
-        const sessionMessages = CardStorage.getSessionMessages(fullCard._id, latestSession.id);
-        if (sessionMessages.length > 0) {
-          window.AppState.chatHistory = sessionMessages;
-          AiChat._setCurrentSession(latestSession.id);
-        } else {
-          AiChat._setCurrentSession(latestSession.id);
-          CardStorage.saveSessionMessages(fullCard._id, latestSession.id, cardHistory);
-        }
-      }
-      AiChat.renderChatHistory();
-      Editor.populateEditor(fullCard);
-      this.renderCardList();
-      Ui.setDirty(false);
-      Ui.updateUIState();
-      AiChat.updateContextBar();
-      setTimeout(() => {
-        const aiInput = document.querySelector("#aiInput");
-        if (aiInput)
-          aiInput.focus();
-      }, 100);
-    },
-    async createNewCard() {
-      const { activeCard } = window.AppState;
-      if (activeCard)
-        await Editor.syncEditorToCard();
-      const card = CardEngine.createEmptyCard();
-      await CardStorage.upsertCard(card);
-      window.AppState.cards = CardStorage.getCards();
-      this.renderCardList();
-      await this.selectCard(card);
-      document.querySelector("#editName").focus();
-      Ui.showToast(I18n.t("toast.newBlank"), "success");
-    },
-    async saveCurrentCard() {
-      const { activeCard } = window.AppState;
-      if (!activeCard) {
-        Ui.showToast(I18n.t("toast.noCardSave"), "warning");
-        return;
-      }
-      await Editor.syncEditorToCard();
-      window.AppState._dirty = false;
-      Ui.setDirty(false);
-      Ui.flashSaved();
-      this.renderCardList();
-      Ui.showToast(I18n.t("toast.cardSaved"), "success");
-    },
-    async duplicateCard() {
-      const { activeCard } = window.AppState;
-      if (!activeCard) {
-        Ui.showToast(I18n.t("toast.noCardDup"), "warning");
-        return;
-      }
-      await Editor.syncEditorToCard();
-      const clone = JSON.parse(JSON.stringify(activeCard));
-      clone._id = CardEngine._uniqueId();
-      clone.name = (clone.name || (I18n.t ? I18n.t("gen.unnamed") : "Unnamed")) + (I18n.t ? I18n.t("gen.copySuffix") : " (Copy)");
-      await CardStorage.upsertCard(clone);
-      if (clone._imageBase64)
-        await CardStorage.saveImage(clone._id, clone._imageBase64);
-      window.AppState.cards = CardStorage.getCards();
-      this.renderCardList();
-      await this.selectCard(clone);
-      Ui.showToast(I18n.t("toast.cardDup"), "success");
-    },
-    async deleteActiveCard() {
-      const { activeCard, cards } = window.AppState;
-      if (!activeCard)
-        return;
-      await Editor.syncEditorToCard();
-      const snapshot = { ...activeCard };
-      if (!snapshot._imageBase64) {
-        try {
-          const b64 = await CardStorage.getImage(snapshot._id);
-          if (b64)
-            snapshot._imageBase64 = b64;
-        } catch (_) {}
-      }
-      const snapshotIndex = cards.findIndex((c) => c._id === activeCard._id);
-      try {
-        await CardStorage.deleteCard(activeCard._id);
-      } catch (e) {
-        console.error("Failed to delete card:", e);
-        Ui.showToast(I18n.t ? I18n.t("toast.deleteFailed") || "Failed to delete card" : "Failed to delete card", "danger");
-        return;
-      }
-      window.AppState.cards = CardStorage.getCards();
-      window.AppState.activeCard = null;
-      Editor.hideEditor();
-      this.renderCardList();
-      if (window.AppState.cards.length > 0)
-        await this.selectCard(window.AppState.cards[0]);
-      let undone = false;
-      const DURATION = 8000;
-      const toastLabel = I18n && I18n.t ? I18n.t("gen.toastAutoHide", { s: Math.ceil(DURATION / 1000) }) : "Auto-hides in 8s";
-      const toastEl = document.createElement("div");
-      toastEl.className = "toast align-items-center border-0";
-      toastEl.setAttribute("role", "alert");
-      toastEl.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2 w-100"><div class="flex-grow-1 d-flex align-items-center gap-2">' + '<i class="bi bi-trash-fill text-danger"></i>' + I18n.t("toast.cardDeleted", { name: Ui.escapeHtml(snapshot.name || I18n.t("gen.unnamed")) }) + '<button class="btn btn-sm btn-outline-accent ms-2" id="undoDeleteBtn">' + I18n.t("toast.undo") + "</button>" + '</div><div class="toast-timer" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">' + toastLabel + '</div><button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
-      document.querySelector("#toastContainer").appendChild(toastEl);
-      const toast = new bootstrap.Toast(toastEl, { delay: DURATION });
-      toast.show();
-      const timerEl = toastEl.querySelector(".toast-timer");
-      if (timerEl) {
-        const interval = 200;
-        let remaining = DURATION;
-        const tick = () => {
-          remaining -= interval;
-          if (remaining <= 0 || undone) {
-            timerEl.textContent = "";
-            return;
-          }
-          const secs = Math.ceil(remaining / 1000);
-          timerEl.textContent = I18n && I18n.t ? I18n.t("gen.toastAutoHide", { s: secs }) : "Auto-hides in " + secs + "s";
-        };
-        const timer = setInterval(tick, interval);
-        const clearTimer = () => {
-          clearInterval(timer);
-          toastEl.removeEventListener("hidden.bs.toast", clearTimer);
-        };
-        toastEl.addEventListener("hidden.bs.toast", clearTimer);
-        const observer = new MutationObserver(() => {
-          if (!document.body.contains(toastEl)) {
-            clearTimer();
-            observer.disconnect();
-          }
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-        toastEl.addEventListener("hidden.bs.toast", () => {
-          toastEl.remove();
-          if (!undone)
-            return;
-        });
-      } else {
-        toastEl.addEventListener("hidden.bs.toast", () => {
-          toastEl.remove();
-          if (!undone)
-            return;
-        });
-      }
-      const undoBtn = toastEl.querySelector("#undoDeleteBtn");
-      undoBtn.addEventListener("click", async () => {
-        undone = true;
-        toast.hide();
-        await CardStorage.upsertCard(snapshot);
-        if (snapshot._imageBase64) {
-          await CardStorage.saveImage(snapshot._id, snapshot._imageBase64);
-          snapshot._hasImage = true;
-        }
-        window.AppState.cards = CardStorage.getCards();
-        this.renderCardList();
-        await this.selectCard(snapshot);
-        Ui.showToast(I18n.t("toast.cardRestored"), "success");
-      });
-    },
-    _previewModal: null,
-    _previewCardId: null,
-    _previewCache: new Map,
-    _previewHoverBound: false,
-    _fillTooltipDesc(descEl, cardId) {
-      const full = this._previewCache.get(cardId);
-      if (!full)
-        return;
-      const text = (full.description || "").trim();
-      const snippet = (text || (full.first_mes || "").trim()).slice(0, 400);
-      if (snippet) {
-        descEl.textContent = snippet;
-        descEl.dataset.filled = "1";
-      }
-    },
-    async showCardPreview(cardId) {
-      const full = await CardStorage.getCard(cardId);
-      if (!full)
-        return;
-      this._previewCardId = cardId;
-      const $ = Ui.$;
-      const t = (key, fallback) => I18n && I18n.t ? I18n.t(key) : fallback;
-      $("#cardPreviewTitle").textContent = full.name || t("gen.unnamed", "Unnamed");
-      const img = $("#cardPreviewAvatar");
-      const b64 = full._imageBase64 || full._thumbnail;
-      if (b64) {
-        img.src = b64;
-        img.hidden = false;
-        $("#cardPreviewAvatarPlaceholder").style.display = "none";
-      } else {
-        img.removeAttribute("src");
-        img.hidden = true;
-        $("#cardPreviewAvatarPlaceholder").style.display = "";
-      }
-      const metaParts = [];
-      if (full.creator)
-        metaParts.push(Ui.escapeHtml(full.creator));
-      if (full.spec_version)
-        metaParts.push("v" + Ui.escapeHtml(full.spec_version));
-      if ((full.tags || []).length)
-        metaParts.push((full.tags || []).map((x) => Ui.escapeHtml(String(x))).join(", "));
-      $("#cardPreviewMeta").innerHTML = metaParts.join(" · ");
-      const body = $("#cardPreviewBody");
-      const sections = [];
-      if ((full.description || "").trim()) {
-        sections.push('<h6 class="card-preview-section-title">' + t("editor.desc", "Description") + "</h6>" + '<div class="card-preview-section" id="cardPreviewDesc"></div>');
-      }
-      if ((full.first_mes || "").trim()) {
-        sections.push('<h6 class="card-preview-section-title">' + t("editor.firstMes", "First Message") + "</h6>" + '<div class="card-preview-section" id="cardPreviewFirstMes"></div>');
-      }
-      if (!sections.length) {
-        sections.push('<p class="text-muted mb-0" style="font-size:0.85rem;">' + t("preview.empty", "No description or first message.") + "</p>");
-      }
-      body.innerHTML = sections.join("");
-      const descEl = $("#cardPreviewDesc");
-      if (descEl)
-        descEl.innerHTML = Ui.renderMarkdown(full.description || "", descEl);
-      const fmEl = $("#cardPreviewFirstMes");
-      if (fmEl)
-        fmEl.innerHTML = Ui.renderMarkdown(full.first_mes || "", fmEl);
-      this._previewModal = this._previewModal || new bootstrap.Modal("#cardPreviewModal");
-      this._previewModal.show();
-    },
-    async _fileHasChara(file) {
-      try {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        if (bytes.length < 8)
-          return false;
-        const sig = [137, 80, 78, 71, 13, 10, 26, 10];
-        for (let i = 0;i < 8; i++)
-          if (bytes[i] !== sig[i])
-            return false;
-        const dec = new TextDecoder("utf-8");
-        let offset = 8;
-        while (offset + 12 <= bytes.length) {
-          const len = (bytes[offset] << 24 | bytes[offset + 1] << 16 | bytes[offset + 2] << 8 | bytes[offset + 3]) >>> 0;
-          const type = dec.decode(bytes.slice(offset + 4, offset + 8));
-          if (type === "tEXt" || type === "iTXt" || type === "zTXt") {
-            const data = bytes.slice(offset + 8, offset + 8 + len);
-            const nullIdx = data.indexOf(0);
-            if (nullIdx > 0) {
-              const kw = dec.decode(data.slice(0, nullIdx)).toLowerCase();
-              if (kw === "chara" || kw === "ccv3")
-                return true;
-            }
-          } else if (type === "IEND") {
-            break;
-          }
-          offset += 12 + len;
-        }
-        return false;
-      } catch (e) {
-        return false;
-      }
-    },
-    async _pasteAsAvatar(file) {
-      if (!window.AppState.activeCard) {
-        Ui.showToast(I18n.t ? I18n.t("toast.pasteAvatarNoCard") : "Select a card first, then paste the image as its avatar", "warning");
-        return;
-      }
-      try {
-        await Editor.setAvatar(file);
-      } catch (_) {}
-    },
-    async _importPastedFile(file) {
-      await this.processFiles([file]);
-    },
-    async processPaste(files, text) {
-      const t = (key, fallback) => I18n && I18n.t ? I18n.t(key) : fallback;
-      if (files && files.length) {
-        for (const file of files) {
-          const ext = (file.name.split(".").pop() || "").toLowerCase();
-          const isImage = (file.type || "").startsWith("image/");
-          if (ext === "json") {
-            await this._importPastedFile(file);
-            continue;
-          }
-          if (isImage && ext === "png" && await this._fileHasChara(file)) {
-            await this._importPastedFile(file);
-            continue;
-          }
-          if (isImage) {
-            await this._pasteAsAvatar(file);
-            continue;
-          }
-          Ui.showToast(t("toast.pasteNoCard", "Clipboard contains no character card or image"), "warning");
-        }
-        return;
-      }
-      if (!text)
-        return;
-      if (/^data:image\//i.test(text)) {
-        try {
-          const blob = await (await fetch(text)).blob();
-          await this._pasteAsAvatar(new File([blob], "pasted-avatar", { type: blob.type || "image/png" }));
-        } catch (_) {
-          Ui.showToast(t("toast.pasteNoCard", "Clipboard contains no character card or image"), "warning");
-        }
-        return;
-      }
-      if (text[0] === "{" || text[0] === "[") {
-        await this._importPastedFile(new File([text], "pasted-card.json", { type: "application/json" }));
-        return;
-      }
-      Ui.showToast(t("toast.pasteNoCard", "Clipboard contains no character card or image"), "warning");
-    }
-  };
-  if (typeof window !== "undefined")
-    window.CardManager = CardManager2;
-
-  // js/chatState.js
-  var selectedFields = new Set;
-  var greetingCount = 3;
-  var historyRendered = false;
-  var currentSessionId = null;
-  var gen = 0;
-  var contextBarGen = 0;
-  var abortControllers = [];
-  var applyQueue = [];
-  var applyStore = new Map;
-  var applyElMap = new WeakMap;
-  var applyIndex = 0;
-  var ChatState = {
-    get selectedFields() {
-      return selectedFields;
-    },
-    set selectedFields(v) {
-      selectedFields = v;
-    },
-    get greetingCount() {
-      return greetingCount;
-    },
-    set greetingCount(v) {
-      greetingCount = v;
-    },
-    get historyRendered() {
-      return historyRendered;
-    },
-    set historyRendered(v) {
-      historyRendered = v;
-    },
-    get currentSessionId() {
-      return currentSessionId;
-    },
-    set currentSessionId(v) {
-      currentSessionId = v;
-    },
-    get gen() {
-      return gen;
-    },
-    set gen(v) {
-      gen = v;
-    },
-    get contextBarGen() {
-      return contextBarGen;
-    },
-    set contextBarGen(v) {
-      contextBarGen = v;
-    },
-    get abortControllers() {
-      return abortControllers;
-    },
-    set abortControllers(v) {
-      abortControllers = v;
-    },
-    get applyQueue() {
-      return applyQueue;
-    },
-    set applyQueue(v) {
-      applyQueue = v;
-    },
-    get applyStore() {
-      return applyStore;
-    },
-    set applyStore(v) {
-      applyStore = v;
-    },
-    get applyElMap() {
-      return applyElMap;
-    },
-    set applyElMap(v) {
-      applyElMap = v;
-    },
-    get applyIndex() {
-      return applyIndex;
-    },
-    set applyIndex(v) {
-      applyIndex = v;
-    },
-    bumpGen() {
-      return ++gen;
-    },
-    bumpContextBarGen() {
-      return ++contextBarGen;
-    },
-    addController(controller) {
-      abortControllers.push(controller);
-    },
-    releaseController(controller) {
-      const idx = abortControllers.indexOf(controller);
-      if (idx >= 0)
-        abortControllers.splice(idx, 1);
-    },
-    abortAll() {
-      abortControllers.forEach((c) => c.abort());
-      abortControllers = [];
-    },
-    registerApply(el, field, content) {
-      if (!el)
-        return null;
-      let item = applyElMap.get(el);
-      if (item) {
-        item.field = field;
-        item.content = content;
-        return item;
-      }
-      item = { el, field, content, applied: false };
-      applyElMap.set(el, item);
-      applyQueue.push(item);
-      return item;
-    },
-    firstUnappliedIndex() {
-      for (let i = 0;i < applyQueue.length; i++) {
-        if (!applyQueue[i].applied)
-          return i;
-      }
-      return -1;
-    },
-    nextUnappliedIndex() {
-      for (let i = applyIndex + 1;i < applyQueue.length; i++) {
-        if (!applyQueue[i].applied)
-          return i;
-      }
-      return -1;
-    },
-    allApplied() {
-      return applyQueue.every((it) => it.applied);
-    },
-    pruneDetached() {
-      applyQueue = applyQueue.filter((it) => {
-        const el = it.el;
-        return !!el && el.isConnected === true;
-      });
-      if (applyIndex >= applyQueue.length)
-        applyIndex = Math.max(0, applyQueue.length - 1);
-    },
-    resetApply() {
-      applyQueue = [];
-      applyIndex = 0;
-      applyElMap = new WeakMap;
-      applyStore.clear();
-    },
-    resetChat() {
-      this.abortAll();
-      this.bumpGen();
-      this.resetApply();
-      currentSessionId = null;
-      historyRendered = false;
-    }
-  };
-  if (typeof window !== "undefined")
-    window.ChatState = ChatState;
-
-  // js/aiChat.js
-  var AiChat2 = {
-    MAX_PARALLEL_FIELDS: 20,
-    _INTENT_TIMEOUT_MS: 8000,
-    FIELD_DEFS: [
-      { id: "name", labelKey: "ai.target.name", icon: "bi-person-badge" },
-      { id: "description", labelKey: "ai.target.description", icon: "bi-card-text" },
-      { id: "personality", labelKey: "ai.target.personality", icon: "bi-brain" },
-      { id: "first_mes", labelKey: "ai.target.first_mes", icon: "bi-chat-dots" },
-      { id: "scenario", labelKey: "ai.target.scenario", icon: "bi-geo-alt" },
-      { id: "mes_example", labelKey: "ai.target.mes_example", icon: "bi-chat-square-text" },
-      { id: "alternate_greetings", labelKey: "ai.target.alternate_greetings", icon: "bi-list-ol", hasCount: true },
-      { id: "system_prompt", labelKey: "ai.target.system_prompt", icon: "bi-terminal" },
-      { id: "post_history_instructions", labelKey: "ai.target.post_history_instructions", icon: "bi-arrow-repeat" },
-      { id: "creator_notes", labelKey: "ai.target.creator_notes", icon: "bi-pencil" }
-    ],
-    _renderFieldChips() {
-      const $ = Ui.$;
-      const container = $("#aiFieldChips");
-      if (!container)
-        return;
-      const chipHtml = this.FIELD_DEFS.map((f) => {
-        const isActive = ChatState.selectedFields.has(f.id);
-        const label = I18n.t ? I18n.t(f.labelKey) : f.id;
-        return '<span class="ai-field-chip' + (isActive ? " active" : "") + '" data-field="' + f.id + '">' + '<i class="bi ' + f.icon + '"></i>' + Ui.escapeHtml(label) + "</span>";
-      }).join("");
-      const allActive = ChatState.selectedFields.size >= this.FIELD_DEFS.length;
-      const allChip = '<span class="ai-field-chip all-fields' + (allActive ? " active" : "") + '" data-field="__all__">' + '<i class="bi bi-stars"></i>' + (I18n.t ? I18n.t("ai.target.full") : "All Fields") + "</span>";
-      container.innerHTML = allChip + chipHtml;
-      const self = this;
-      container.querySelectorAll(".ai-field-chip").forEach((chip) => {
-        chip.addEventListener("click", () => {
-          const field = chip.dataset.field;
-          self._toggleFieldChip(field);
-          self._renderFieldChips();
-          self.updateContextBar();
-        });
-      });
-      const countWrap = document.querySelector("#aiGreetingCount");
-      if (countWrap) {
-        countWrap.style.display = ChatState.selectedFields.has("alternate_greetings") ? "flex" : "none";
-      }
-      const countInput = document.querySelector("#aiGreetingCountInput");
-      if (countInput) {
-        ChatState.greetingCount = parseInt(countInput.value) || 3;
-      }
-    },
-    _toggleFieldChip(field) {
-      if (field === "__all__") {
-        const allSelected = ChatState.selectedFields.size >= this.FIELD_DEFS.length;
-        if (allSelected) {
-          ChatState.selectedFields.clear();
-        } else {
-          this.FIELD_DEFS.forEach((f) => ChatState.selectedFields.add(f.id));
-        }
-        return;
-      }
-      if (ChatState.selectedFields.has(field)) {
-        ChatState.selectedFields.delete(field);
-      } else {
-        ChatState.selectedFields.add(field);
-      }
-    },
-    getSelectedFields() {
-      return [...ChatState.selectedFields];
-    },
-    async send(retryPrompt) {
-      const $ = Ui.$;
-      const input = $("#aiInput");
-      const rawPrompt = retryPrompt || input.value.trim();
-      const prompt = this._normalizePlaceholders(rawPrompt);
-      const { activeCard } = window.AppState;
-      if (!prompt || window.AppState.isAiLoading)
-        return;
-      if (!activeCard) {
-        Ui.showToast(I18n.t("toast.selectCard"), "warning");
-        return;
-      }
-      let selectedFields2 = this.getSelectedFields();
-      if (selectedFields2.length === 0) {
-        const inferred = await this._resolveTargetFields(prompt);
-        if (inferred.length > 0) {
-          ChatState.selectedFields = new Set(inferred);
-          this._renderFieldChips();
-          selectedFields2 = inferred;
-          const labels = inferred.map((f) => {
-            const def = this.FIELD_DEFS.find((d) => d.id === f);
-            return def ? I18n.t ? I18n.t(def.labelKey) : def.labelKey : f;
-          });
-          Ui.showToast(I18n.t("toast.fieldsDetected", { fields: labels.join(", ") }), "info");
-        } else {
-          Ui.showToast(I18n.t("toast.selectField"), "info");
-          return;
-        }
-      }
-      if (selectedFields2.length > this.MAX_PARALLEL_FIELDS) {
-        Ui.showToast(I18n.t ? I18n.t("toast.tooManyFields", { max: this.MAX_PARALLEL_FIELDS }) : "Too many fields selected. Max " + this.MAX_PARALLEL_FIELDS + " at once.", "warning");
-        return;
-      }
-      const histPanel = $("#aiHistoryPanel");
-      if (histPanel && histPanel.classList.contains("open")) {
-        this.toggleHistory(false);
-      }
-      if (!AIService.hasApiKey()) {
-        Ui.showToast(I18n.t("toast.apiKey"), "warning");
-        return;
-      }
-      const modelId = $("#aiModelSelect").value;
-      if (!modelId) {
-        Ui.showToast(I18n.t("toast.selectModel"), "warning");
-        return;
-      }
-      if (!retryPrompt) {
-        input.value = "";
-        input.focus();
-        const userIdx = window.AppState.chatHistory.length;
-        this.addChatMessage("user", prompt, null, null, userIdx);
-      }
-      window.AppState.isAiLoading = true;
-      this.updateSendButton();
-      window.AppState.chatHistory.push({ role: "user", content: prompt });
-      CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
-      const cardId = window.AppState.activeCard?._id || "global";
-      if (!ChatState.currentSessionId) {
-        const now = Date.now();
-        const session = {
-          id: "ses_" + now + "_" + Math.random().toString(36).slice(2, 7),
-          created: now,
-          lastUpdated: now,
-          preview: prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt,
-          messageCount: 1
-        };
-        ChatState.currentSessionId = session.id;
-        CardStorage.saveChatSession(cardId, session);
-      }
-      CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, window.AppState.chatHistory);
-      const groupedCard = this._createGroupedCard(selectedFields2);
-      this._abortAll();
-      const gen2 = ChatState.bumpGen();
-      const capturedGreetingCount = ChatState.greetingCount;
-      const fieldLabel = (f) => I18n.t ? I18n.t(this.FIELD_DEFS.find((d) => d.id === f)?.labelKey || "") : f;
-      let completedCount = 0;
-      let combinedContent = "";
-      selectedFields2.forEach((field) => {
-        const controller = new AbortController;
-        ChatState.abortControllers.push(controller);
-        const section = this._addFieldSection(groupedCard, field, fieldLabel(field));
-        const contentEl = section.querySelector(".multi-field-content");
-        const history = this._getRecentHistory(10);
-        AIService.chatStream(prompt, this.buildSystemPrompt(field, capturedGreetingCount), modelId, (fullText) => {
-          contentEl.innerHTML = this._formatFieldText(fullText);
-          const container = document.querySelector("#aiChatMessages");
-          container.scrollTop = container.scrollHeight;
-        }, controller.signal, false, history).then((result) => {
-          if (gen2 !== ChatState.gen)
-            return;
-          this._releaseController(controller);
-          try {
-            this._finalizeFieldSection(section, field, result.content);
-          } catch (e) {
-            console.error("aiChat: failed to finalize field section:", e);
-          }
-          completedCount++;
-          combinedContent += `
-
-[` + field + `]
-` + this._fieldDisplayContent(field, result.content);
-          if (completedCount === selectedFields2.length) {
-            this._finalizeGroupedCard(groupedCard, selectedFields2.length);
-            window.AppState.chatHistory.push({ role: "assistant", content: combinedContent });
-            CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
-            this._updateSession();
-            window.AppState.isAiLoading = false;
-            this.updateSendButton();
-            Settings.refreshCredits();
-          }
-        }).catch((err) => {
-          if (gen2 !== ChatState.gen)
-            return;
-          this._releaseController(controller);
-          try {
-            section.classList.add("error");
-            section.classList.remove("streaming");
-            const label = section.querySelector(".multi-field-label");
-            if (label)
-              label.innerHTML = label.innerHTML.replace(I18n.t ? I18n.t("ai.streaming") : "streaming...", I18n.t ? I18n.t("ai.failed") : "failed");
-            contentEl.textContent = err.name === "AbortError" ? I18n.t ? I18n.t("ai.cancelled") : "Cancelled." : (I18n.t ? I18n.t("ai.errorPrefix") : "Error: ") + err.message;
-          } catch (_) {}
-          completedCount++;
-          if (completedCount === selectedFields2.length) {
-            try {
-              this._finalizeGroupedCard(groupedCard, selectedFields2.length);
-            } catch (e) {
-              console.error("aiChat: failed to finalize grouped card:", e);
-            }
-            if (combinedContent.trim()) {
-              window.AppState.chatHistory.push({ role: "assistant", content: combinedContent.trim() });
-              CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
-            }
-            this._updateSession();
-            window.AppState.isAiLoading = false;
-            this.updateSendButton();
-            Settings.refreshCredits();
-          }
-        });
-      });
-    },
-    buildSystemPrompt(targetField, greetingCountOverride) {
-      const { activeCard } = window.AppState;
-      const greetingCount2 = greetingCountOverride || ChatState.greetingCount;
-      const fieldLabel = I18n.t ? I18n.t(this.FIELD_DEFS.find((d) => d.id === targetField)?.labelKey || targetField) : targetField;
-      const cardForPrompt = activeCard ? { ...activeCard } : CardEngine.createEmptyCard();
-      delete cardForPrompt._id;
-      delete cardForPrompt._filename;
-      delete cardForPrompt._hasImage;
-      delete cardForPrompt._imageBase64;
-      delete cardForPrompt._thumbnail;
-      delete cardForPrompt._createdAt;
-      delete cardForPrompt._fileSize;
-      const parts = [
-        CardStorage.getPrompt("assistant") || `You are an AI assistant helping edit SillyTavern character cards.
-SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
-        "",
-        "Here is the FULL character card for context:",
-        "```json",
-        this._normalizePlaceholders(CardEngine.toJSON(cardForPrompt)),
-        "```",
-        ""
-      ];
-      if (targetField === "alternate_greetings") {
-        const existing = activeCard && activeCard.alternate_greetings || [];
-        const greetInstr = (CardStorage.getPrompt("greetingsSystem") || Settings.getDefaultPrompt("greetingsSystem")).split("{count}").join(String(greetingCount2)).split("{current}").join(existing.length ? JSON.stringify(existing) : "(none)");
-        parts.push(greetInstr);
-      } else {
-        let current = "(empty)";
-        if (activeCard && typeof activeCard[targetField] === "string" && activeCard[targetField]) {
-          current = this._normalizePlaceholders(activeCard[targetField]);
-        }
-        const fieldInstr = (CardStorage.getPrompt("fieldsEdit") || Settings.getDefaultPrompt("fieldsEdit")).split("{field}").join(fieldLabel).split("{current}").join(current);
-        parts.push(fieldInstr);
-      }
-      return parts.join(`
-`);
-    },
-    _createGroupedCard(fields) {
-      const $ = Ui.$;
-      const container = $("#aiChatMessages");
-      const welcome = container.querySelector(".ai-welcome");
-      if (welcome)
-        welcome.remove();
-      const el = document.createElement("div");
-      el.className = "ai-message assistant multi-field";
-      el.innerHTML = '<div class="multi-field-header">' + '<i class="bi bi-robot"></i> ' + (I18n.t ? I18n.t("ai.editing", { count: fields.length }) : "Editing " + fields.length + " field" + (fields.length > 1 ? "s" : "") + "...") + "</div>";
-      container.appendChild(el);
-      Anims.staggerFadeIn(el, { duration: 200, from: 10 });
-      container.scrollTop = container.scrollHeight;
-      return el;
-    },
-    _addFieldSection(groupedCard, field, label) {
-      const section = document.createElement("div");
-      section.className = "multi-field-section streaming";
-      section.setAttribute("data-field", field);
-      section.innerHTML = '<div class="multi-field-label">' + '<i class="bi bi-hourglass-split"></i> ' + Ui.escapeHtml(label) + '<span class="multi-field-status"><span class="spinner-border spinner-border-sm text-accent"></span> ' + (I18n.t ? I18n.t("ai.streaming") : "streaming...") + "</span>" + "</div>" + '<div class="multi-field-content"></div>' + '<div class="multi-field-actions" style="display:none;"></div>';
-      groupedCard.appendChild(section);
-      return section;
-    },
-    _finalizeFieldSection(section, field, content) {
-      section.classList.remove("streaming");
-      section.classList.add("done");
-      const label = section.querySelector(".multi-field-label");
-      if (label) {
-        const icon = label.querySelector(".bi");
-        if (icon) {
-          icon.className = "bi bi-check-circle-fill";
-        }
-        const status = label.querySelector(".multi-field-status");
-        if (status)
-          status.remove();
-      }
-      const display = this._fieldDisplayContent(field, content);
-      const contentEl = section.querySelector(".multi-field-content");
-      if (contentEl && display !== content) {
-        contentEl.innerHTML = this._formatFieldText(display);
-      }
-      if (contentEl && display.length > 300) {
-        contentEl.classList.add("collapsed");
-        contentEl.addEventListener("click", () => {
-          contentEl.classList.toggle("collapsed");
-          const viewBtn = section.querySelector(".multi-field-expand-btn");
-          if (viewBtn) {
-            const isCollapsed = contentEl.classList.contains("collapsed");
-            viewBtn.innerHTML = isCollapsed ? '<i class="bi bi-arrows-expand"></i> ' + (I18n.t ? I18n.t("ai.viewFullResult") : "View full result") : '<i class="bi bi-arrows-collapse"></i> ' + (I18n.t ? I18n.t("ai.showLess") : "Show less");
-          }
-        });
-      }
-      const actions = section.querySelector(".multi-field-actions");
-      if (actions) {
-        actions.style.display = "flex";
-        const self = this;
-        if (display.length > 300) {
-          const viewBtn = document.createElement("button");
-          viewBtn.className = "multi-field-expand-btn";
-          viewBtn.type = "button";
-          viewBtn.innerHTML = '<i class="bi bi-arrows-expand"></i> ' + (I18n.t ? I18n.t("ai.viewFullResult") : "View full result");
-          viewBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            self._showResultModal(field, display);
-          });
-          actions.appendChild(viewBtn);
-        }
-        this._registerApply(section, field, content);
-        const btn = document.createElement("button");
-        btn.className = "btn btn-outline-accent btn-sm";
-        btn.innerHTML = '<i class="bi bi-eye me-1"></i> ' + (I18n.t ? I18n.t("ai.reviewApply") : "Review & Apply");
-        btn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          self.tryApplyAIResponse(content, field, section);
-        });
-        actions.appendChild(btn);
-      }
-    },
-    _showResultModal(field, content) {
-      const $ = Ui.$;
-      const fieldLabel = I18n.t ? I18n.t(this.FIELD_DEFS.find((d) => d.id === field)?.labelKey || field) : field;
-      const modalEl = $("#aiResultModal");
-      if (!modalEl)
-        return;
-      const titleEl = modalEl.querySelector(".modal-title");
-      const bodyEl = modalEl.querySelector(".modal-body");
-      if (titleEl)
-        titleEl.innerHTML = '<i class="bi bi-file-text me-2 text-accent"></i>' + Ui.escapeHtml(fieldLabel);
-      if (bodyEl)
-        bodyEl.textContent = content;
-      this._resultModal = this._resultModal || new bootstrap.Modal(modalEl);
-      const modal = this._resultModal;
-      const copyBtn = modalEl.querySelector("#btnCopyResult");
-      if (copyBtn) {
-        const copyLabel = () => '<i class="bi bi-clipboard me-1"></i>' + (I18n.t ? I18n.t("ai.copy") : "Copy");
-        copyBtn.innerHTML = copyLabel();
-        if (this._copyAbort)
-          this._copyAbort.abort();
-        this._copyAbort = new AbortController;
-        let copyTimeout = null;
-        const cleanupCopy = () => {
-          if (copyTimeout) {
-            clearTimeout(copyTimeout);
-            copyTimeout = null;
-          }
-        };
-        copyBtn.addEventListener("click", () => {
-          navigator.clipboard.writeText(content).then(() => {
-            copyBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>' + (I18n.t ? I18n.t("ai.copied") : "Copied!");
-            copyTimeout = setTimeout(() => {
-              copyBtn.innerHTML = copyLabel();
-            }, 2000);
-          }).catch(() => {
-            copyBtn.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>' + (I18n.t ? I18n.t("ai.copyFailed") : "Failed");
-          });
-        }, { signal: this._copyAbort.signal });
-        modalEl.addEventListener("hidden.bs.modal", cleanupCopy, { once: true });
-      }
-      modal.show();
-    },
-    _finalizeGroupedCard(groupedCard, total) {
-      const header = groupedCard.querySelector(".multi-field-header");
-      if (header) {
-        const done = groupedCard.querySelectorAll(".multi-field-section.done").length;
-        const errs = groupedCard.querySelectorAll(".multi-field-section.error").length;
-        let msg;
-        if (I18n.t) {
-          msg = I18n.t("ai.doneSummary", { done, total, errs });
-        } else {
-          msg = done + "/" + total + " field" + (total > 1 ? "s" : "") + " done";
-          if (errs > 0)
-            msg += " · " + errs + " failed";
-        }
-        header.innerHTML = '<i class="bi bi-robot"></i> ' + Ui.escapeHtml(msg);
-      }
-      const readySections = [...groupedCard.querySelectorAll(".multi-field-section.done")].filter((s) => ChatState.applyElMap.get(s));
-      if (readySections.length > 0) {
-        const footer = document.createElement("div");
-        footer.className = "multi-field-footer";
-        footer.innerHTML = '<span class="multi-field-footer-count">' + (I18n.t ? I18n.t("ai.changesReady", { count: readySections.length }) : readySections.length + " changes ready") + "</span>";
-        const viewBtn = document.createElement("button");
-        viewBtn.type = "button";
-        viewBtn.className = "btn btn-outline-accent btn-sm";
-        viewBtn.innerHTML = '<i class="bi bi-eye me-1"></i> ' + (I18n.t ? I18n.t("ai.reviewApply") : "Review & Apply");
-        viewBtn.addEventListener("click", () => {
-          const idx = this._firstUnappliedIndex();
-          if (idx >= 0)
-            this._openApplyAt(idx);
-        });
-        footer.appendChild(viewBtn);
-        const applyAllBtn = document.createElement("button");
-        applyAllBtn.type = "button";
-        applyAllBtn.className = "btn btn-accent btn-sm";
-        applyAllBtn.innerHTML = '<i class="bi bi-check2-all me-1"></i> ' + (I18n.t ? I18n.t("diff.applyAll") : "Apply all");
-        applyAllBtn.addEventListener("click", () => this._applyAllPending(null));
-        footer.appendChild(applyAllBtn);
-        groupedCard.appendChild(footer);
-      }
-    },
-    _firstUnappliedIndex() {
-      return ChatState.firstUnappliedIndex();
-    },
-    _maybeRetireReadyBars() {
-      if (typeof document === "undefined")
-        return;
-      if (ChatState.allApplied()) {
-        document.querySelectorAll(".multi-field-footer button").forEach((b) => {
-          b.disabled = true;
-          b.classList.add("disabled");
-        });
-      }
-    },
-    _abortAll() {
-      ChatState.abortAll();
-    },
-    _resetApplyQueue() {
-      ChatState.resetApply();
-    },
-    _bumpGen() {
-      return ChatState.bumpGen();
-    },
-    _resetChat() {
-      ChatState.resetChat();
-    },
-    _setCurrentSession(id) {
-      ChatState.currentSessionId = id;
-    },
-    _releaseController(controller) {
-      ChatState.releaseController(controller);
-    },
-    _getRecentHistory(maxMessages = 10, includeLast = false) {
-      const { chatHistory } = window.AppState;
-      if (!chatHistory || chatHistory.length <= 1)
-        return [];
-      return chatHistory.slice(0, includeLast ? chatHistory.length : -1).slice(-maxMessages);
-    },
-    _sendFullCard(prompt, opts) {
-      opts = opts || {};
-      const $ = Ui.$;
-      const { activeCard } = window.AppState;
-      if (window.AppState.isAiLoading)
-        return;
-      if (!AIService.hasApiKey()) {
-        Ui.showToast(I18n.t("toast.apiKey"), "warning");
-        return;
-      }
-      if (!activeCard) {
-        Ui.showToast(I18n.t("toast.selectCard"), "warning");
-        return;
-      }
-      const modelSelect = $("#aiModelSelect");
-      const input = $("#aiInput");
-      if (!modelSelect || !input) {
-        Ui.showToast(I18n.t("toast.selectModel"), "warning");
-        return;
-      }
-      const modelId = modelSelect.value;
-      if (!modelId) {
-        Ui.showToast(I18n.t("toast.selectModel"), "warning");
-        return;
-      }
-      input.value = "";
-      this._abortAll();
-      const gen2 = ChatState.bumpGen();
-      window.AppState.isAiLoading = true;
-      this.updateSendButton();
-      this.addChatMessage("user", prompt, null, null, window.AppState.chatHistory.length);
-      window.AppState.chatHistory.push({ role: "user", content: prompt });
-      CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
-      const cardId = activeCard?._id || "global";
-      if (!ChatState.currentSessionId) {
-        const now = Date.now();
-        const session = {
-          id: "ses_" + now + "_" + Math.random().toString(36).slice(2, 7),
-          created: now,
-          lastUpdated: now,
-          preview: prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt,
-          messageCount: 1
-        };
-        ChatState.currentSessionId = session.id;
-        CardStorage.saveChatSession(cardId, session);
-      }
-      CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, window.AppState.chatHistory);
-      const streamingEl = this.createStreamingMessage();
-      let shimmerGone = false;
-      const startedAt = Date.now();
-      let lastOut = "";
-      const statusEl = streamingEl.querySelector(".ai-stream-status");
-      const liveTimer = setInterval(() => {
-        if (!streamingEl.isConnected) {
-          clearInterval(liveTimer);
-          return;
-        }
-        const secs = Math.floor((Date.now() - startedAt) / 1000) + "s";
-        let liveCount = 0;
-        if (lastOut) {
-          try {
-            liveCount = Tokenizer.syncCount(lastOut);
-          } catch (_) {
-            liveCount = Math.ceil(lastOut.length / 3);
-          }
-        }
-        statusEl.textContent = lastOut ? I18n.t ? I18n.t("ai.streamLive", { tokens: liveCount, secs }) : liveCount + " tokens · " + secs : I18n.t ? I18n.t("ai.thinkingLive", { secs }) : "Thinking… " + secs;
-      }, 500);
-      const cardJson = activeCard ? CardEngine.toJSON(activeCard) : "";
-      const systemPrompt = [
-        CardStorage.getPrompt("fullCard") || `You are an AI assistant helping edit SillyTavern character cards.
-SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
-        "",
-        "Here is the FULL character card for context:",
-        "```json",
-        cardJson,
-        "```",
-        "",
-        opts.systemPromptInstruction || (CardStorage.getPrompt("fullCardInstr") || Settings.getDefaultPrompt("fullCardInstr"))
-      ].join(`
-`);
-      const controller = new AbortController;
-      ChatState.abortControllers.push(controller);
-      AIService.chatStream(prompt, systemPrompt, modelId, (fullText) => {
-        lastOut = fullText;
-        if (!shimmerGone && fullText) {
-          shimmerGone = true;
-          const sk = streamingEl.querySelector(".ai-shimmer");
-          if (sk)
-            sk.remove();
-        }
-        streamingEl.querySelector(".ai-message-content").innerHTML = Ui.escapeHtml(fullText).replace(/```(?:\w+)?\n?([\s\S]*?)```/g, "<pre>$1</pre>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>").replace(/\n/g, "<br>");
-        const container = document.querySelector("#aiChatMessages");
-        container.scrollTop = container.scrollHeight;
-      }, controller.signal, true, this._getRecentHistory(10)).then((result) => {
-        clearInterval(liveTimer);
-        if (gen2 !== ChatState.gen) {
-          streamingEl.remove();
-          return;
-        }
-        streamingEl.remove();
-        const asstIdx = window.AppState.chatHistory.length;
-        const applyTarget = opts.applyTarget || "full";
-        this.addChatMessage("assistant", result.content, result.usage, { content: result.content, field: applyTarget }, asstIdx);
-        window.AppState.chatHistory.push({ role: "assistant", content: result.content });
-        CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
-        this._updateSession();
-        this.tryApplyAIResponse(result.content, applyTarget);
-        Settings.refreshCredits();
-      }).catch((err) => {
-        clearInterval(liveTimer);
-        if (gen2 !== ChatState.gen) {
-          streamingEl.remove();
-          return;
-        }
-        streamingEl.remove();
-        if (err && err.name === "AbortError") {
-          this.addChatMessage("system", I18n.t ? I18n.t("toast.genStopped") : "Generation stopped.");
-        } else {
-          this.addChatMessage("system", (I18n.t ? I18n.t("ai.errorPrefix") : "Error: ") + err.message);
-          Ui.showToast(I18n.t("toast.aiError", { error: err.message }), "danger");
-        }
-      }).finally(() => {
-        this._releaseController(controller);
-        if (gen2 !== ChatState.gen)
-          return;
-        window.AppState.isAiLoading = false;
-        this.updateSendButton();
-      });
-    },
-    _renderDiff(oldText, newText) {
-      const oldEl = document.querySelector("#aiDiffOld");
-      const newEl = document.querySelector("#aiDiffNew");
-      if (!oldEl || !newEl)
-        return;
-      if (typeof Diff === "undefined") {
-        oldEl.textContent = oldText || (I18n.t ? I18n.t("gen.empty") : "(empty)");
-        newEl.textContent = newText;
-        return;
-      }
-      const changes = Diff.diffWords(oldText || "", newText || "");
-      let oldHtml = "";
-      let newHtml = "";
-      changes.forEach((part) => {
-        const escaped = Ui.escapeHtml(part.value);
-        if (part.removed) {
-          oldHtml += '<span class="diff-del">' + escaped + "</span>";
-        } else if (part.added) {
-          newHtml += '<span class="diff-add">' + escaped + "</span>";
-        } else {
-          oldHtml += escaped;
-          newHtml += escaped;
-        }
-      });
-      oldEl.innerHTML = oldHtml || '<span class="diff-empty">' + (I18n.t ? I18n.t("gen.empty") : "(empty)") + "</span>";
-      newEl.innerHTML = newHtml || '<span class="diff-empty">' + (I18n.t ? I18n.t("gen.empty") : "(empty)") + "</span>";
-    },
-    _registerApply(el, field, content) {
-      return ChatState.registerApply(el, field, content);
-    },
-    _prepareApply(field, content, opts) {
-      opts = opts || {};
-      const silent = !!opts.silent;
-      const { activeCard } = window.AppState;
-      if (!activeCard || !content)
-        return null;
-      const card = this._extractCard(content);
-      if (field === "full") {
-        const jsonStr = this._extractJSON(content);
-        if (!jsonStr)
-          return null;
-        try {
-          const parsed = CardEngine.parseJSON(jsonStr, activeCard._filename);
-          this._normalizeCardPlaceholders(parsed);
-          return {
-            oldVal: CardEngine.toJSON(activeCard),
-            newVal: CardEngine.toJSON(parsed),
-            applyFn: () => {
-              const internal = {
-                _id: activeCard._id,
-                _filename: activeCard._filename,
-                _hasImage: activeCard._hasImage,
-                _imageBase64: activeCard._imageBase64,
-                _thumbnail: activeCard._thumbnail,
-                _createdAt: activeCard._createdAt,
-                _fileSize: activeCard._fileSize
-              };
-              Object.assign(activeCard, parsed);
-              Object.assign(activeCard, internal);
-              Editor.populateEditor(activeCard);
-              Editor.syncEditorToCard();
-              if (!silent)
-                Ui.showToast(I18n.t("toast.cardUpdatedAI"), "success");
-            }
-          };
-        } catch (e) {
-          console.error("Failed to parse AI JSON response", e);
-          Ui.showToast(I18n.t("toast.jsonParseFailed"), "warning");
-          return null;
-        }
-      }
-      if (field === "tags") {
-        const cardValue = this._cardFieldValue(card, "tags");
-        const tags = Array.isArray(cardValue) && cardValue.length > 0 && cardValue.every((t) => typeof t === "string") ? cardValue : this._extractJSONArray(content);
-        if (!tags || tags.length === 0) {
-          Ui.showToast(I18n.t ? I18n.t("toast.jsonInvalid") : "Could not parse tags from the response.", "warning");
-          return null;
-        }
-        const existing = (activeCard.tags || []).map((t) => String(t).trim()).filter(Boolean);
-        const merged = [...existing];
-        let added = 0;
-        tags.forEach((t) => {
-          const s = String(t).trim();
-          if (s && !merged.some((m) => m.toLowerCase() === s.toLowerCase())) {
-            merged.push(s);
-            added++;
-          }
-        });
-        return {
-          oldVal: JSON.stringify(existing, null, 2),
-          newVal: JSON.stringify(merged, null, 2),
-          applyFn: () => {
-            activeCard.tags = merged;
-            Editor.populateEditor(activeCard);
-            Editor.syncEditorToCard();
-            CardManager.renderCardList();
-            if (!silent)
-              Ui.showToast(I18n.t("toast.tagsUpdated", { count: added }), "success");
-          }
-        };
-      }
-      if (field === "alternate_greetings") {
-        const cardValue = this._cardFieldValue(card, "alternate_greetings");
-        let greetings = Array.isArray(cardValue) ? cardValue : this._extractJSONArray(content);
-        if (greetings)
-          greetings = greetings.map((g) => this._normalizePlaceholders(g));
-        if (!greetings || greetings.length === 0) {
-          Ui.showToast(I18n.t("toast.greetingsParseFailed"), "warning");
-          return null;
-        }
-        const renamedTo = this._pendingRename(card, activeCard);
-        return {
-          oldVal: JSON.stringify(activeCard.alternate_greetings || [], null, 2),
-          newVal: JSON.stringify(greetings, null, 2),
-          applyFn: () => {
-            activeCard.alternate_greetings = greetings;
-            if (renamedTo)
-              activeCard.name = renamedTo;
-            Editor.renderGreetings(activeCard);
-            Editor.syncEditorToCard();
-            if (renamedTo)
-              CardManager.renderCardList();
-            if (!silent)
-              Ui.showToast(renamedTo ? I18n.t("toast.cardRenamed", { name: renamedTo }) : I18n.t("toast.greetingsUpdated", { count: greetings.length }), "success");
-          }
-        };
-      }
-      if (activeCard[field] !== undefined || ["description", "personality", "first_mes", "scenario", "mes_example", "system_prompt", "post_history_instructions", "creator_notes"].includes(field)) {
-        const cardValue = this._cardFieldValue(card, field);
-        let clean = cardValue !== undefined ? String(cardValue) : content;
-        const fence = clean.match(/```(?:json|text|markdown)?\s*\n?([\s\S]*?)```/);
-        if (fence)
-          clean = fence[1];
-        const fieldLabel = this._applyFieldLabel(field);
-        const headerRe = new RegExp("^\\[" + fieldLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\]\\s*\\n?");
-        clean = this._normalizePlaceholders(clean.replace(headerRe, "")).trim();
-        if (!clean) {
-          Ui.showToast(I18n.t ? I18n.t("toast.emptyResponse") : "AI returned empty content — nothing to apply.", "warning");
-          return null;
-        }
-        const renamedTo = this._pendingRename(card, activeCard);
-        return {
-          oldVal: activeCard[field] || "",
-          newVal: clean,
-          applyFn: () => {
-            activeCard[field] = clean;
-            if (renamedTo)
-              activeCard.name = renamedTo;
-            Editor.populateEditor(activeCard);
-            Editor.syncEditorToCard();
-            CardManager.renderCardList();
-            if (!silent)
-              Ui.showToast(renamedTo ? I18n.t("toast.cardRenamed", { name: renamedTo }) : I18n.t("toast.fieldUpdated", { field }), "success");
-          }
-        };
-      }
-      return null;
-    },
-    _applyFieldLabel(field) {
-      if (field === "full")
-        return I18n.t ? I18n.t("ai.target.full") : "Full Card";
-      if (field === "tags")
-        return I18n.t ? I18n.t("ai.target.tags") : "Tags";
-      return I18n.t ? I18n.t(this.FIELD_DEFS.find((d) => d.id === field)?.labelKey || field) : field;
-    },
-    CARD_FIELDS: [
-      "description",
-      "personality",
-      "first_mes",
-      "scenario",
-      "mes_example",
-      "alternate_greetings",
-      "system_prompt",
-      "post_history_instructions",
-      "creator_notes",
-      "tags"
-    ],
-    _extractCard(text) {
-      if (!text || typeof text !== "string")
-        return null;
-      const json = this._extractJSON(text);
-      if (!json)
-        return null;
-      let parsed;
-      try {
-        parsed = JSON.parse(json);
-      } catch (_) {
-        return null;
-      }
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-        return null;
-      const data = parsed.data && typeof parsed.data === "object" ? parsed.data : null;
-      if (parsed.spec === "chara_card_v2" && data)
-        return parsed;
-      if (data && typeof data.name === "string" && this.CARD_FIELDS.some((k) => data[k] !== undefined))
-        return parsed;
-      if (!data && typeof parsed.name === "string" && this.CARD_FIELDS.some((k) => parsed[k] !== undefined))
-        return parsed;
-      return null;
-    },
-    _cardFieldValue(card, field) {
-      if (!card)
-        return;
-      const data = card.data && typeof card.data === "object" ? card.data : card;
-      return data[field];
-    },
-    _cardName(card) {
-      if (!card)
-        return "";
-      const data = card.data && typeof card.data === "object" ? card.data : card;
-      return typeof data.name === "string" ? data.name.trim() : "";
-    },
-    _pendingRename(card, activeCard) {
-      if (!card || !activeCard)
-        return "";
-      const name = this._cardName(card);
-      if (!name || name === (activeCard.name || "").trim())
-        return "";
-      return name;
-    },
-    _fieldDisplayContent(field, content) {
-      const card = this._extractCard(content);
-      if (!card)
-        return content;
-      let value = this._cardFieldValue(card, field);
-      if (value === undefined)
-        return content;
-      if (field === "alternate_greetings") {
-        if (!Array.isArray(value))
-          return content;
-        const norm = value.map((g) => this._normalizePlaceholders(g));
-        return norm.length ? JSON.stringify(norm, null, 2) : "";
-      }
-      return String(this._normalizePlaceholders(value));
-    },
-    _formatFieldText(text) {
-      return Ui.escapeHtml(text).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>").replace(/\n/g, "<br>");
-    },
-    _normalizePlaceholders(text) {
-      if (!text || typeof text !== "string")
-        return text;
-      let out = text.replace(/\{\{(user|char)\}\}/gi, (m, name) => "{{" + name.toLowerCase() + "}}");
-      out = out.replace(/(?<!\{)\{([^{}\n]{1,40})\}(?!\})/g, (m, name) => {
-        const key = name.trim().toLowerCase();
-        if (key === "user" || key === "char")
-          return "{{" + key + "}}";
-        return m;
-      });
-      return out;
-    },
-    _normalizeCardPlaceholders(card) {
-      if (!card || typeof card !== "object")
-        return card;
-      [
-        "name",
-        "description",
-        "personality",
-        "first_mes",
-        "scenario",
-        "mes_example",
-        "system_prompt",
-        "post_history_instructions",
-        "creator_notes"
-      ].forEach((f) => {
-        if (typeof card[f] === "string")
-          card[f] = this._normalizePlaceholders(card[f]);
-      });
-      if (Array.isArray(card.alternate_greetings)) {
-        card.alternate_greetings = card.alternate_greetings.map((g) => this._normalizePlaceholders(g));
-      }
-      return card;
-    },
-    async _resolveTargetFields(prompt) {
-      if (AIService.hasApiKey && AIService.hasApiKey()) {
-        if (!this._classifyInFlight) {
-          this._classifyInFlight = this._classifyFields(prompt);
-          this._classifyInFlight.finally(() => {
-            this._classifyInFlight = null;
-          });
-        }
-        const llm = await this._classifyInFlight;
-        if (llm.length > 0)
-          return llm;
-      }
-      return this._inferFields(prompt);
-    },
-    async _classifyFields(prompt) {
-      const validIds = this.FIELD_DEFS.map((d) => d.id);
-      const valid = new Set(validIds);
-      const listed = this.FIELD_DEFS.map((d) => d.id + ' ("' + (I18n.t ? I18n.t(d.labelKey) : d.id) + '")').join(", ");
-      const system = "You map a user request to the character-card fields it asks to change. " + 'Reply with ONLY a JSON array of field ids — e.g. ["name","description"]. ' + "Valid ids: " + listed + ". " + "If nothing matches or you are unsure, reply []. No explanations, no markdown.";
-      const controller = new AbortController;
-      const timer = setTimeout(() => controller.abort(), this._INTENT_TIMEOUT_MS);
-      try {
-        const result = await AIService.chat(prompt, system, "", { jsonMode: true, signal: controller.signal });
-        const parsed = JSON.parse(result.content);
-        if (!Array.isArray(parsed))
-          return [];
-        const picked = [...new Set(parsed.map((x) => String(x).trim()).filter((x) => valid.has(x)))];
-        return validIds.filter((id) => picked.includes(id));
-      } catch (_) {
-        return [];
-      } finally {
-        clearTimeout(timer);
-      }
-    },
-    _inferFields(prompt) {
-      if (!prompt || typeof prompt !== "string")
-        return [];
-      const p = prompt.toLowerCase();
-      const has = (re) => re.test(p);
-      const fields = new Set;
-      if (has(/(renomme|rename|s'appelle|s’appelle|nom de la carte|card name)/))
-        fields.add("name");
-      if (has(/(dit\s*[«"“'‘]|premier message|first message|first_mes|salue\s|greet)/))
-        fields.add("first_mes");
-      if (has(/(personnalit|personality|caract[èe]re)/))
-        fields.add("personality");
-      if (has(/(sc[ée]nario|scenario|arrive chez|se rend chez|situation|contexte)/))
-        fields.add("scenario");
-      if (has(/(salutation|greeting|alternatif)/))
-        fields.add("alternate_greetings");
-      if (has(/(exemple|example)/))
-        fields.add("mes_example");
-      if (has(/(system prompt|prompt syst[èe]me|instructions? pour l'?ia)/))
-        fields.add("system_prompt");
-      if (has(/(cr[ée]ateur|creator)/))
-        fields.add("creator_notes");
-      if (has(/(étudiant|etudiant|fauch|femme de m[ée]nage|housekeeper|est une|est un|est [a-zà-ÿ]+ et|traits|character)/))
-        fields.add("description");
-      if (fields.size > 0 && !fields.has("description") && p.length > 40)
-        fields.add("description");
-      return [...fields];
-    },
-    tryApplyAIResponse(content, targetField, sourceEl) {
-      const { activeCard } = window.AppState;
-      if (!activeCard || !content)
-        return;
-      let item = null;
-      if (sourceEl) {
-        item = ChatState.applyElMap.get(sourceEl);
-        if (item) {
-          item.field = targetField;
-          item.content = content;
-        }
-      } else {
-        item = ChatState.applyQueue.find((it) => it.content === content && it.field === targetField) || null;
-      }
-      if (!item) {
-        item = this._registerApply(sourceEl || null, targetField, content);
-      }
-      if (!item)
-        return;
-      ChatState.applyIndex = ChatState.applyQueue.indexOf(item);
-      this._openApplyAt(ChatState.applyIndex);
-    },
-    _openApplyAt(index) {
-      const queue = ChatState.applyQueue;
-      if (!queue.length)
-        return;
-      const n = queue.length;
-      const i = (index % n + n) % n;
-      const item = queue[i];
-      ChatState.applyIndex = i;
-      const modalEl = document.querySelector("#aiPreviewModal");
-      if (!modalEl)
-        return;
-      const prep = this._prepareApply(item.field, item.content);
-      if (!prep)
-        return;
-      this._previewModal = this._previewModal || new bootstrap.Modal(modalEl);
-      const modal = this._previewModal;
-      this._renderDiff(prep.oldVal, prep.newVal);
-      const titleEl = modalEl.querySelector(".modal-title");
-      if (titleEl)
-        titleEl.innerHTML = '<i class="bi bi-split-cells me-2 text-accent"></i>' + Ui.escapeHtml(this._applyFieldLabel(item.field));
-      const showNav = n > 1;
-      const navGroup = document.querySelector("#applyNavGroup");
-      const counterEl = document.querySelector("#applyNavCounter");
-      const prevBtn = document.querySelector("#btnApplyPrev");
-      const nextBtn = document.querySelector("#btnApplyNext");
-      if (navGroup)
-        navGroup.style.display = showNav ? "flex" : "none";
-      if (counterEl)
-        counterEl.textContent = showNav ? I18n.t ? I18n.t("ai.changesNav", { current: i + 1, total: n }) : i + 1 + " / " + n : "";
-      if (prevBtn)
-        prevBtn.disabled = !showNav;
-      if (nextBtn)
-        nextBtn.disabled = !showNav;
-      const acceptBtn = document.querySelector("#btnAcceptAI");
-      const applyAllBtn = document.querySelector("#btnApplyAll");
-      if (this._previewCleanup)
-        this._previewCleanup();
-      const handler = () => {
-        if (item.applied) {
-          modal.hide();
-          return;
-        }
-        this._markApplied(item);
-        if (prep.applyFn)
-          prep.applyFn();
-        this._maybeRetireReadyBars();
-        const nextIdx = this._nextUnappliedIndex();
-        if (nextIdx >= 0)
-          this._openApplyAt(nextIdx);
-        else
-          modal.hide();
-      };
-      const applyAllHandler = () => {
-        this._applyAllPending(modal);
-      };
-      const keyHandler = (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          handler();
-        } else if (e.key === "ArrowLeft") {
-          e.preventDefault();
-          this._applyNav(-1);
-        } else if (e.key === "ArrowRight") {
-          e.preventDefault();
-          this._applyNav(1);
-        } else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "a") {
-          e.preventDefault();
-          applyAllHandler();
-        }
-      };
-      const cleanup = () => {
-        acceptBtn.removeEventListener("click", handler);
-        if (applyAllBtn)
-          applyAllBtn.removeEventListener("click", applyAllHandler);
-        modalEl.removeEventListener("keydown", keyHandler);
-        modalEl.removeEventListener("hidden.bs.modal", cleanup);
-        if (this._previewCleanup === cleanup)
-          this._previewCleanup = null;
-      };
-      this._previewCleanup = cleanup;
-      acceptBtn.addEventListener("click", handler);
-      if (applyAllBtn)
-        applyAllBtn.addEventListener("click", applyAllHandler);
-      modalEl.addEventListener("keydown", keyHandler);
-      modalEl.addEventListener("hidden.bs.modal", cleanup);
-      modal.show();
-      if (acceptBtn)
-        acceptBtn.focus();
-    },
-    _applyNav(delta) {
-      const queue = ChatState.applyQueue;
-      if (queue.length < 2)
-        return;
-      this._openApplyAt((ChatState.applyIndex + delta + queue.length) % queue.length);
-    },
-    _nextUnappliedIndex() {
-      return ChatState.nextUnappliedIndex();
-    },
-    _applyAllPending(modal) {
-      const queue = ChatState.applyQueue;
-      let applied = 0;
-      let failed = 0;
-      for (const item of queue) {
-        if (item.applied)
-          continue;
-        const prep = this._prepareApply(item.field, item.content, { silent: true });
-        if (!prep) {
-          failed++;
-          continue;
-        }
-        try {
-          this._markApplied(item);
-          prep.applyFn();
-          applied++;
-        } catch (e) {
-          console.error("aiChat: failed to apply change:", e);
-          failed++;
-        }
-      }
-      if (modal && typeof modal.hide === "function")
-        modal.hide();
-      this._maybeRetireReadyBars();
-      if (applied > 0) {
-        Ui.showToast(I18n.t("toast.changesApplied", { count: applied }), "success");
-      }
-    },
-    _pruneApplyQueue() {
-      ChatState.pruneDetached();
-    },
-    _markApplied(item) {
-      item.applied = true;
-      const el = item.el;
-      if (!el)
-        return;
-      el.dataset.applied = "1";
-      const actions = el.matches(".multi-field-section") ? el.querySelector(".multi-field-actions") : el.querySelector(".ai-message-actions") || el;
-      const badge = document.createElement("span");
-      badge.className = "ai-applied-badge";
-      badge.innerHTML = '<i class="bi bi-check2-circle"></i> ' + (I18n.t ? I18n.t("ai.applied") : "Applied");
-      actions.appendChild(badge);
-      [...el.querySelectorAll("button")].forEach((b) => {
-        if (/apply/i.test(b.textContent) || b.classList.contains("ai-message-reapply")) {
-          b.disabled = true;
-          b.classList.add("disabled");
-        }
-      });
-    },
-    _extractJSONArray(text) {
-      if (!text)
-        return null;
-      const textStart = text.indexOf("[");
-      if (textStart < 0)
-        return null;
-      let start = textStart;
-      let depth = 0, inStr = false, esc = false;
-      for (let i = start;i < text.length; i++) {
-        const c = text[i];
-        if (inStr) {
-          if (esc)
-            esc = false;
-          else if (c === "\\")
-            esc = true;
-          else if (c === '"')
-            inStr = false;
-          continue;
-        }
-        if (c === '"')
-          inStr = true;
-        else if (c === "[") {
-          if (depth === 0)
-            start = i;
-          depth++;
-        } else if (c === "]") {
-          depth--;
-          if (depth === 0) {
-            const candidate = text.slice(start, i + 1);
-            try {
-              const parsed = JSON.parse(candidate);
-              if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
-                return parsed;
-              }
-            } catch (_) {}
-          }
-        }
-      }
-      try {
-        const parsed = JSON.parse(text.trim());
-        if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
-          return parsed;
-        }
-      } catch (_) {}
-      return null;
-    },
-    _extractJSON(text) {
-      if (!text)
-        return null;
-      const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-      const candidate = fence ? fence[1].trim() : text.trim();
-      const balanced = this._balancedBraces(candidate);
-      if (balanced)
-        return balanced;
-      return this._balancedBraces(text);
-    },
-    _balancedBraces(text) {
-      const start = text.indexOf("{");
-      if (start < 0)
-        return null;
-      let depth = 0, inStr = false, esc = false;
-      for (let i = start;i < text.length; i++) {
-        const c = text[i];
-        if (inStr) {
-          if (esc)
-            esc = false;
-          else if (c === "\\")
-            esc = true;
-          else if (c === '"')
-            inStr = false;
-          continue;
-        }
-        if (c === '"')
-          inStr = true;
-        else if (c === "{")
-          depth++;
-        else if (c === "}") {
-          depth--;
-          if (depth === 0)
-            return text.slice(start, i + 1);
-        }
-      }
-      return null;
-    },
-    async handleQuickAction(action) {
-      const $ = Ui.$;
-      const { activeCard } = window.AppState;
-      if (action === "newcard") {
-        Wizard.show();
-        return;
-      }
-      if (!AIService.hasApiKey()) {
-        Ui.showToast(I18n.t("toast.apiKey"), "warning");
-        return;
-      }
-      if (!activeCard) {
-        Ui.showToast(I18n.t("toast.selectCard"), "warning");
-        return;
-      }
-      const promptFor = (name) => CardStorage.getPrompt(name) || Settings.getDefaultPrompt(name);
-      const currentOf = {
-        shorten: activeCard.description,
-        enhance: activeCard.description,
-        tone: activeCard.description,
-        grammar: activeCard.description,
-        personality: activeCard.personality,
-        firstmes: activeCard.first_mes,
-        scenario: activeCard.scenario,
-        systemprompt: activeCard.system_prompt
-      };
-      const withCurrent = (name, field) => promptFor(name) + `
-
-Current:
-` + (currentOf[field] || "(empty)");
-      const prompts = {
-        enhance: withCurrent("enhance", "enhance"),
-        personality: withCurrent("personality", "personality"),
-        firstmes: withCurrent("firstmes", "firstmes"),
-        scenario: withCurrent("scenario", "scenario"),
-        shorten: withCurrent("shorten", "shorten"),
-        tone: promptFor("tone"),
-        grammar: withCurrent("grammar", "grammar"),
-        greetings: promptFor("greetings"),
-        systemprompt: withCurrent("systemprompt", "systemprompt"),
-        translate: promptFor("translate"),
-        tags: promptFor("tags")
-      };
-      if (action === "translate") {
-        const LANG_CODES = ["en", "fr", "es", "de", "pt", "ja", "zh", "ko", "el", "ru", "it", "pl", "tr", "nl", "uk", "vi", "id", "hi", "ar", "he", "fa", "ro", "cs", "sv", "th", "pt-pt", "tl"];
-        const options = LANG_CODES.map((code) => {
-          const label = I18n.t && I18n.t("wizard.language." + code) !== "wizard.language." + code ? I18n.t("wizard.language." + code) : code;
-          return { value: label, label };
-        });
-        const lang = await Ui.prompt({
-          title: I18n.t ? I18n.t("ai.translateTitle") : "Translate card",
-          message: I18n.t ? I18n.t("ai.translateMessage") : "Which language should the card be translated to?",
-          select: options,
-          value: I18n.t ? I18n.t("wizard.language.fr") !== "wizard.language.fr" ? I18n.t("wizard.language.fr") : "French" : "French",
-          buttonLabel: I18n.t ? I18n.t("dialog.ok") : "OK"
-        });
-        if (!lang)
-          return;
-        prompts.translate = prompts.translate.split("{lang}").join(lang).split("{card}").join(CardEngine.toJSON(activeCard));
-      }
-      if (action === "tone") {
-        const tone = await Ui.prompt({
-          title: I18n.t ? I18n.t("ai.toneTitle") : "Change tone",
-          message: I18n.t ? I18n.t("ai.toneMessage") : "Which tone should the description be rewritten in?",
-          text: "",
-          value: I18n.t ? I18n.t("ai.toneDefault") !== "ai.toneDefault" ? I18n.t("ai.toneDefault") : "formal" : "formal",
-          placeholder: I18n.t ? I18n.t("ai.toneMessage") : "formal, casual, dark, humorous, poetic…",
-          buttonLabel: I18n.t ? I18n.t("dialog.ok") : "OK"
-        });
-        if (!tone)
-          return;
-        prompts.tone = prompts.tone.split("{tone}").join(tone) + `
-
-Current:
-` + (currentOf.tone || "(empty)");
-      }
-      if (action === "tags") {
-        this._sendFullCard(prompts.tags, {
-          applyTarget: "tags",
-          systemPromptInstruction: promptFor("tagsSystem")
-        });
-        return;
-      }
-      const aiPrompt = action === "translate" ? prompts.translate : prompts[action];
-      if (!aiPrompt)
-        return;
-      ChatState.selectedFields.clear();
-      const fieldMap = {
-        translate: null,
-        personality: "personality",
-        firstmes: "first_mes",
-        scenario: "scenario",
-        enhance: "description",
-        shorten: "description",
-        tone: "description",
-        grammar: "description",
-        greetings: "alternate_greetings",
-        systemprompt: "system_prompt"
-      };
-      if (action === "translate") {
-        this._renderFieldChips();
-        const inp2 = $("#aiInput");
-        if (inp2)
-          inp2.value = aiPrompt;
-        this._sendFullCard(aiPrompt);
-        return;
-      } else if (fieldMap[action]) {
-        ChatState.selectedFields.add(fieldMap[action]);
-      }
-      this._renderFieldChips();
-      const inp = $("#aiInput");
-      if (inp)
-        inp.value = aiPrompt;
-      this.send();
-    },
-    addChatMessage(role, content, usage, applyData, historyIndex) {
-      const $ = Ui.$;
-      const container = $("#aiChatMessages");
-      const welcome = container.querySelector(".ai-welcome");
-      if (welcome)
-        welcome.remove();
-      let formatted;
-      if (typeof Ui !== "undefined" && Ui.renderMarkdown) {
-        formatted = Ui.renderMarkdown(content);
-      } else {
-        formatted = Ui.escapeHtml(content).replace(/```(?:\w+)?\n?([\s\S]*?)```/g, "<pre>$1</pre>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>").replace(/^[-*] (.+)$/gm, "<li>$1</li>").replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>").replace(/\n/g, "<br>");
-      }
-      const usageInfo = usage ? '<div class="text-muted mt-1" style="font-size:0.65rem;">' + (usage.total_tokens || "?") + " tokens · $" + (usage.cost || 0).toFixed(5) + "</div>" : "";
-      const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const el = document.createElement("div");
-      el.className = "ai-message " + role;
-      if (typeof historyIndex === "number")
-        el.dataset.historyIndex = String(historyIndex);
-      el.innerHTML = formatted + '<div class="text-muted mt-1" style="font-size:0.6rem;">' + time + "</div>" + usageInfo;
-      if (role === "assistant") {
-        const actionsWrap = document.createElement("div");
-        actionsWrap.className = "ai-message-actions";
-        const msgId = "msg_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
-        if (applyData && applyData.content) {
-          ChatState.applyStore.set(msgId, applyData);
-          if (ChatState.applyStore.size > 50) {
-            const oldest = ChatState.applyStore.keys().next().value;
-            ChatState.applyStore.delete(oldest);
-          }
-          el.setAttribute("data-apply-id", msgId);
-          this._registerApply(el, applyData.field, applyData.content);
-          const reapplyBtn = document.createElement("button");
-          reapplyBtn.className = "ai-message-reapply";
-          reapplyBtn.innerHTML = '<i class="bi bi-check2-circle"></i> ' + (I18n.t ? I18n.t("ai.apply") : "Apply");
-          reapplyBtn.title = I18n.t ? I18n.t("ai.applyTitle") : "Apply these changes to the card";
-          reapplyBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            const stored = ChatState.applyStore.get(msgId);
-            if (stored) {
-              this.tryApplyAIResponse(stored.content, stored.field, el);
-            }
-          });
-          actionsWrap.appendChild(reapplyBtn);
-        }
-        const retryBtn = document.createElement("button");
-        retryBtn.className = "ai-message-retry";
-        retryBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> ' + (I18n.t ? I18n.t("ai.retry") : "Retry");
-        retryBtn.title = I18n.t ? I18n.t("ai.retryTitle") : "Regenerate this response";
-        retryBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const idx = parseInt(el.dataset.historyIndex, 10);
-          this.retryLastMessage(Number.isNaN(idx) ? undefined : idx);
-        });
-        actionsWrap.appendChild(retryBtn);
-        el.appendChild(actionsWrap);
-      }
-      container.appendChild(el);
-      Anims.staggerFadeIn(el, { duration: 200, from: 10 });
-      container.scrollTop = container.scrollHeight;
-    },
-    retryLastMessage(historyIndex) {
-      const { chatHistory } = window.AppState;
-      let targetUserIdx = -1;
-      if (typeof historyIndex === "number") {
-        for (let i = historyIndex;i >= 0; i--) {
-          if (chatHistory[i] && chatHistory[i].role === "user") {
-            targetUserIdx = i;
-            break;
-          }
-        }
-      }
-      if (targetUserIdx < 0) {
-        for (let i = chatHistory.length - 1;i >= 0; i--) {
-          if (chatHistory[i].role === "user") {
-            targetUserIdx = i;
-            break;
-          }
-        }
-      }
-      if (targetUserIdx < 0)
-        return;
-      const lastUserPrompt = chatHistory[targetUserIdx].content;
-      this._abortAll();
-      ChatState.bumpGen();
-      chatHistory.splice(targetUserIdx);
-      window.AppState.isAiLoading = false;
-      this.updateSendButton();
-      CardStorage.saveChatHistory(chatHistory, window.AppState.activeCard?._id);
-      if (ChatState.currentSessionId) {
-        const cardId = window.AppState.activeCard?._id || "global";
-        CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, chatHistory);
-      }
-      const $ = Ui.$;
-      const container = $("#aiChatMessages");
-      const allMsgs = container.querySelectorAll(".ai-message");
-      let removedDom = 0;
-      const targetEl = [...allMsgs].find((el) => parseInt(el.dataset.historyIndex, 10) === targetUserIdx);
-      if (targetEl) {
-        let el = targetEl;
-        while (el) {
-          const next = el.nextElementSibling;
-          el.remove();
-          removedDom++;
-          el = next;
-        }
-      }
-      if (removedDom === 0) {
-        for (let i = allMsgs.length - 1;i >= 0 && removedDom < 2; i--) {
-          const msg = allMsgs[i];
-          if (msg.classList.contains("system"))
-            continue;
-          msg.remove();
-          removedDom++;
-        }
-      }
-      this._pruneApplyQueue();
-      this.addChatMessage("user", lastUserPrompt, null, null, targetUserIdx);
-      this.send(lastUserPrompt);
-    },
-    createStreamingMessage() {
-      const $ = Ui.$;
-      const container = $("#aiChatMessages");
-      const welcome = container.querySelector(".ai-welcome");
-      if (welcome)
-        welcome.remove();
-      const el = document.createElement("div");
-      el.className = "ai-message assistant";
-      el.innerHTML = '<div class="ai-message-content"></div>' + '<div class="ai-stream-status" aria-live="polite" aria-atomic="true"></div>' + '<div class="ai-shimmer" aria-hidden="true"><div class="shimmer-line"></div><div class="shimmer-line"></div><div class="shimmer-line short"></div></div>';
-      container.appendChild(el);
-      Anims.staggerFadeIn(el, { duration: 200, from: 10 });
-      container.scrollTop = container.scrollHeight;
-      return el;
-    },
-    renderChatHistory() {
-      if (ChatState.historyRendered)
-        return;
-      const { chatHistory } = window.AppState;
-      const $ = Ui.$;
-      const container = $("#aiChatMessages");
-      if (chatHistory.length === 0) {
-        ChatState.historyRendered = true;
-        this._showWelcome();
-        return;
-      }
-      container.innerHTML = "";
-      chatHistory.forEach((msg, i) => this.addChatMessage(msg.role, msg.content, null, null, i));
-      ChatState.historyRendered = true;
-    },
-    _updateSession() {
-      const { chatHistory, activeCard } = window.AppState;
-      if (!chatHistory || chatHistory.length < 2)
-        return;
-      const cardId = activeCard?._id || "global";
-      const sessions = CardStorage.getChatSessions(cardId);
-      const firstUser = chatHistory.find((m) => m.role === "user");
-      const preview = firstUser ? firstUser.content.length > 80 ? firstUser.content.slice(0, 80) + "..." : firstUser.content : I18n.t ? I18n.t("ai.chatSession") : "Chat session";
-      const now = Date.now();
-      const SESSION_TIMEOUT = 30 * 60 * 1000;
-      let currentSession = ChatState.currentSessionId ? sessions.find((s) => s.id === ChatState.currentSessionId) : sessions.length > 0 ? sessions[0] : null;
-      if (currentSession && now - (currentSession.lastUpdated || currentSession.created) < SESSION_TIMEOUT) {
-        currentSession.lastUpdated = now;
-        currentSession.preview = preview;
-        currentSession.messageCount = chatHistory.length;
-        ChatState.currentSessionId = currentSession.id;
-        CardStorage.saveChatSession(cardId, currentSession);
-        CardStorage.saveSessionMessages(cardId, currentSession.id, chatHistory);
-      } else {
-        const session = {
-          id: "ses_" + now + "_" + Math.random().toString(36).slice(2, 7),
-          created: now,
-          lastUpdated: now,
-          preview,
-          messageCount: chatHistory.length
-        };
-        ChatState.currentSessionId = session.id;
-        CardStorage.saveChatSession(cardId, session);
-        CardStorage.saveSessionMessages(cardId, session.id, chatHistory);
-      }
-    },
-    _renderHistoryList() {
-      const $ = Ui.$;
-      const list = $("#aiHistoryList");
-      if (!list)
-        return;
-      const cardId = window.AppState.activeCard?._id || "global";
-      const sessions = CardStorage.getChatSessions(cardId);
-      if (sessions.length === 0) {
-        list.innerHTML = '<div class="ai-history-empty">' + (I18n.t ? I18n.t("ai.historyEmpty") : "No conversations yet") + "</div>";
-        return;
-      }
-      list.innerHTML = sessions.map((s) => {
-        const date = new Date(s.created);
-        const dateStr = date.toLocaleDateString([], { month: "short", day: "numeric" });
-        const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        return '<div class="ai-history-item" data-session-id="' + Ui.escapeAttr(s.id) + '">' + '<div class="ai-history-item-preview">' + Ui.escapeHtml(s.preview) + "</div>" + '<div class="ai-history-item-meta">' + '<span class="ai-history-item-time">' + dateStr + " " + timeStr + "</span>" + '<span class="ai-history-item-count">' + (I18n.t ? I18n.t("ai.msgs", { count: s.messageCount || "?" }) : (s.messageCount || "?") + " msgs") + "</span>" + "</div></div>";
-      }).join("");
-      list.querySelectorAll(".ai-history-item").forEach((item) => {
-        item.addEventListener("click", () => {
-          this._loadSession(item.dataset.sessionId);
-        });
-      });
-    },
-    _showWelcome() {
-      const $ = Ui.$;
-      const container = $("#aiChatMessages");
-      if (!container)
-        return;
-      container.innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>' + I18n.t("ai.welcomeTitle") + "</h6><p>" + I18n.t("ai.welcomeText") + '</p><div class="quick-actions">' + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="newcard"><i class="bi bi-magic me-1"></i> ' + I18n.t("ai.actionNewCard") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="translate"><i class="bi bi-translate me-1"></i> ' + I18n.t("ai.actionTranslate") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance"><i class="bi bi-stars me-1"></i> ' + I18n.t("ai.actionEnhance") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="shorten"><i class="bi bi-arrows-angle-contract me-1"></i> ' + I18n.t("ai.actionShorten") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="tone"><i class="bi bi-palette me-1"></i> ' + I18n.t("ai.actionTone") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="grammar"><i class="bi bi-check2-all me-1"></i> ' + I18n.t("ai.actionGrammar") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="personality"><i class="bi bi-emoji-smile me-1"></i> ' + I18n.t("ai.actionPersonality") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="firstmes"><i class="bi bi-chat-dots me-1"></i> ' + I18n.t("ai.actionFirstMes") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="scenario"><i class="bi bi-geo-alt me-1"></i> ' + I18n.t("ai.actionScenario") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="greetings"><i class="bi bi-list-ol me-1"></i> ' + I18n.t("ai.actionGreetings") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="systemprompt"><i class="bi bi-terminal me-1"></i> ' + I18n.t("ai.actionSystemprompt") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="tags"><i class="bi bi-tags me-1"></i> ' + I18n.t("ai.actionTags") + "</button>" + "</div></div>";
-      const self = this;
-      container.querySelectorAll(".quick-action").forEach((btn) => {
-        btn.addEventListener("click", () => self.handleQuickAction(btn.dataset.action));
-      });
-      Anims.staggerFadeIn(container.querySelectorAll(".quick-action"), { stagger: 40, duration: 180 });
-    },
-    _loadSession(sessionId) {
-      const cardId = window.AppState.activeCard?._id || "global";
-      const sessions = CardStorage.getChatSessions(cardId);
-      const session = sessions.find((s) => s.id === sessionId);
-      if (!session)
-        return;
-      const sessionMessages = CardStorage.getSessionMessages(cardId, sessionId);
-      window.AppState.chatHistory = sessionMessages;
-      ChatState.currentSessionId = sessionId;
-      ChatState.historyRendered = false;
-      this._resetApplyQueue();
-      const $ = Ui.$;
-      const container = $("#aiChatMessages");
-      if (container)
-        container.innerHTML = "";
-      this.toggleHistory(false);
-      if (!sessionMessages || sessionMessages.length === 0) {
-        this._showWelcome();
-      } else {
-        this.renderChatHistory();
-      }
-      this._renderHistoryList();
-      const item = $("#aiHistoryList")?.querySelector('[data-session-id="' + sessionId + '"]');
-      if (item)
-        item.classList.add("active");
-    },
-    toggleHistory(forceState) {
-      const $ = Ui.$;
-      const panel = $("#aiHistoryPanel");
-      const messages = $("#aiChatMessages");
-      const inputArea = $(".ai-input-area");
-      if (!panel)
-        return;
-      const isOpen = forceState !== undefined ? forceState : !panel.classList.contains("open");
-      panel.classList.toggle("open", isOpen);
-      if (messages)
-        messages.style.display = isOpen ? "none" : "";
-      if (inputArea)
-        inputArea.style.display = isOpen ? "none" : "";
-      if (isOpen) {
-        this._renderHistoryList();
-      }
-    },
-    clearChat() {
-      ChatState.resetChat();
-      ChatState.selectedFields.clear();
-      window.AppState.isAiLoading = false;
-      this.updateSendButton();
-      this._renderFieldChips();
-      window.AppState.chatHistory = [];
-      CardStorage.clearChatHistory(window.AppState.activeCard?._id);
-      this._showWelcome();
-      Ui.showToast(I18n.t("toast.chatCleared"), "info");
-    },
-    updateSendButton() {
-      const $ = Ui.$;
-      const btn = $("#btnAiSend");
-      const stop = $("#btnAiStop");
-      if (!btn)
-        return;
-      btn.disabled = window.AppState.isAiLoading;
-      btn.innerHTML = window.AppState.isAiLoading ? '<span class="spinner-border spinner-border-sm"></span>' : '<i class="bi bi-send-fill"></i>';
-      if (stop)
-        stop.classList.toggle("d-none", !window.AppState.isAiLoading);
-    },
-    async updateContextBar() {
-      const $ = Ui.$;
-      const bar = $("#contextBarFill");
-      const label = $("#contextBarLabel");
-      if (!bar || !label)
-        return;
-      const modelSelect = $("#aiModelSelect");
-      const input = $("#aiInput");
-      if (!modelSelect || !input)
-        return;
-      const modelId = modelSelect.value;
-      const prompt = input.value || "";
-      const { activeCard } = window.AppState;
-      const gen2 = ChatState.bumpContextBarGen();
-      if (!modelId) {
-        bar.style.width = "0%";
-        bar.classList.remove("warn", "danger");
-        label.textContent = I18n.t("ai.selectModel");
-        return;
-      }
-      const ctx = AIService.getContextLength(modelId);
-      const cardJson = activeCard ? CardEngine.toJSON(activeCard) : "";
-      const systemPromptBase = [
-        CardStorage.getPrompt("assistant") || `You are an AI assistant helping edit SillyTavern character cards.
-SillyTavern is an AI roleplay frontend. Cards define character personalities.`
-      ].join(`
-`);
-      const inputText = systemPromptBase + `
-
-` + cardJson;
-      const history = this._getRecentHistory(10, true);
-      let historyText = "";
-      for (const msg of history) {
-        historyText += (msg.content || "") + `
-`;
-      }
-      let inputTokens = 0;
-      try {
-        if (window.Tokenizer && typeof window.Tokenizer.count === "function") {
-          inputTokens = await window.Tokenizer.count(inputText + `
-` + historyText + `
-` + prompt);
-        }
-      } catch (_) {
-        inputTokens = 0;
-      }
-      if (gen2 !== ChatState.contextBarGen)
-        return;
-      if (!inputTokens) {
-        inputTokens = Tokenizer.syncCount(inputText + `
-` + historyText + `
-` + prompt);
-      }
-      const modelData = (window.AppState.models || []).find((m) => m.id === modelId);
-      const modelMaxOut = modelData && modelData.max_output_tokens > 0 ? modelData.max_output_tokens : AIService.DEFAULT_MAX_TOKENS;
-      const userMaxTokens = CardStorage.getMaxTokens();
-      const outputCap = userMaxTokens > 0 ? Math.min(userMaxTokens, modelMaxOut) : modelMaxOut;
-      const historyMsgs = history.map((m) => ({ role: m.role, content: m.content || "" }));
-      const allMessages = [{ role: "system", content: inputText }, ...historyMsgs, { role: "user", content: prompt }];
-      const resolvedMax = await AIService.resolveMaxTokens(modelId, allMessages);
-      if (gen2 !== ChatState.contextBarGen)
-        return;
-      const actualMaxOut = Math.min(outputCap, resolvedMax);
-      const total = inputTokens + actualMaxOut;
-      const ratio = ctx > 0 ? total / ctx : 0;
-      const pct = Math.min(100, Math.round(ratio * 100));
-      bar.style.width = pct + "%";
-      bar.classList.toggle("warn", ratio >= 0.9 && ratio < 1);
-      bar.classList.toggle("danger", ratio >= 1);
-      let labelText = this._fmt(inputTokens) + (I18n.t ? I18n.t("ai.tokensIn") : " in · ") + this._fmt(actualMaxOut) + (I18n.t ? I18n.t("ai.tokensOut") : " out · ") + this._fmt(ctx) + (I18n.t ? I18n.t("ai.tokensCtx") : " ctx");
-      if (ratio >= 1) {
-        labelText += I18n.t ? I18n.t("ai.exceedsLimit") : " ⚠ Exceeds limit!";
-      } else if (ratio >= 0.9) {
-        labelText += I18n.t ? I18n.t("ai.approachingLimit") : " ⚠ Approaching limit";
-      }
-      label.textContent = labelText;
-    },
-    _fmt(n) {
-      n = n || 0;
-      if (n >= 1000)
-        return (n / 1000).toFixed(n >= 1e4 ? 0 : 1) + "k";
-      return "" + n;
-    }
-  };
-  if (typeof window !== "undefined")
-    window.AiChat = AiChat2;
-
-  // js/wizard.js
-  var Wizard2 = {
-    _step: 1,
-    _totalSteps: 5,
-    _answers: {},
-    _modal: null,
-    _fetchedImages: [],
-    _selectedImageIdx: -1,
-    _tagSearch: "",
-    _autoFetched: false,
-    _fetching: false,
-    _wizardDirtyKey: "stce_wizard_draft",
-    _draftCleared: false,
-    init() {
-      this._modal = new bootstrap.Modal("#wizardModal");
-      this._bindEvents();
-      document.querySelector("#wizardModal").addEventListener("hidden.bs.modal", () => this._onModalClose());
-    },
-    show() {
-      this._step = 1;
-      this._answers = {};
-      this._fetchedImages = [];
-      this._selectedImageIdx = -1;
-      this._tagSearch = "";
-      this._autoFetched = false;
-      this._fetching = false;
-      this._resetFormUI();
-      this._resetImageUI();
-      this._renderStepIndicator();
-      this._showStep(1);
-      this._modal.show();
-      if (this._restoreDraft()) {
-        this._populateStep(1);
-      }
-      setTimeout(() => {
-        const step1 = document.querySelector('.wizard-step[data-step="1"]');
-        if (step1)
-          Anims.staggerFadeIn(step1.querySelectorAll(".mb-3, .mb-4"), { stagger: 30, duration: 200 });
-      }, 100);
-    },
-    _onModalClose() {
-      if (!this._draftCleared) {
-        try {
-          this._collectStep(this._step);
-        } catch (_) {}
-        this._saveDraft();
-      }
-      this._fetchedImages.forEach((img) => {
-        if (img && img._objUrl)
-          URL.revokeObjectURL(img._objUrl);
-      });
-      this._fetchedImages = [];
-      this._selectedImageIdx = -1;
-      this._draftCleared = false;
-    },
-    _saveDraft() {
-      try {
-        if (this._answers && Object.keys(this._answers).length > 0) {
-          sessionStorage.setItem(this._wizardDirtyKey, JSON.stringify(this._answers));
-        }
-      } catch (_) {}
-    },
-    _clearDraft() {
-      try {
-        sessionStorage.removeItem(this._wizardDirtyKey);
-      } catch (_) {}
-      this._draftCleared = true;
-    },
-    _restoreDraft() {
-      try {
-        const saved = sessionStorage.getItem(this._wizardDirtyKey);
-        if (!saved)
-          return false;
-        const data = JSON.parse(saved);
-        if (typeof data !== "object" || !data.name)
-          return false;
-        this._answers = data;
-        Ui.showToast(I18n.t("wizard.draftRestored"), "info");
-        return true;
-      } catch (_) {
-        sessionStorage.removeItem(this._wizardDirtyKey);
-        return false;
-      }
-    },
-    _resetFormUI() {
-      const body = document.querySelector("#wizardModal .modal-body");
-      if (!body)
-        return;
-      body.querySelectorAll('input[type="text"], textarea').forEach((el) => {
-        el.value = "";
-      });
-      body.querySelectorAll("select").forEach((el) => {
-        el.selectedIndex = 0;
-      });
-      body.querySelectorAll(".wizard-chip.active").forEach((c) => c.classList.remove("active"));
-      const gc = document.querySelector("#wizGenderCustom");
-      if (gc) {
-        gc.value = "";
-        gc.classList.add("d-none");
-      }
-      const lc = document.querySelector("#wizLanguageCustom");
-      if (lc) {
-        lc.value = "";
-        lc.classList.add("d-none");
-      }
-      if (window.syncFloatLabels)
-        window.syncFloatLabels();
-    },
-    _resetImageUI() {
-      const btnFetch = document.querySelector("#wizBtnFetchImage");
-      if (btnFetch)
-        btnFetch.innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.fetchImages");
-      document.querySelectorAll(".wizard-image-card").forEach((c) => {
-        c.classList.remove("selected");
-        const thumb = c.querySelector(".wiz-thumb");
-        if (thumb) {
-          thumb.src = "";
-          thumb.hidden = true;
-        }
-        const loader = c.querySelector(".wiz-image-loader");
-        if (loader)
-          loader.classList.add("d-none");
-        const ph = c.querySelector(".wizard-image-placeholder");
-        if (ph)
-          ph.classList.remove("d-none");
-      });
-      const btnUse = document.querySelector("#wizBtnUseImage");
-      const btnRemove = document.querySelector("#wizBtnRemoveImage");
-      if (btnUse)
-        btnUse.classList.add("d-none");
-      if (btnRemove)
-        btnRemove.classList.add("d-none");
-    },
-    _bindEvents() {
-      const self = this;
-      const on = (selector, event, fn) => {
-        const el = document.querySelector(selector);
-        if (el)
-          el.addEventListener(event, fn);
-      };
-      on("#wizBtnNext", "click", () => self._next());
-      on("#wizBtnBack", "click", () => self._back());
-      on("#wizardModal", "keydown", (e) => {
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && self._step === self._totalSteps) {
-          e.preventDefault();
-          self._generateWithAI();
-        }
-      });
-      on("#wizGender", "change", (e) => {
-        document.querySelector("#wizGenderCustom")?.classList.toggle("d-none", e.target.value !== "other");
-      });
-      on("#wizLanguage", "change", (e) => {
-        document.querySelector("#wizLanguageCustom")?.classList.toggle("d-none", e.target.value !== "other");
-      });
-      document.querySelectorAll(".wizard-chip-group").forEach((group) => {
-        group.querySelectorAll(".wizard-chip").forEach((chip) => {
-          chip.addEventListener("click", () => {
-            chip.classList.toggle("active");
-            Anims.scaleClick(chip);
-          });
-        });
-      });
-      on("#wizBtnAI", "click", () => self._generateWithAI());
-      on("#wizBtnBlank", "click", () => self._generateBlank());
-      on("#wizBtnFetchImage", "click", () => self._fetchImage());
-      on("#wizBtnUseImage", "click", () => self._useFetchedImage());
-      on("#wizBtnRemoveImage", "click", () => self._removeFetchedImage());
-      const searchInput = document.querySelector("#wizImageTagSearch");
-      const searchBtn = document.querySelector("#wizBtnSearchImages");
-      if (searchInput) {
-        searchInput.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            self._syncTagSearch();
-            self._fetchImage();
-          }
-        });
-        searchInput.addEventListener("input", () => {
-          self._tagSearch = searchInput.value;
-          self._renderQuickTags();
-        });
-      }
-      if (searchBtn) {
-        searchBtn.addEventListener("click", () => {
-          self._syncTagSearch();
-          self._fetchImage();
-        });
-      }
-      on("#btnWizardNav", "click", () => self.show());
-      const centerBtn = document.querySelector("#btnWizard");
-      if (centerBtn)
-        centerBtn.addEventListener("click", () => self.show());
-      self._bindImageEvents();
-    },
-    _collectStep(step) {
-      const a = this._answers;
-      switch (step) {
-        case 1:
-          a.name = document.querySelector("#wizName").value.trim();
-          a.gender = document.querySelector("#wizGender").value;
-          a.genderCustom = document.querySelector("#wizGenderCustom").value.trim();
-          a.tags = document.querySelector("#wizTags").value.split(",").map((s) => s.trim()).filter(Boolean);
-          a.creator = document.querySelector("#wizCreator").value.trim();
-          break;
-        case 2:
-          a.type = document.querySelector("#wizType").value;
-          a.language = document.querySelector("#wizLanguage").value;
-          a.languageCustom = document.querySelector("#wizLanguageCustom").value.trim();
-          a.genres = this._getChips("wizGenre");
-          a.moods = this._getChips("wizMood");
-          break;
-        case 3:
-          a.personalityDesc = document.querySelector("#wizPersonalityDesc").value.trim();
-          a.appearance = document.querySelector("#wizAppearance").value.trim();
-          a.abilities = document.querySelector("#wizAbilities").value.trim();
-          break;
-        case 4:
-          a.scenario = document.querySelector("#wizScenario").value.trim();
-          a.relationship = document.querySelector("#wizRelationship").value.trim();
-          a.openingVibe = this._getChips("wizOpening");
-          a.notes = document.querySelector("#wizNotes").value.trim();
-          break;
-      }
-    },
-    _populateStep(step) {
-      const a = this._answers;
-      switch (step) {
-        case 1:
-          if (a.name)
-            document.querySelector("#wizName").value = a.name;
-          if (a.gender)
-            document.querySelector("#wizGender").value = a.gender;
-          if (a.genderCustom) {
-            document.querySelector("#wizGenderCustom").value = a.genderCustom;
-            document.querySelector("#wizGenderCustom").classList.remove("d-none");
-          }
-          if (a.tags?.length)
-            document.querySelector("#wizTags").value = a.tags.join(", ");
-          if (a.creator)
-            document.querySelector("#wizCreator").value = a.creator;
-          break;
-        case 2:
-          if (a.type)
-            document.querySelector("#wizType").value = a.type;
-          if (a.language)
-            document.querySelector("#wizLanguage").value = a.language;
-          if (a.languageCustom) {
-            document.querySelector("#wizLanguageCustom").value = a.languageCustom;
-            document.querySelector("#wizLanguageCustom").classList.remove("d-none");
-          }
-          this._setChips("wizGenre", a.genres || []);
-          this._setChips("wizMood", a.moods || []);
-          break;
-        case 3:
-          if (a.personalityDesc)
-            document.querySelector("#wizPersonalityDesc").value = a.personalityDesc;
-          if (a.appearance)
-            document.querySelector("#wizAppearance").value = a.appearance;
-          if (a.abilities)
-            document.querySelector("#wizAbilities").value = a.abilities;
-          break;
-        case 4:
-          if (a.scenario)
-            document.querySelector("#wizScenario").value = a.scenario;
-          if (a.relationship)
-            document.querySelector("#wizRelationship").value = a.relationship;
-          this._setChips("wizOpening", a.openingVibe || []);
-          if (a.notes)
-            document.querySelector("#wizNotes").value = a.notes;
-          break;
-      }
-      if (window.syncFloatLabels)
-        window.syncFloatLabels();
-    },
-    _getChips(groupId) {
-      const active = [];
-      document.querySelectorAll("#" + groupId + " .wizard-chip.active").forEach((c) => active.push(c.dataset.value));
-      return active;
-    },
-    _setChips(groupId, values) {
-      const valSet = new Set(values);
-      document.querySelectorAll("#" + groupId + " .wizard-chip").forEach((c) => {
-        c.classList.toggle("active", valSet.has(c.dataset.value));
-      });
-    },
-    _next() {
-      this._collectStep(this._step);
-      if (this._step === 1 && !this._answers.name) {
-        Ui.showToast(I18n.t("wizard.nameRequired"), "warning");
-        Anims.shakeElement(document.querySelector("#wizName"));
-        document.querySelector("#wizName").focus();
-        return;
-      }
-      if (this._step < this._totalSteps) {
-        const prevStep = this._step;
-        this._step++;
-        this._populateStep(this._step);
-        this._showStepAnimated(this._step, prevStep, "next");
-      }
-    },
-    _back() {
-      this._collectStep(this._step);
-      if (this._step > 1) {
-        const prevStep = this._step;
-        this._step--;
-        this._populateStep(this._step);
-        this._showStepAnimated(this._step, prevStep, "back");
-      }
-    },
-    _renderStepNav(step) {
-      document.querySelector("#wizBtnBack").disabled = step === 1;
-      if (step === this._totalSteps) {
-        document.querySelector("#wizBtnNext").classList.add("d-none");
-        document.querySelector("#wizStepLabel").textContent = I18n.t("wizard.ready");
-        this._renderSummary();
-        this._renderQuickTags();
-        const derivedTags = this._deriveImageTags();
-        const searchInput = document.querySelector("#wizImageTagSearch");
-        if (searchInput && !this._autoFetched) {
-          searchInput.value = derivedTags;
-          this._tagSearch = derivedTags;
-          this._renderQuickTags();
-        }
-        if (!this._autoFetched) {
-          this._autoFetched = true;
-          this._fetchImage();
-        }
-      } else {
-        document.querySelector("#wizBtnNext").classList.remove("d-none");
-        document.querySelector("#wizBtnNext").innerHTML = I18n.t("wizard.next") + ' <i class="bi bi-arrow-right ms-1"></i>';
-        document.querySelector("#wizStepLabel").textContent = I18n.t("wizard.stepLabel", { step, total: this._totalSteps });
-      }
-      this._renderStepIndicator();
-      this._updateProgressBar();
-    },
-    _showStepAnimated(step, prevStep, direction) {
-      const prevEl = document.querySelector('.wizard-step[data-step="' + prevStep + '"]');
-      const nextEl = document.querySelector('.wizard-step[data-step="' + step + '"]');
-      document.querySelectorAll(".wizard-step").forEach((el) => {
-        el.style.opacity = "";
-        el.style.transform = "";
-      });
-      this._renderStepNav(step);
-      Anims.slideStep(prevEl, nextEl, direction, () => {
-        if (step === this._totalSteps) {
-          const items = document.querySelectorAll(".wizard-summary-item");
-          Anims.staggerFadeIn(items, { stagger: 20, duration: 200 });
-        } else {
-          Anims.staggerFadeIn(nextEl.querySelectorAll(".mb-3, .mb-4"), { stagger: 25, duration: 180 });
-        }
-      });
-      setTimeout(() => {
-        if (nextEl) {
-          nextEl.classList.remove("d-none");
-          nextEl.style.opacity = "";
-          nextEl.style.transform = "";
-        }
-      }, 400);
-    },
-    _showStep(step) {
-      document.querySelectorAll(".wizard-step").forEach((el) => {
-        el.classList.add("d-none");
-        el.style.opacity = "";
-        el.style.transform = "";
-      });
-      const target = document.querySelector('.wizard-step[data-step="' + step + '"]');
-      if (target)
-        target.classList.remove("d-none");
-      this._renderStepNav(step);
-    },
-    _renderStepIndicator() {
-      const labels = [
-        I18n.t("wizard.step.basics"),
-        I18n.t("wizard.step.concept"),
-        I18n.t("wizard.step.personality"),
-        I18n.t("wizard.step.scenario"),
-        I18n.t("wizard.step.generate")
-      ];
-      const container = document.querySelector("#wizardStepsIndicator");
-      container.innerHTML = labels.map((label, i) => {
-        const stepNum = i + 1;
-        const isActive = stepNum === this._step;
-        const isDone = stepNum < this._step;
-        const isFuture = stepNum > this._step;
-        let connectorHtml = "";
-        if (i < labels.length - 1) {
-          const prevDone = i < this._step - 1 || i === this._step - 1 && !isActive;
-          connectorHtml = '<div class="wizard-connector' + (prevDone ? " done" : "") + '"></div>';
-        }
-        return '<div class="wizard-step-dot-wrap">' + '<div class="wizard-step-dot' + (isActive ? " active" : "") + (isDone ? " done" : "") + (isFuture ? " future" : "") + '">' + (isDone ? '<i class="bi bi-check-lg"></i>' : "<span>" + (stepNum === this._step ? '<i class="bi bi-chevron-right"></i>' : stepNum) + "</span>") + "</div>" + (i < labels.length - 1 ? connectorHtml : "") + '<span class="wizard-step-dot-label">' + label + "</span>" + "</div>";
-      }).join("");
-    },
-    _updateProgressBar() {
-      const pct = Math.round(this._step / this._totalSteps * 100);
-      document.querySelector("#wizardProgressBar").style.width = pct + "%";
-      Anims.progressBounce(document.querySelector("#wizardProgressBar"));
-    },
-    _renderSummary() {
-      const a = this._answers;
-      const genderLabel = a.gender === "other" ? a.genderCustom : a.gender;
-      const langLabel = a.language === "other" ? a.languageCustom : a.language;
-      function summaryItem(key, value, step, full) {
-        const stepIdx = step || -1;
-        const editBtn = stepIdx >= 0 ? '<button class="wizard-edit-btn btn btn-sm btn-link p-0 ms-1" data-step="' + stepIdx + '" title="' + I18n.t("wizard.editStep") + '" aria-label="' + I18n.t("wizard.editStep") + '"><i class="bi bi-pencil"></i></button>' : "";
-        return '<div class="wizard-summary-item' + (full ? " full" : "") + '">' + '<span class="wizard-summary-label">' + I18n.t(key) + editBtn + "</span>" + '<span class="wizard-summary-value">' + Ui.escapeHtml(value || "-") + "</span></div>";
-      }
-      let html = '<div class="wizard-summary-grid">';
-      html += summaryItem("wizard.summary.name", a.name || "-", 1, false);
-      html += summaryItem("wizard.summary.gender", genderLabel || "-", 1, false);
-      html += summaryItem("wizard.summary.type", a.type ? I18n.t("wizard.type." + a.type) : "-", 2, false);
-      html += summaryItem("wizard.summary.language", langLabel || "-", 2, false);
-      html += summaryItem("wizard.summary.tags", (a.tags || []).join(", ") || "-", 1, false);
-      html += summaryItem("wizard.summary.genres", (a.genres || []).join(", ") || "-", 2, false);
-      html += summaryItem("wizard.summary.mood", (a.moods || []).join(", ") || "-", 2, false);
-      html += summaryItem("wizard.summary.opening", (a.openingVibe || []).join(", ") || "-", 4, false);
-      if (a.personalityDesc)
-        html += summaryItem("wizard.summary.personality", a.personalityDesc, 3, true);
-      if (a.appearance)
-        html += summaryItem("wizard.summary.appearance", a.appearance, 3, true);
-      if (a.scenario)
-        html += summaryItem("wizard.summary.scenario", a.scenario, 4, true);
-      if (a.relationship)
-        html += summaryItem("wizard.summary.relationship", a.relationship, 4, true);
-      if (a.notes)
-        html += summaryItem("wizard.summary.notes", a.notes, 4, true);
-      html += "</div>";
-      document.querySelector("#wizardSummary").innerHTML = html;
-      document.querySelectorAll(".wizard-edit-btn").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const targetStep = parseInt(btn.dataset.step, 10);
-          if (targetStep >= 1 && targetStep <= 4) {
-            this._collectStep(this._step);
-            this._step = targetStep;
-            this._populateStep(targetStep);
-            this._showStepAnimated(targetStep, this._totalSteps, "back");
-          }
-        });
-      });
-    },
-    TAG_OPTIONS: [
-      "waifu",
-      "maid",
-      "uniform",
-      "selfies",
-      "dress",
-      "cat",
-      "neko",
-      "fox",
-      "witch",
-      "swimsuit",
-      "gothic",
-      "dark",
-      "fantasy",
-      "cyberpunk",
-      "military",
-      "sailor",
-      "princess",
-      "angel",
-      "devil",
-      "ninja",
-      "samurai",
-      "pirate",
-      "vampire",
-      "elf",
-      "robot"
-    ],
-    _renderQuickTags() {
-      const container = document.querySelector("#wizQuickTags");
-      if (!container)
-        return;
-      let label = container.querySelector(".wizard-quick-tags-label");
-      if (!label) {
-        label = document.createElement("span");
-        label.className = "wizard-quick-tags-label";
-        label.setAttribute("data-i18n", "wizard.quick");
-        label.textContent = I18n.t("wizard.quick");
-      }
-      container.innerHTML = "";
-      container.appendChild(label);
-      const activeTags = this._tagSearch ? new Set(this._tagSearch.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)) : new Set;
-      this.TAG_OPTIONS.forEach((tag) => {
-        const chip = document.createElement("span");
-        chip.className = "wizard-quick-tag" + (activeTags.has(tag) ? " active" : "");
-        chip.dataset.tag = tag;
-        chip.textContent = tag;
-        chip.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const input = document.querySelector("#wizImageTagSearch");
-          if (!input)
-            return;
-          const current = input.value.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-          const idx = current.indexOf(tag);
-          if (idx >= 0) {
-            current.splice(idx, 1);
-          } else {
-            current.push(tag);
-          }
-          input.value = current.join(", ");
-          this._tagSearch = input.value;
-          this._renderQuickTags();
-        });
-        container.appendChild(chip);
-      });
-    },
-    _bindImageEvents() {
-      const self = this;
-      document.querySelectorAll(".wizard-image-card").forEach((card) => {
-        card.addEventListener("click", () => {
-          const idx = parseInt(card.dataset.idx, 10);
-          if (!self._fetchedImages[idx])
-            return;
-          document.querySelectorAll(".wizard-image-card").forEach((c) => c.classList.remove("selected"));
-          card.classList.add("selected");
-          self._selectedImageIdx = idx;
-          document.querySelector("#wizBtnUseImage").classList.remove("d-none");
-          document.querySelector("#wizBtnRemoveImage").classList.remove("d-none");
-          document.querySelector("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.refetchOthers");
-        });
-      });
-    },
-    _syncTagSearch() {
-      const input = document.querySelector("#wizImageTagSearch");
-      if (input) {
-        this._tagSearch = input.value;
-        this._renderQuickTags();
-      }
-    },
-    _deriveImageTags() {
-      const a = this._answers;
-      const tagMap = {
-        fantasy: "fantasy",
-        scifi: "cyberpunk",
-        modern: "uniform",
-        horror: "dark",
-        romance: "dress",
-        "slice-of-life": "maid",
-        cyberpunk: "cyberpunk",
-        military: "military",
-        dark: "gothic",
-        supernatural: "witch"
-      };
-      const tags = new Set(["waifu"]);
-      (a.genres || []).forEach((g) => {
-        if (tagMap[g])
-          tags.add(tagMap[g]);
-      });
-      if (a.type === "vtuber")
-        tags.add("selfies");
-      if (a.type === "historical")
-        tags.add("maid");
-      if (a.type === "anime")
-        tags.add("neko");
-      const appearance = (a.appearance || "").toLowerCase();
-      if (appearance.includes("cat") || appearance.includes("feline") || appearance.includes("neko"))
-        tags.add("cat");
-      if (appearance.includes("fox") || appearance.includes("kitsune"))
-        tags.add("fox");
-      if (appearance.includes("angel"))
-        tags.add("angel");
-      if (appearance.includes("devil") || appearance.includes("demon") || appearance.includes("succubus"))
-        tags.add("devil");
-      if (appearance.includes("vampire"))
-        tags.add("vampire");
-      if (appearance.includes("elf"))
-        tags.add("elf");
-      if (appearance.includes("sword") || appearance.includes("samurai") || appearance.includes("ninja")) {
-        tags.add("samurai");
-        tags.add("ninja");
-      }
-      if (appearance.includes("pirate"))
-        tags.add("pirate");
-      if (appearance.includes("robot") || appearance.includes("cyborg") || appearance.includes("android"))
-        tags.add("robot");
-      if (appearance.includes("princess"))
-        tags.add("princess");
-      if (appearance.includes("sailor") || appearance.includes("navy") || appearance.includes("marine"))
-        tags.add("sailor");
-      return [...tags].join(", ");
-    },
-    async _fetchImage() {
-      if (this._fetching)
-        return;
-      const btn = document.querySelector("#wizBtnFetchImage");
-      if (!btn)
-        return;
-      this._fetching = true;
-      const origHtml = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>' + I18n.t("wizard.fetching");
-      this._syncTagSearch();
-      const userTags = this._tagSearch.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-      if (!userTags.length)
-        userTags.push("waifu");
-      let labelSet = false;
-      try {
-        const slotsToFetch = [];
-        for (let i = 0;i < 3; i++) {
-          if (i === this._selectedImageIdx)
-            continue;
-          slotsToFetch.push(i);
-        }
-        if (!slotsToFetch.length) {
-          this._fetching = false;
-          btn.disabled = false;
-          btn.innerHTML = origHtml;
-          return;
-        }
-        for (const i of slotsToFetch) {
-          const card = document.querySelectorAll(".wizard-image-card")[i];
-          card.classList.remove("selected");
-          const thumb = card.querySelector(".wiz-thumb");
-          thumb.src = "";
-          thumb.hidden = true;
-          const loader = card.querySelector(".wiz-image-loader");
-          if (loader)
-            loader.classList.remove("d-none");
-          const ph = card.querySelector(".wizard-image-placeholder");
-          if (ph)
-            ph.classList.add("d-none");
-          const prev = this._fetchedImages[i];
-          if (prev && prev._objUrl)
-            URL.revokeObjectURL(prev._objUrl);
-          this._fetchedImages[i] = null;
-        }
-        await Promise.all(slotsToFetch.map(async (i) => {
-          try {
-            const slotTags = [];
-            const tagIdx1 = i * 2 % userTags.length;
-            slotTags.push(userTags[tagIdx1]);
-            if (userTags.length > 1) {
-              const tagIdx2 = (i * 2 + 1) % userTags.length;
-              if (tagIdx2 !== tagIdx1)
-                slotTags.push(userTags[tagIdx2]);
-            }
-            const page = Math.max(1, Math.floor(Math.random() * 20));
-            const resp = await fetch("https://api.waifu.im/images?" + "included_tags=" + encodeURIComponent(slotTags.join(",")) + "&is_nsfw=false&page=" + page);
-            if (!resp.ok)
-              throw new Error("API returned " + resp.status);
-            const data = await resp.json();
-            const items = data.items || [];
-            if (!items.length)
-              throw new Error("No image for tags: " + slotTags.join(", "));
-            const item = items[Math.floor(Math.random() * items.length)];
-            const imgResp = await fetch(item.url);
-            if (!imgResp.ok)
-              throw new Error("Image fetch failed: " + imgResp.status);
-            const blob = await imgResp.blob();
-            const objUrl = URL.createObjectURL(blob);
-            this._fetchedImages[i] = {
-              blob,
-              url: item.url,
-              _objUrl: objUrl,
-              tags: (item.tags || []).map((t) => t.name).join(", ")
-            };
-            const card = document.querySelectorAll(".wizard-image-card")[i];
-            const thumb = card.querySelector(".wiz-thumb");
-            thumb.src = objUrl;
-            thumb.hidden = false;
-            const loader = card.querySelector(".wiz-image-loader");
-            if (loader)
-              loader.classList.add("d-none");
-            card.querySelector(".wizard-image-placeholder").classList.add("d-none");
-          } catch (e) {
-            console.error("waifu.im slot " + i + " fetch failed", e);
-            const card = document.querySelectorAll(".wizard-image-card")[i];
-            const loader = card.querySelector(".wiz-image-loader");
-            if (loader)
-              loader.classList.add("d-none");
-            const ph = card.querySelector(".wizard-image-placeholder");
-            if (ph) {
-              ph.classList.remove("d-none");
-              ph.innerHTML = '<i class="bi bi-exclamation-triangle"></i>';
-            }
-          }
-        }));
-        const ok = slotsToFetch.some((i) => this._fetchedImages[i]);
-        if (!ok)
-          throw new Error("All requests failed");
-        if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
-          document.querySelector("#wizBtnUseImage").classList.remove("d-none");
-          document.querySelector("#wizBtnRemoveImage").classList.remove("d-none");
-          document.querySelector("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.refetchOthers");
-          labelSet = true;
-        } else {
-          document.querySelector("#wizBtnUseImage").classList.add("d-none");
-          document.querySelector("#wizBtnRemoveImage").classList.add("d-none");
-          document.querySelector("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.fetchImages");
-          labelSet = true;
-        }
-      } catch (e) {
-        console.error("waifu.im fetch failed", e);
-        Ui.showToast(I18n.t("toast.wizardFetchFailed", { error: e.message }), "danger");
-      } finally {
-        this._fetching = false;
-        btn.disabled = false;
-        if (!labelSet)
-          btn.innerHTML = origHtml;
-      }
-    },
-    async _useFetchedImage() {
-      if (this._selectedImageIdx < 0 || !this._fetchedImages[this._selectedImageIdx])
-        return;
-      const card = window.AppState.activeCard;
-      if (!card) {
-        Ui.showToast(I18n.t("toast.createCardFirst"), "warning");
-        return;
-      }
-      await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob);
-    },
-    _removeFetchedImage() {
-      const idx = this._selectedImageIdx;
-      if (idx < 0)
-        return;
-      const prev = this._fetchedImages[idx];
-      if (prev && prev._objUrl)
-        URL.revokeObjectURL(prev._objUrl);
-      this._fetchedImages[idx] = null;
-      this._selectedImageIdx = -1;
-      const cards = document.querySelectorAll(".wizard-image-card");
-      const card = cards[idx];
-      if (card) {
-        card.classList.remove("selected");
-        const thumb = card.querySelector(".wiz-thumb");
-        if (thumb) {
-          thumb.src = "";
-          thumb.hidden = true;
-        }
-        const loader = card.querySelector(".wiz-image-loader");
-        if (loader)
-          loader.classList.add("d-none");
-        const ph = card.querySelector(".wizard-image-placeholder");
-        if (ph) {
-          ph.classList.remove("d-none");
-          ph.innerHTML = '<i class="bi bi-image"></i>';
-        }
-      }
-      const anyLeft = this._fetchedImages.some((img) => !!img);
-      document.querySelector("#wizBtnUseImage").classList.add("d-none");
-      document.querySelector("#wizBtnRemoveImage").classList.add("d-none");
-      document.querySelector("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + (anyLeft ? I18n.t("wizard.refetchOthers") : I18n.t("wizard.fetchImages"));
-    },
-    async _generateBlank() {
-      this._collectStep(this._step);
-      this._clearDraft();
-      const chosenImage = this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx] ? this._fetchedImages[this._selectedImageIdx].blob : null;
-      this._modal.hide();
-      const card = CardEngine.createEmptyCard(this._answers.name || "New Character");
-      card.tags = this._answers.tags || [];
-      card.creator = this._answers.creator || "";
-      await CardStorage.upsertCard(card);
-      window.AppState.cards = CardStorage.getCards();
-      await CardManager.selectCard(card);
-      if (chosenImage) {
-        try {
-          await Editor.setAvatar(chosenImage);
-        } catch (_) {}
-      }
-      CardManager.renderCardList();
-      document.querySelector("#editName").focus();
-      Ui.showToast(I18n.t("toast.wizardCreated"), "success");
-    },
-    async _generateWithAI() {
-      this._collectStep(this._step);
-      if (!AIService.hasApiKey()) {
-        Ui.showToast(I18n.t("toast.wizardApi"), "warning");
-        return;
-      }
-      const modelSelect = document.querySelector("#aiModelSelect");
-      if (!modelSelect) {
-        Ui.showToast(I18n.t("toast.wizardModel"), "warning");
-        return;
-      }
-      const modelId = modelSelect.value;
-      if (!modelId) {
-        Ui.showToast(I18n.t("toast.wizardModel"), "warning");
-        return;
-      }
-      this._clearDraft();
-      const chosenImage = this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx] ? this._fetchedImages[this._selectedImageIdx].blob : null;
-      this._modal.hide();
-      const a = this._answers;
-      const genderText = a.gender === "other" ? a.genderCustom : a.gender || "unspecified";
-      const langMap = {
-        en: "English",
-        fr: "French",
-        de: "German",
-        ja: "Japanese",
-        it: "Italian",
-        pl: "Polish",
-        tr: "Turkish",
-        nl: "Dutch",
-        uk: "Ukrainian",
-        vi: "Vietnamese",
-        id: "Indonesian",
-        hi: "Hindi",
-        ar: "Arabic",
-        he: "Hebrew",
-        fa: "Persian"
-      };
-      const langText = langMap[a.language] || a.languageCustom || "English";
-      const typeLabels = {
-        original: "Original Character",
-        fanfic: "Fan Fiction",
-        game: "Game Character",
-        anime: "Anime / Manga",
-        book: "Book / Movie / Show",
-        historical: "Historical Figure",
-        mythological: "Mythological / Folklore",
-        vtuber: "VTuber / Streamer",
-        other: "Other"
-      };
-      let prompt = (CardStorage.getPrompt("wizard") || "Create a complete SillyTavern character card as valid JSON (chara_card_v2 spec).").trimEnd() + " ";
-      prompt += "Write everything in " + langText + ". ";
-      prompt += `Return ONLY the JSON code block, no explanation.
-
-`;
-      prompt += `## Character Details
-
-`;
-      prompt += "- **Name**: " + (a.name || "New Character") + `
-`;
-      prompt += "- **Gender**: " + genderText + `
-`;
-      prompt += "- **Type**: " + (typeLabels[a.type] || "Original Character") + `
-`;
-      prompt += "- **Tags**: " + (a.tags || []).join(", ") + `
-`;
-      if (a.genres?.length)
-        prompt += "- **Genre/World**: " + a.genres.join(", ") + `
-`;
-      if (a.moods?.length)
-        prompt += "- **Mood/Tone**: " + a.moods.join(", ") + `
-`;
-      if (a.personalityDesc)
-        prompt += "- **Personality**: " + a.personalityDesc + `
-`;
-      if (a.appearance)
-        prompt += "- **Appearance**: " + a.appearance + `
-`;
-      if (a.abilities)
-        prompt += "- **Special Traits**: " + a.abilities + `
-`;
-      if (a.scenario)
-        prompt += "- **Scenario**: " + a.scenario + `
-`;
-      if (a.relationship)
-        prompt += "- **Relationship to {{user}}**: " + a.relationship + `
-`;
-      if (a.openingVibe?.length)
-        prompt += "- **First Message Style**: " + a.openingVibe.join(", ") + `
-`;
-      if (a.notes)
-        prompt += "- **Additional Notes**: " + a.notes + `
-`;
-      prompt += `
-## Requirements
-
-`;
-      prompt += "- `name`: Character name\n";
-      prompt += "- `description`: Detailed appearance and backstory (2-4 paragraphs)\n";
-      prompt += "- `personality`: Personality traits and mannerisms\n";
-      prompt += "- `scenario`: The current setting and context\n";
-      prompt += "- `first_mes`: An engaging opening message in character, using *asterisks for actions* and dialogue in quotes. Match the requested opening vibe.\n";
-      prompt += "- `mes_example`: 2-3 example dialogues in <START> blocks showing different aspects of the character\n";
-      prompt += "- `system_prompt`: A system prompt that captures the character essence\n";
-      prompt += "- `tags`: The tags provided\n";
-      prompt += "- `creator_notes`: Brief usage notes for the card\n";
-      prompt += `- Use {{char}} for the character name and {{user}} for the user in example messages
-`;
-      prompt += `- Keep the JSON structure clean and valid
-`;
-      const card = CardEngine.createEmptyCard(a.name || "New Character");
-      card.tags = a.tags || [];
-      card.creator = a.creator || "";
-      await CardStorage.upsertCard(card);
-      window.AppState.cards = CardStorage.getCards();
-      await CardManager.selectCard(card);
-      if (chosenImage) {
-        try {
-          await Editor.setAvatar(chosenImage);
-        } catch (_) {}
-      }
-      CardManager.renderCardList();
-      AiChat._sendFullCard(prompt);
-    }
-  };
-  if (typeof window !== "undefined")
-    window.Wizard = Wizard2;
-
-  // js/waifuTab.js
-  var WaifuTab2 = {
-    _fetched: [],
-    _selected: -1,
-    _fetching: false,
-    _source: "snapshot",
-    _gender: "all",
-    _mode: "source",
-    _preloaded: false,
-    _lastRun: null,
-    init() {
-      const on = (sel, event, fn) => {
-        const el = document.querySelector(sel);
-        if (el)
-          el.addEventListener(event, fn);
-      };
-      on("#waifuBtnFetch", "click", () => this._fetch());
-      on("#waifuBtnRegenerate", "click", () => this._regenerate());
-      on("#waifuBtnMixed", "click", () => this._fetchMixedFromUI());
-      on("#waifuBtnUse", "click", () => this._useSelected());
-      on("#waifuBtnRemove", "click", () => this._removeCurrent());
-      on("#waifuBtnUpload", "click", () => {
-        const inp = document.querySelector("#waifuUploadInput");
-        if (inp)
-          inp.click();
-      });
-      on("#waifuUploadInput", "change", (e) => {
-        const f = e.target.files && e.target.files[0];
-        if (f)
-          Editor.setAvatar(f);
-        e.target.value = "";
-      });
-      on("#waifuSourceSelect", "change", () => this._onSourceChange());
-      const chipsWrap = document.querySelector("#waifuGenderChips");
-      if (chipsWrap) {
-        chipsWrap.addEventListener("click", (e) => {
-          const chip = e.target.closest(".waifu-chip");
-          if (!chip || !chip.dataset.gender)
-            return;
-          this._gender = chip.dataset.gender;
-          chipsWrap.querySelectorAll(".waifu-chip").forEach((c) => {
-            c.classList.toggle("active", c === chip);
-          });
-        });
-      }
-      const search = document.querySelector("#waifuTagSearch");
-      if (search) {
-        search.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            this._fetch();
-          }
-        });
-      }
-      const tabTrigger = document.querySelector('#editorTabs .nav-link[data-bs-target="#tabWaifu"]');
-      if (tabTrigger) {
-        tabTrigger.addEventListener("shown.bs.tab", () => {
-          this._refreshPreview();
-          this._render();
-          if (!this._preloaded && !this._fetched.length && !this._fetching) {
-            this._preloaded = true;
-            this._fetchMixedFromUI();
-          }
-        });
-      }
-      this._onSourceChange();
-      this._refreshPreview();
-      this._render();
-    },
-    _onSourceChange(mode) {
-      const select = document.querySelector("#waifuSourceSelect");
-      this._source = select ? select.value : "snapshot";
-      this._mode = mode || "source";
-      const isChar = this._source === "character";
-      const genderWrap = document.querySelector("#waifuGenderWrap");
-      if (genderWrap)
-        genderWrap.style.display = isChar ? "" : "none";
-      const sub = document.querySelector("#waifuSubText");
-      const search = document.querySelector("#waifuTagSearch");
-      const label = document.querySelector("#waifuSearchLabel");
-      if (isChar) {
-        if (sub)
-          sub.textContent = I18n.t("editor.waifuCharSub");
-        if (search)
-          search.placeholder = I18n.t("editor.waifuSearchPlaceholderChar");
-        if (label)
-          label.textContent = I18n.t("editor.waifuSearchChar");
-      } else {
-        if (sub)
-          sub.textContent = I18n.t("editor.waifuSub");
-        if (search)
-          search.placeholder = I18n.t("editor.waifuSearchPlaceholder");
-        if (label)
-          label.textContent = I18n.t("editor.waifuSearch");
-      }
-      this._syncGenderChips();
-      this._discardResults();
-    },
-    _syncGenderChips() {
-      const wrap = document.querySelector("#waifuGenderChips");
-      if (!wrap)
-        return;
-      wrap.querySelectorAll(".waifu-chip").forEach((c) => {
-        c.classList.toggle("active", c.dataset.gender === this._gender);
-      });
-    },
-    _discardResults() {
-      this._fetched.forEach((f) => {
-        if (f && f.objUrl)
-          URL.revokeObjectURL(f.objUrl);
-      });
-      this._fetched = [];
-      this._selected = -1;
-      this._render();
-    },
-    _searchValue() {
-      const inp = document.querySelector("#waifuTagSearch");
-      return inp ? inp.value.trim() : "";
-    },
-    _tagsFromSearch(searchVal) {
-      const tags = (searchVal || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-      if (!tags.length)
-        tags.push("waifu");
-      return tags;
-    },
-    _slotTags(userTags, i) {
-      const idx1 = i * 2 % userTags.length;
-      const tags = [userTags[idx1]];
-      if (userTags.length > 1) {
-        const idx2 = (i * 2 + 1) % userTags.length;
-        if (idx2 !== idx1)
-          tags.push(userTags[idx2]);
-      }
-      return tags;
-    },
-    async _fetchSnapshots(searchVal) {
-      const results = [];
-      const userTags = this._tagsFromSearch(searchVal);
-      for (let i = 0;i < 3; i++) {
-        try {
-          const slotTags = this._slotTags(userTags, i);
-          const page = Math.max(1, Math.floor(Math.random() * 20));
-          const resp = await fetch("https://api.waifu.im/images?" + "included_tags=" + encodeURIComponent(slotTags.join(",")) + "&is_nsfw=false&page=" + page);
-          if (!resp.ok)
-            throw new Error("API returned " + resp.status);
-          const data = await resp.json();
-          const items = data.items || [];
-          if (!items.length)
-            throw new Error("No image for " + slotTags.join(", "));
-          const item = items[Math.floor(Math.random() * items.length)];
-          const imgResp = await fetch(item.url);
-          const blob = await imgResp.blob();
-          const objUrl = URL.createObjectURL(blob);
-          results.push({
-            blob,
-            url: item.url,
-            objUrl,
-            tags: (item.tags || []).map((t) => t.name).slice(0, 4).join(", ")
-          });
-        } catch (e) {
-          console.error("waifu tab snapshot slot " + i + " fetch failed", e);
-        }
-      }
-      return results;
-    },
-    async _graphQL(query, variables) {
-      const resp = await fetch("https://graphql.anilist.co", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ query, variables })
-      });
-      if (!resp.ok)
-        throw new Error("AniList returned " + resp.status);
-      return resp.json();
-    },
-    _characterQuery() {
-      return `
-      query ($search: String, $page: Int, $perPage: Int, $sort: [CharacterSort]) {
-        Page(page: $page, perPage: $perPage) {
-          pageInfo { hasNextPage }
-          characters(search: $search, sort: $sort) {
-            id
-            name { full }
-            gender
-            image { large }
-          }
-        }
-      }`;
-    },
-    async _queryCharacters(searchVal, genderWanted, want) {
-      const search = searchVal || null;
-      const perPage = 50;
-      const candidates = [];
-      const sort = search ? "SEARCH_MATCH" : "FAVOURITES_DESC";
-      const pages = search ? 2 : 4;
-      for (let page = 1;page <= pages; page++) {
-        try {
-          const data = await this._graphQL(this._characterQuery(), {
-            search,
-            page,
-            perPage,
-            sort: [sort]
-          });
-          const chars = data.data && data.data.Page && data.data.Page.characters || [];
-          let pool = chars;
-          if (genderWanted !== "all") {
-            pool = pool.filter((c) => c && (c.gender || "").toLowerCase() === genderWanted);
-          }
-          for (const c of pool) {
-            if (c && c.image && c.image.large)
-              candidates.push(c);
-          }
-        } catch (e) {
-          console.error("AniList character fetch failed", e);
-          break;
-        }
-        if (candidates.length >= 60)
-          break;
-      }
-      if (search) {
-        candidates.splice(want);
-      } else {
-        for (let i = candidates.length - 1;i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-        }
-      }
-      const results = [];
-      for (const c of candidates) {
-        if (results.length >= want)
-          break;
-        try {
-          const imgResp = await fetch(c.image.large);
-          if (!imgResp.ok)
-            continue;
-          const blob = await imgResp.blob();
-          const objUrl = URL.createObjectURL(blob);
-          const name = c.name && c.name.full || "";
-          const g = (c.gender || "").toLowerCase();
-          let genderLabel = "?";
-          if (g === "female")
-            genderLabel = "Female";
-          else if (g === "male")
-            genderLabel = "Male";
-          else if (genderWanted === "female")
-            genderLabel = "Female";
-          else if (genderWanted === "male")
-            genderLabel = "Male";
-          results.push({ blob, url: c.image.large, objUrl, tags: (name + " · " + genderLabel).trim() });
-        } catch (e) {}
-      }
-      return results;
-    },
-    async _fetchMixed(searchVal) {
-      const [female, male] = await Promise.all([
-        this._queryCharacters(searchVal, "female", 3),
-        this._queryCharacters(searchVal, "male", 3)
-      ]);
-      const out = [];
-      for (let i = 0;i < 3; i++) {
-        if (female[i])
-          out.push(female[i]);
-        if (male[i])
-          out.push(male[i]);
-      }
-      return out;
-    },
-    _currentIntent() {
-      return {
-        mode: this._mode,
-        source: this._source,
-        gender: this._gender,
-        search: this._searchValue()
-      };
-    },
-    async _runFetch(intent, triggerBtn) {
-      if (this._fetching)
-        return;
-      this._fetching = true;
-      const fetchBtn = document.querySelector("#waifuBtnFetch");
-      const fetchLabel = fetchBtn ? fetchBtn.querySelector("span") : null;
-      if (fetchLabel)
-        fetchLabel.textContent = I18n.t("wizard.fetching");
-      if (triggerBtn)
-        triggerBtn.disabled = true;
-      try {
-        let results;
-        if (intent.mode === "mixed") {
-          results = await this._fetchMixed(intent.search);
-        } else if (intent.source === "character") {
-          results = await this._queryCharacters(intent.search, intent.gender, 3);
-        } else {
-          results = await this._fetchSnapshots(intent.search);
-        }
-        this._fetched.forEach((f) => {
-          if (f && f.objUrl)
-            URL.revokeObjectURL(f.objUrl);
-        });
-        this._fetched = results;
-        this._selected = results.length ? 0 : -1;
-        this._render();
-        if (!results.length) {
-          Ui.showToast(I18n.t("toast.wizardFetchFailed", { error: "No results found" }), "danger");
-        }
-        this._lastRun = intent;
-      } finally {
-        this._fetching = false;
-        if (fetchLabel)
-          fetchLabel.textContent = I18n.t("editor.waifuFetch");
-        if (triggerBtn)
-          triggerBtn.disabled = false;
-      }
-    },
-    _fetch() {
-      this._mode = "source";
-      this._runFetch(this._currentIntent(), document.querySelector("#waifuBtnFetch"));
-    },
-    _regenerate() {
-      if (!this._lastRun) {
-        this._fetch();
-        return;
-      }
-      this._runFetch({ ...this._lastRun }, document.querySelector("#waifuBtnRegenerate"));
-    },
-    _fetchMixedFromUI() {
-      const src = document.querySelector("#waifuSourceSelect");
-      if (src)
-        src.value = "character";
-      this._source = "character";
-      this._gender = "all";
-      this._mode = "mixed";
-      this._onSourceChange("mixed");
-      this._syncGenderChips();
-      this._runFetch({ mode: "mixed", search: this._searchValue() }, document.querySelector("#waifuBtnMixed"));
-    },
-    _render() {
-      const wrap = document.querySelector("#waifuResults");
-      const btnUse = document.querySelector("#waifuBtnUse");
-      const isMixed = this._mode === "mixed";
-      if (!wrap)
-        return;
-      if (!this._fetched.length) {
-        wrap.innerHTML = "";
-        if (btnUse)
-          btnUse.hidden = true;
-        return;
-      }
-      wrap.innerHTML = '<div class="waifu-results-grid">' + this._fetched.map((f, i) => {
-        const tagHtml = f.tags ? '<div class="waifu-card-tags">' + Ui.escapeHtml(f.tags) + "</div>" : "";
-        return '<div class="waifu-card' + (i === this._selected ? " selected" : "") + '" data-idx="' + i + '" role="button" tabindex="0">' + '<img src="' + f.objUrl + '" alt="">' + tagHtml + "</div>";
-      }).join("") + "</div>";
-      wrap.querySelectorAll(".waifu-card").forEach((card) => {
-        card.addEventListener("click", () => {
-          this._selected = +card.dataset.idx;
-          this._render();
-        });
-      });
-      if (btnUse)
-        btnUse.hidden = this._selected < 0;
-    },
-    async _useSelected() {
-      if (this._selected < 0 || !this._fetched[this._selected])
-        return;
-      const { activeCard } = window.AppState;
-      if (!activeCard) {
-        Ui.showToast(I18n.t("toast.createCardFirst"), "warning");
-        return;
-      }
-      await Editor.setAvatar(this._fetched[this._selected].blob);
-      this._refreshPreview();
-    },
-    async _removeCurrent() {
-      const { activeCard } = window.AppState;
-      if (!activeCard) {
-        Ui.showToast(I18n.t("toast.selectCard"), "warning");
-        return;
-      }
-      if (!activeCard._hasImage && !activeCard._imageBase64) {
-        Ui.showToast(I18n.t("toast.noImage"), "warning");
-        return;
-      }
-      delete activeCard._imageBase64;
-      delete activeCard._thumbnail;
-      activeCard._hasImage = false;
-      if (activeCard._id) {
-        try {
-          await CardStorage.deleteImage(activeCard._id);
-        } catch (_) {}
-      }
-      const img = document.querySelector("#charAvatarImg");
-      if (img) {
-        img.src = "";
-        img.hidden = true;
-      }
-      const ph = document.querySelector("#avatarPlaceholder");
-      if (ph)
-        ph.style.display = "";
-      try {
-        await Editor.syncEditorToCard();
-      } catch (_) {}
-      this._refreshPreview();
-      Ui.showToast(I18n.t("toast.imageRemoved"), "success");
-    },
-    _refreshPreview() {
-      const { activeCard } = window.AppState;
-      const img = document.querySelector("#waifuCurrentImg");
-      const noImg = document.querySelector("#waifuNoImage");
-      if (!img || !noImg)
-        return;
-      if (activeCard && (activeCard._imageBase64 || activeCard._hasImage)) {
-        img.src = activeCard._imageBase64 || activeCard._thumbnail || "";
-        img.hidden = false;
-        noImg.style.display = "none";
-      } else {
-        img.src = "";
-        img.hidden = true;
-        noImg.style.display = "";
-      }
-    }
-  };
-  if (typeof window !== "undefined")
-    window.WaifuTab = WaifuTab2;
-
-  // js/settings.js
-  var Settings2 = {
-    PROMPTS: [
-      "assistant",
-      "fullCard",
-      "wizard",
-      "fullCardInstr",
-      "fieldsEdit",
-      "greetingsSystem",
-      "enhance",
-      "personality",
-      "firstmes",
-      "scenario",
-      "shorten",
-      "tone",
-      "grammar",
-      "greetings",
-      "systemprompt",
-      "translate",
-      "tags",
-      "tagsSystem"
-    ],
-    DEFAULT_PROMPTS: {
-      assistant: `You are an AI assistant helping edit SillyTavern character cards.
-SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
-      fullCard: `You are an AI assistant helping edit SillyTavern character cards.
-SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
-      wizard: "Create a complete SillyTavern character card as valid JSON (chara_card_v2 spec).",
-      enhance: "Enhance the character description to be more detailed and vivid. Add sensory details and specific traits.",
-      personality: "Expand the personality to be more nuanced. Add quirks, habits, fears, and motivations.",
-      firstmes: "Improve the first message to be more engaging and in-character.",
-      scenario: "Expand the scenario to be more detailed, immersive, and vivid. Add sensory atmosphere and narrative depth.",
-      shorten: "Shorten and tighten the description while preserving the core meaning and character voice. Remove redundancies.",
-      tone: `Rewrite the following description with a "{tone}" tone while preserving the character's core personality and key information.`,
-      grammar: "Fix all grammar, spelling, and punctuation errors in the description. Improve clarity without changing the meaning or voice.",
-      greetings: "Generate alternate greetings for this character.",
-      systemprompt: "Enhance this system prompt to be more effective and comprehensive. Improve the instructions for the AI roleplay assistant.",
-      translate: `Translate this character card to {lang}. Output the COMPLETE card as valid JSON with all fields translated. Keep the exact same JSON structure. Translate ALL text fields.
-
-Here is the card JSON:
-{card}`,
-      tags: 'Analyze this character card and suggest relevant, short tags for organizing it in a card library. Consider the name, description, personality, scenario, and first message. Respond with ONLY a JSON array of 8-15 short lowercase tag strings, like: ["fantasy", "warrior", "elf"].',
-      tagsSystem: `Respond with ONLY a JSON array of short tag strings. No explanations, no markdown, no code fences.
-Example: ["fantasy", "warrior", "elf"]`,
-      fullCardInstr: `The user wants you to edit or generate the FULL card as JSON.
-Respond with ONLY the updated JSON card. Keep the exact JSON structure.`,
-      fieldsEdit: `The user wants you to edit the "{field}" field of this card.
-
-Below is the current content of that field:
-[{field}]
-{current}
-
-Respond with ONLY the new content for this field. Do not include explanations, JSON wrapping, or markdown fences unless the original content uses them. Never output the whole card as JSON — return only the {field} value.`,
-      greetingsSystem: `The user wants you to generate ALTERNATE GREETINGS for this character.
-Current greetings: {current}
-Generate exactly {count} new alternate greeting(s).
-Respond with ONLY a valid JSON array of greeting strings. No explanations, no markdown.
-Example response format: ["Greeting one...", "Greeting two...", "Greeting three..."]
-Each greeting should be an in-character opening message that could start a conversation with {{user}}.`
-    },
-    _currentModelId(provider) {
-      const p = provider || CardStorage.getProvider() || "openrouter";
-      if (p === "openrouter")
-        return CardStorage.getDefaultModel() || "";
-      if (p === "custom")
-        return CardStorage.getCustomModelId() || "";
-      return CardStorage.getProviderModelId(p) || "";
-    },
-    _setCurrentModelId(modelId, provider) {
-      const p = provider || CardStorage.getProvider() || "openrouter";
-      if (p === "openrouter")
-        CardStorage.setDefaultModel(modelId || "");
-      else if (p === "custom")
-        CardStorage.setCustomModelId(modelId || "");
-      else
-        CardStorage.setProviderModelId(p, modelId || "");
-    },
-    async saveSettings(modal) {
-      const $ = Ui.$;
-      const provider = $("#providerSelect").value;
-      const apiKey = $("#apiKeyInput").value.trim();
-      const defaultModel = $("#defaultModelSelect").value;
-      const maxTokens = parseInt($("#maxTokensInput").value, 10) || 0;
-      const customApiUrl = $("#customApiUrlInput").value.trim();
-      const keyInput = provider === "custom" ? $("#customApiKeyInput") : $("#namedApiKeyInput");
-      const customApiKey = keyInput.value.trim();
-      const customModelId = $("#customModelInput").value.trim();
-      CardStorage.setProvider(provider);
-      if (provider === "openrouter") {
-        await CardStorage.setApiKey(apiKey);
-        AIService.setProvider("openrouter", apiKey);
-        this._setCurrentModelId(defaultModel);
-        $("#aiModelSelect").value = defaultModel;
-      } else {
-        const isCustom = provider === "custom";
-        const info = AIService.getProviderInfo(provider);
-        if (isCustom) {
-          CardStorage.setCustomApiUrl(customApiUrl);
-          await CardStorage.setCustomApiKey(customApiKey);
-        } else {
-          await CardStorage.setProviderKey(provider, customApiKey);
-        }
-        this._setCurrentModelId(customModelId);
-        AIService.setProvider(provider, customApiKey);
-        $("#aiModelSelect").value = customModelId;
-      }
-      CardStorage.setMaxTokens(maxTokens);
-      CardStorage.setInjectCopyright($("#injectCopyrightToggle").checked);
-      const densitySel = $("#glassDensitySelect");
-      if (densitySel)
-        CardStorage.setGlassDensity(densitySel.value);
-      const radiusSel = $("#cardRadiusSelect");
-      if (radiusSel)
-        CardStorage.setCardRadius(radiusSel.value);
-      const vignetteToggle = $("#vignetteToggle");
-      if (vignetteToggle)
-        CardStorage.setVignette(vignetteToggle.checked);
-      this.applyAppearance();
-      this.PROMPTS.forEach((name) => {
-        const input = document.querySelector("#prompt" + name[0].toUpperCase() + name.slice(1) + "Input");
-        const value = input ? input.value : "";
-        CardStorage.setPrompt(name, value === this.getDefaultPrompt(name) ? "" : value);
-      });
-      const theme = document.documentElement.getAttribute("data-theme") || "dark";
-      const themeColorInput = document.querySelector("#themeColorHex");
-      const themeColor = themeColorInput ? themeColorInput.value.trim() : "";
-      if (/^#[0-9a-fA-F]{6}$/.test(themeColor))
-        this.applyAccent(theme, themeColor);
-      modal.hide();
-      Ui.showToast(I18n.t("toast.settingsSaved"), "success");
-      if (provider === "openrouter" && apiKey)
-        this.refreshCredits();
-      if (provider === "custom" || apiKey || customApiKey)
-        this.refreshModelsList();
-    },
-    toggleApiKeyVisibility() {
-      const $ = Ui.$;
-      const input = $("#apiKeyInput");
-      const icon = $("#btnToggleApiKey i");
-      if (input.type === "password") {
-        input.type = "text";
-        icon.className = "bi bi-eye-slash-fill";
-      } else {
-        input.type = "password";
-        icon.className = "bi bi-eye-fill";
-      }
-    },
-    toggleNamedApiKeyVisibility() {
-      const $ = Ui.$;
-      const input = $("#namedApiKeyInput");
-      const icon = $("#btnToggleNamedApiKey i");
-      if (input.type === "password") {
-        input.type = "text";
-        icon.className = "bi bi-eye-slash-fill";
-      } else {
-        input.type = "password";
-        icon.className = "bi bi-eye-fill";
-      }
-    },
-    toggleProvider() {
-      const $ = Ui.$;
-      const provider = $("#providerSelect").value;
-      const isOpenRouter = provider === "openrouter";
-      const isCustom = provider === "custom";
-      const isNamed = !isOpenRouter && !isCustom;
-      AIService.setProvider(provider, isOpenRouter ? CardStorage.getApiKey() : isCustom ? CardStorage.getCustomApiKey() : CardStorage.getProviderKey(provider));
-      $("#openrouterSettings").classList.toggle("d-none", !isOpenRouter);
-      $("#customSettings").classList.toggle("d-none", !isCustom);
-      $("#namedProviderSettings").classList.toggle("d-none", !isNamed);
-      $("#modelIdSection").classList.toggle("d-none", isOpenRouter);
-      $("#openrouterExtras").classList.remove("d-none");
-      $("#creditsSection").classList.toggle("d-none", !isOpenRouter);
-      $("#securityWarning").classList.remove("d-none");
-      if (isNamed) {
-        const info = AIService.getProviderInfo(provider);
-        $("#namedApiUrlInput").value = info.baseUrl;
-        $("#namedApiKeyInput").value = CardStorage.getProviderKey(provider);
-        const linkMap = {
-          nanogpt: "https://nano-gpt.com",
-          xai: "https://console.x.ai",
-          zai: "https://z.ai",
-          chutes: "https://chutes.ai",
-          deepseek: "https://platform.deepseek.com"
-        };
-        $("#namedProviderLink").innerHTML = '<a href="' + (linkMap[provider] || "#") + '" target="_blank" class="text-accent">' + (I18n.t ? I18n.t("settings.getApiKeyFrom") : "Get API key from ") + Ui.escapeHtml(info.name) + ' <i class="bi bi-box-arrow-up-right ms-1"></i></a>';
-      }
-      if (isCustom) {
-        $("#customModelInput").placeholder = I18n.t ? I18n.t("settings.customModelPlaceholder") : "e.g. llama-3.2-8b-instruct";
-        $("#modelIdHint").textContent = I18n.t("settings.modelIdHint");
-      } else if (isNamed) {
-        $("#customModelInput").placeholder = I18n.t ? I18n.t("settings.namedModelPlaceholder", { provider }) : "e.g. " + provider + "-latest";
-        $("#modelIdHint").textContent = I18n.t("settings.modelIdHintNamed");
-      }
-    },
-    applyAccent(theme, color) {
-      const normalized = String(color || "").trim().toLowerCase();
-      if (!/^#[0-9a-f]{6}$/.test(normalized))
-        return false;
-      const shades = this._accentShades(normalized, theme);
-      CardStorage.setAccent(theme, normalized);
-      Object.entries(shades).forEach(([name, value]) => document.documentElement.style.setProperty(name, value));
-      document.documentElement.setAttribute("data-accent-custom", "true");
-      return true;
-    },
-    _accentShades(hex, theme) {
-      const rgb = hex.slice(1).match(/.{2}/g).map((v) => parseInt(v, 16));
-      const mix = (target, amount) => rgb.map((v, i) => Math.round(v * amount + target[i] * (1 - amount)));
-      const css = (values) => "#" + values.map((v) => v.toString(16).padStart(2, "0")).join("");
-      const white = [255, 255, 255];
-      const black = [0, 0, 0];
-      return {
-        "--accent-300": css(mix(white, 0.42)),
-        "--accent-400": css(mix(white, 0.72)),
-        "--accent-500": hex,
-        "--accent-600": css(mix(black, 0.82)),
-        "--accent-700": css(mix(black, 0.62)),
-        "--accent-glow": "rgba(" + rgb.join(", ") + ", 0.25)",
-        "--accent-glow-strong": "rgba(" + rgb.join(", ") + ", 0.45)",
-        "--accent-text": theme === "light" ? css(mix(black, 0.82)) : css(mix(white, 0.78))
-      };
-    },
-    getDefaultPrompt(name) {
-      return this.DEFAULT_PROMPTS[name] || "";
-    },
-    resetPrompts() {
-      this.PROMPTS.forEach((name) => CardStorage.setPrompt(name, ""));
-      this.openSettings();
-    },
-    resetAccent(theme) {
-      this.applyAccent(theme, "#64748b");
-      this.syncAccentControls();
-    },
-    syncAccentControls() {
-      const theme = document.documentElement.getAttribute("data-theme") || "dark";
-      const color = CardStorage.getAccent(theme) || "#64748b";
-      const picker = document.querySelector("#themeColorPicker");
-      const hex = document.querySelector("#themeColorHex");
-      if (picker)
-        picker.value = color;
-      if (hex)
-        hex.value = color;
-    },
-    APPEARANCE_PRESETS: [
-      { id: "slate", name: "Slate", color: "#64748b" },
-      { id: "purple", name: "Cosmic Purple", color: "#8b5cf6" },
-      { id: "magenta", name: "Magenta", color: "#ec4899" },
-      { id: "emerald", name: "Emerald", color: "#10b981" },
-      { id: "solar", name: "Solar", color: "#f59e0b" },
-      { id: "ocean", name: "Ocean", color: "#3b82f6" }
-    ],
-    applyAppearance() {
-      const root = document.documentElement;
-      const theme = root.getAttribute("data-theme") || "dark";
-      const GLASS = {
-        subtle: { dark: "rgba(17,15,30,0.92)", light: "rgba(255,255,255,0.94)", blur: "blur(8px)" },
-        default: { dark: "rgba(17,15,30,0.72)", light: "rgba(255,255,255,0.78)", blur: "blur(12px)" },
-        bold: { dark: "rgba(17,15,30,0.58)", light: "rgba(255,255,255,0.60)", blur: "blur(22px)" }
-      };
-      const g = GLASS[CardStorage.getGlassDensity()] || GLASS.default;
-      root.style.setProperty("--glass-bg", g[theme]);
-      root.style.setProperty("--glass-blur", g.blur);
-      const RADII = {
-        compact: { sm: "6px", md: "10px", lg: "14px" },
-        rounded: { sm: "10px", md: "14px", lg: "18px" },
-        pill: { sm: "14px", md: "18px", lg: "24px" }
-      };
-      const r = RADII[CardStorage.getCardRadius()] || RADII.compact;
-      root.style.setProperty("--radius-sm", r.sm);
-      root.style.setProperty("--radius-md", r.md);
-      root.style.setProperty("--radius-lg", r.lg);
-      root.style.setProperty("--vignette-opacity", CardStorage.getVignette() ? "1" : "0");
-    },
-    syncAppearanceControls() {
-      const $ = Ui.$;
-      const density = $("#glassDensitySelect");
-      if (density)
-        density.value = CardStorage.getGlassDensity();
-      const radius = $("#cardRadiusSelect");
-      if (radius)
-        radius.value = CardStorage.getCardRadius();
-      const vignette = $("#vignetteToggle");
-      if (vignette)
-        vignette.checked = CardStorage.getVignette();
-    },
-    async openSettings() {
-      const $ = Ui.$;
-      await CardStorage._unlockKeys();
-      const provider = CardStorage.getProvider() || "openrouter";
-      $("#providerSelect").value = provider;
-      $("#apiKeyInput").value = CardStorage.getApiKey();
-      $("#namedApiKeyInput").value = provider === "custom" ? "" : CardStorage.getProviderKey(provider);
-      $("#customApiKeyInput").value = CardStorage.getCustomApiKey();
-      $("#customApiUrlInput").value = CardStorage.getCustomApiUrl();
-      $("#customModelInput").value = provider === "custom" ? CardStorage.getCustomModelId() : CardStorage.getProviderModelId(provider);
-      $("#maxTokensInput").value = CardStorage.getMaxTokens() || "";
-      $("#injectCopyrightToggle").checked = CardStorage.getInjectCopyright();
-      this.toggleProvider();
-      this.syncAccentControls();
-      this.syncAppearanceControls();
-      this.PROMPTS.forEach((name) => {
-        const input = $("#prompt" + name[0].toUpperCase() + name.slice(1) + "Input");
-        if (input)
-          input.value = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
-      });
-    },
-    async refreshCredits() {
-      const $ = Ui.$;
-      if (CardStorage.getProvider() !== "openrouter") {
-        this.updateStorageUsage();
-        return;
-      }
-      if (!AIService.hasApiKey()) {
-        this.updateStorageUsage();
-        return;
-      }
-      try {
-        const info = await AIService.fetchKeyInfo();
-        $("#creditsBadge").classList.remove("d-none");
-        $("#creditsAmount").textContent = info.limit_remaining !== null ? "$" + Number(info.limit_remaining).toFixed(2) : I18n.t ? I18n.t("gen.notAvailable") : "N/A";
-        $("#creditLimit").textContent = info.limit > 0 ? "$" + Number(info.limit).toFixed(2) : I18n.t ? I18n.t("gen.unlimited") : "Unlimited";
-        $("#creditRemaining").textContent = info.limit_remaining !== null ? "$" + Number(info.limit_remaining).toFixed(2) : I18n.t ? I18n.t("gen.notAvailable") : "N/A";
-        $("#creditUsage").textContent = info.usage > 0 ? "$" + Number(info.usage).toFixed(2) : "$0.00";
-      } catch (err) {
-        console.error("Failed to fetch credits:", err);
-        $("#creditsBadge").classList.add("d-none");
-      }
-      this.updateStorageUsage();
-    },
-    async refreshModelsList() {
-      const $ = Ui.$;
-      const modalEl = $("#settingsModal");
-      const modalOpen = modalEl && modalEl.classList.contains("show");
-      const provider = modalOpen ? $("#providerSelect").value : CardStorage.getProvider();
-      const isCustom = provider === "custom";
-      let formKey = "";
-      if (modalOpen) {
-        const keyField = provider === "openrouter" ? $("#apiKeyInput") : isCustom ? $("#customApiKeyInput") : $("#namedApiKeyInput");
-        formKey = keyField ? keyField.value.trim() : "";
-      }
-      AIService.setProvider(provider, formKey);
-      if (isCustom && modalOpen) {
-        const urlInput = $("#customApiUrlInput");
-        AIService._customApiUrl = urlInput ? urlInput.value.trim() : "";
-      }
-      if (!AIService.hasApiKey() && !isCustom) {
-        Ui.showToast(I18n.t("error.apiKeyNotSet"), "warning");
-        return;
-      }
-      const myToken = this._modelReqToken = (this._modelReqToken || 0) + 1;
-      const container = document.querySelector("#modelList");
-      if (container)
-        container.innerHTML = '<div class="p-3"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>';
-      try {
-        const models = await AIService.fetchModels();
-        if (myToken !== this._modelReqToken)
-          return;
-        window.AppState.models = models;
-        this.populateModelSelects();
-        this.renderModelList();
-      } catch (err) {
-        if (myToken !== this._modelReqToken)
-          return;
-        console.error("Failed to fetch models:", err);
-        this.populateModelSelects();
-        Ui.showToast(I18n.t("toast.modelsFailed", { error: err.message }), "danger");
-      }
-    },
-    populateModelSelects() {
-      const $ = Ui.$;
-      const d = this._currentModelId($("#providerSelect") ? $("#providerSelect").value : null);
-      const sorted = [...window.AppState.models].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: "base" }));
-      let h = sorted.map((m) => '<option value="' + Ui.escapeAttr(m.id) + '"' + (m.id === d ? " selected" : "") + ">" + Ui.escapeHtml(m.name) + (m.is_free ? " [" + I18n.t("gen.free") + "]" : "") + "</option>").join("");
-      if (d && !window.AppState.models.some((m) => m.id === d)) {
-        h += '<option value="' + Ui.escapeAttr(d) + '" selected>' + Ui.escapeHtml(d) + "</option>";
-      }
-      $("#defaultModelSelect").innerHTML = '<option value="">' + (I18n.t ? I18n.t("settings.modelAuto") : "Auto") + "</option>" + h;
-      $("#aiModelSelect").innerHTML = '<option value="">' + (I18n.t ? I18n.t("nav.selectModel") : "Select model...") + "</option>" + h;
-    },
-    _modelPageSize: 50,
-    _modelPage: 1,
-    renderModelList(filter, resetPage) {
-      const $ = Ui.$;
-      filter = (filter || "").toLowerCase();
-      if (resetPage)
-        this._modelPage = 1;
-      const container = $("#modelList");
-      const filtered = window.AppState.models.filter((m) => {
-        const name = m.name || m.id || "";
-        const id = m.id || "";
-        const prov = m.provider || "";
-        const desc = m.description || "";
-        return !filter || name.toLowerCase().includes(filter) || id.toLowerCase().includes(filter) || prov.toLowerCase().includes(filter) || desc.toLowerCase().includes(filter);
-      });
-      if (!filtered.length) {
-        container.innerHTML = '<div class="text-center text-muted py-4">' + I18n.t("settings.noModels") + "</div>";
-        return;
-      }
-      const d = this._currentModelId();
-      const end = this._modelPage * this._modelPageSize;
-      const shown = filtered.slice(0, end);
-      const hasMore = end < filtered.length;
-      container.innerHTML = shown.map((m) => '<div class="model-item' + (m.id === d ? " selected" : "") + '" data-model-id="' + Ui.escapeAttr(m.id || "") + '">' + '<div class="model-item-info"><div class="model-item-name">' + Ui.escapeHtml(m.name || m.id || "?") + "</div>" + '<div class="model-item-provider">' + Ui.escapeHtml(m.provider || "") + " · " + (m.context_length ? Math.floor(m.context_length / 1000) + "k ctx" : "?") + (m.max_output_tokens ? " · " + Math.floor(m.max_output_tokens / 1000) + "k out" : "") + (m.is_free ? ' · <span class="text-success">' + I18n.t("gen.free") + "</span>" : "") + "</div></div>" + '<div class="model-item-pricing">' + (m.is_free ? '<span class="price-highlight">' + I18n.t("gen.free") + "</span>" : "<div>in: " + AIService.formatPrice(m.pricing ? m.pricing.prompt : null) + "</div><div>out: " + AIService.formatPrice(m.pricing ? m.pricing.completion : null) + "</div>") + "</div></div>").join("") + (hasMore ? '<div class="text-center py-2"><button class="btn btn-outline-accent btn-sm" id="btnLoadMoreModels">' + I18n.t("settings.loadMore", { count: filtered.length - end }) + "</button></div>" : "") + '<div class="text-center text-muted" style="font-size:0.7rem;">' + I18n.t("settings.showingModels", { shown: Math.min(end, filtered.length), total: filtered.length }) + "</div>";
-      Anims.staggerFadeIn(container.querySelectorAll(".model-item"), { stagger: 15, duration: 150 });
-      const self = this;
-      container.querySelectorAll(".model-item").forEach((item) => {
-        item.addEventListener("click", () => {
-          $("#defaultModelSelect").value = item.dataset.modelId;
-          $("#aiModelSelect").value = item.dataset.modelId;
-          self._setCurrentModelId(item.dataset.modelId);
-          self.renderModelList(filter);
-          Ui.showToast(I18n.t("toast.modelSet", { model: item.dataset.modelId }), "info");
-        });
-      });
-      const loadMore = container.querySelector("#btnLoadMoreModels");
-      if (loadMore)
-        loadMore.addEventListener("click", () => {
-          self._modelPage++;
-          self.renderModelList(filter);
-        });
-    },
-    filterModels() {
-      const $ = Ui.$;
-      this.renderModelList($("#modelSearch").value, true);
-    },
-    async updateStorageUsage() {
-      const $ = Ui.$;
-      const bytes = await CardStorage.getUsageEstimate();
-      const kb = (bytes / 1024).toFixed(1);
-      const mb = (bytes / (1024 * 1024)).toFixed(2);
-      const gb = (bytes / (1024 * 1024 * 1024)).toFixed(2);
-      $("#storageUsage").textContent = parseFloat(gb) >= 1 ? gb + " GB" : parseFloat(kb) > 1000 ? mb + " MB" : kb + " KB";
-    },
-    async confirmClearStorage() {
-      const $ = Ui.$;
-      if (!await Ui.confirm({
-        title: I18n.t ? I18n.t("settings.clearTitle") : "Clear all data?",
-        message: I18n.t ? I18n.t("settings.clearConfirm") : "Delete ALL cards, settings, and chat history? This cannot be undone.",
-        buttonLabel: I18n.t ? I18n.t("settings.clearAll") : "Clear All Data"
-      }))
-        return;
-      await CardStorage.clearAll();
-      window.AppState.cards = [];
-      window.AppState.activeCard = null;
-      window.AppState.chatHistory = [];
-      window.AppState.models = [];
-      AiChat.clearChat();
-      try {
-        sessionStorage.removeItem("stce_wizard_draft");
-      } catch (_) {}
-      AIService.setProvider("openrouter");
-      $("#apiKeyInput").value = "";
-      $("#providerSelect").value = "openrouter";
-      $("#customApiUrlInput").value = "";
-      $("#namedApiKeyInput").value = "";
-      $("#customApiKeyInput").value = "";
-      $("#customModelInput").value = "";
-      this.toggleProvider();
-      $("#defaultModelSelect").innerHTML = '<option value="">' + (I18n.t ? I18n.t("settings.modelAuto") : "Auto") + "</option>";
-      $("#aiModelSelect").innerHTML = '<option value="">' + (I18n.t ? I18n.t("nav.selectModel") : "Select model...") + "</option>";
-      Editor.hideEditor();
-      CardManager.renderCardList();
-      this.renderModelList();
-      $("#creditsBadge").classList.add("d-none");
-      $("#aiChatMessages").innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>' + (I18n.t ? I18n.t("ai.welcomeTitle") : "AI Card Assistant") + "</h6><p>" + (I18n.t ? I18n.t("ai.welcomeText") : "Ask the AI to edit, translate, or enhance your character card.") + "</p></div>";
-      Ui.showToast(I18n.t("toast.dataCleared"), "warning");
-    },
-    exportSettings() {
-      const settings = {
-        provider: CardStorage.getProvider(),
-        defaultModel: CardStorage.getDefaultModel(),
-        maxTokens: CardStorage.getMaxTokens(),
-        injectCopyright: CardStorage.getInjectCopyright(),
-        customApiUrl: CardStorage.getCustomApiUrl(),
-        customModelId: CardStorage.getCustomModelId(),
-        providerModelIds: CardStorage.getAllProviderModelIds ? CardStorage.getAllProviderModelIds() : undefined
-      };
-      Ui.downloadFile("st-card-editor-settings.json", JSON.stringify(settings, null, 2), "application/json");
-      Ui.showToast(I18n.t("toast.settingsExported"), "success");
-    },
-    importSettings() {
-      const $ = Ui.$;
-      const input = document.querySelector("#settingsFileInput");
-      input.onchange = (e) => {
-        const file = e.target.files[0];
-        if (!file)
-          return;
-        const reader = new FileReader;
-        reader.onload = async () => {
-          try {
-            const settings = JSON.parse(reader.result);
-            if (settings.provider) {
-              CardStorage.setProvider(settings.provider);
-              $("#providerSelect").value = settings.provider;
-              this.toggleProvider();
-            }
-            if (settings.defaultModel !== undefined) {
-              CardStorage.setDefaultModel(settings.defaultModel);
-              $("#defaultModelSelect").value = settings.defaultModel;
-              $("#aiModelSelect").value = settings.defaultModel;
-            }
-            if (settings.maxTokens !== undefined) {
-              CardStorage.setMaxTokens(settings.maxTokens);
-              $("#maxTokensInput").value = settings.maxTokens || "";
-            }
-            if (settings.injectCopyright !== undefined) {
-              CardStorage.setInjectCopyright(settings.injectCopyright);
-              $("#injectCopyrightToggle").checked = settings.injectCopyright;
-            }
-            if (settings.customApiUrl !== undefined) {
-              CardStorage.setCustomApiUrl(settings.customApiUrl);
-              $("#customApiUrlInput").value = settings.customApiUrl;
-            }
-            if (settings.customModelId !== undefined) {
-              CardStorage.setCustomModelId(settings.customModelId);
-              $("#customModelInput").value = settings.customModelId;
-            }
-            if (settings.providerModelIds && typeof settings.providerModelIds === "object") {
-              for (const [prov, modelId] of Object.entries(settings.providerModelIds)) {
-                if (modelId)
-                  CardStorage.setProviderModelId(prov, modelId);
-              }
-            }
-            const cur = CardStorage.getProvider();
-            $("#customModelInput").value = cur === "custom" ? CardStorage.getCustomModelId() : CardStorage.getProviderModelId(cur);
-            Ui.showToast(I18n.t("toast.settingsImported"), "success");
-          } catch (err) {
-            Ui.showToast(I18n.t("toast.invalidFile"), "danger");
-          }
-        };
-        reader.readAsText(file);
-        e.target.value = "";
-      };
-      input.click();
-    },
-    exportPrompts() {
-      const prompts = {};
-      this.PROMPTS.forEach((name) => {
-        prompts[name] = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
-      });
-      Ui.downloadFile("st-card-editor-prompts.json", JSON.stringify({ version: 1, prompts }, null, 2), "application/json");
-      Ui.showToast(I18n.t ? I18n.t("settings.promptsExported") : "Prompts exported", "success");
-    },
-    importPrompts() {
-      const $ = Ui.$;
-      const input = document.querySelector("#promptFileInput");
-      input.onchange = (e) => {
-        const file = e.target.files[0];
-        if (!file)
-          return;
-        const reader = new FileReader;
-        reader.onload = async () => {
-          try {
-            const data = JSON.parse(reader.result);
-            const map = data && data.prompts || {};
-            if (typeof map !== "object" || Array.isArray(map))
-              throw new Error("bad");
-            let count = 0;
-            this.PROMPTS.forEach((name) => {
-              if (!(name in map))
-                return;
-              const value = typeof map[name] === "string" ? map[name] : "";
-              CardStorage.setPrompt(name, value === this.getDefaultPrompt(name) ? "" : value);
-              count++;
-            });
-            if (!count)
-              throw new Error("none");
-            this.PROMPTS.forEach((name) => {
-              const field = $("#prompt" + name[0].toUpperCase() + name.slice(1) + "Input");
-              if (field)
-                field.value = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
-            });
-            Ui.showToast(I18n.t ? I18n.t("settings.promptsImported", { count }) : "Imported " + count + " prompts", "success");
-          } catch (err) {
-            Ui.showToast(I18n.t("toast.invalidFile"), "danger");
-          }
-        };
-        reader.readAsText(file);
-        e.target.value = "";
-      };
-      input.click();
-    },
-    async exportWorkspace() {
-      const $ = Ui.$;
-      const cards = CardStorage.getCards();
-      const fullCards = [];
-      for (const meta of cards) {
-        const card = await CardStorage.getCard(meta._id);
-        if (!card)
-          continue;
-        try {
-          const b64 = await CardStorage.getImage(card._id);
-          if (b64)
-            card._imageBase64 = b64;
-        } catch (_) {}
-        delete card._id;
-        delete card._filename;
-        delete card._createdAt;
-        delete card._fileSize;
-        fullCards.push(card);
-      }
-      const workspace = {
-        version: "2.1",
-        exportedAt: new Date().toISOString(),
-        cards: fullCards,
-        settings: {
-          provider: CardStorage.getProvider(),
-          defaultModel: CardStorage.getDefaultModel(),
-          maxTokens: CardStorage.getMaxTokens(),
-          injectCopyright: CardStorage.getInjectCopyright(),
-          glassDensity: CardStorage.getGlassDensity(),
-          cardRadius: CardStorage.getCardRadius(),
-          vignette: CardStorage.getVignette()
-        }
-      };
-      Ui.downloadFile("st-card-editor-workspace-" + new Date().toISOString().slice(0, 10) + ".json", JSON.stringify(workspace, null, 2), "application/json");
-      Ui.showToast(I18n.t ? I18n.t("settings.workspaceExported", { count: fullCards.length }) : "Workspace exported (" + fullCards.length + " cards)", "success");
-    },
-    importWorkspace() {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = ".json";
-      const cleanup = () => {
-        input.onchange = null;
-        input.onabort = null;
-        input.oncancel = null;
-        input.remove();
-      };
-      input.onabort = cleanup;
-      input.oncancel = cleanup;
-      input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) {
-          cleanup();
-          return;
-        }
-        try {
-          const text = await file.text();
-          const workspace = JSON.parse(text);
-          if (!workspace.cards || !Array.isArray(workspace.cards)) {
-            throw new Error(I18n.t ? I18n.t("settings.invalidWorkspace") : "Invalid workspace format");
-          }
-          let imported = 0;
-          for (const card of workspace.cards) {
-            if (!card.name && !card.description)
-              continue;
-            const normalized = CardEngine.normalize(card, (card.name || "character") + ".json");
-            const trimmedName = (normalized.name || "").trim();
-            if (trimmedName) {
-              const existing = CardStorage.getCards().find((c) => (c.name || "").trim().toLowerCase() === trimmedName.toLowerCase());
-              if (existing) {
-                let existingFull = null;
-                try {
-                  existingFull = await CardStorage.getCard(existing._id);
-                } catch (_) {}
-                if (existingFull && CardManager._cardSignature(normalized) === CardManager._cardSignature(existingFull)) {
-                  const base = trimmedName;
-                  let n = 2;
-                  const used = new Set(CardStorage.getCards().map((c) => (c.name || "").toLowerCase()));
-                  let candidate = base + " (" + n + ")";
-                  while (used.has(candidate.toLowerCase())) {
-                    n++;
-                    candidate = base + " (" + n + ")";
-                  }
-                  normalized.name = candidate;
-                }
-              }
-            }
-            if (card._imageBase64) {
-              await CardStorage.saveImage(normalized._id, card._imageBase64);
-              normalized._hasImage = true;
-              normalized._thumbnail = normalized._thumbnail || await CardEngine._createThumbnail(card._imageBase64);
-            }
-            normalized._fileSize = CardEngine.computeFileSize(normalized);
-            await CardStorage.upsertCard(normalized);
-            imported++;
-          }
-          if (workspace.settings) {
-            if (workspace.settings.provider) {
-              CardStorage.setProvider(workspace.settings.provider);
-              const isCustom = workspace.settings.provider === "custom";
-              const isOR = workspace.settings.provider === "openrouter";
-              const providerKey = isOR ? CardStorage.getApiKey() : isCustom ? CardStorage.getCustomApiKey() : CardStorage.getProviderKey(workspace.settings.provider);
-              AIService.setProvider(workspace.settings.provider, providerKey);
-              const sel = document.querySelector("#providerSelect");
-              if (sel)
-                sel.value = workspace.settings.provider;
-            }
-            if (workspace.settings.defaultModel) {
-              CardStorage.setDefaultModel(workspace.settings.defaultModel);
-            }
-            if (workspace.settings.maxTokens !== undefined)
-              CardStorage.setMaxTokens(workspace.settings.maxTokens);
-            if (workspace.settings.injectCopyright !== undefined)
-              CardStorage.setInjectCopyright(workspace.settings.injectCopyright);
-            if (workspace.settings.glassDensity !== undefined)
-              CardStorage.setGlassDensity(workspace.settings.glassDensity);
-            if (workspace.settings.cardRadius !== undefined)
-              CardStorage.setCardRadius(workspace.settings.cardRadius);
-            if (workspace.settings.vignette !== undefined)
-              CardStorage.setVignette(workspace.settings.vignette);
-          }
-          window.AppState.cards = CardStorage.getCards();
-          CardManager.renderCardList();
-          Settings2.applyAppearance();
-          Settings2.refreshModelsList();
-          const modelSel = document.querySelector("#aiModelSelect");
-          if (modelSel)
-            modelSel.value = this._currentModelId() || "";
-          Ui.showToast(I18n.t ? I18n.t("settings.workspaceImported", { count: imported }) : "Workspace imported (" + imported + " cards)", "success");
-        } catch (err) {
-          console.error("Workspace import failed:", err);
-          Ui.showToast(I18n.t ? I18n.t("settings.workspaceImportFailed", { error: err.message }) : "Failed to import workspace: " + err.message, "danger");
-        }
-        cleanup();
-      };
-      document.body.appendChild(input);
-      input.click();
-    }
-  };
-  if (typeof window !== "undefined")
-    window.Settings = Settings2;
+    window.Tokenizer = Tokenizer;
 
   // js/i18n/en.js
   var en_default = {
@@ -24938,7 +17401,7 @@ Each greeting should be an in-character opening message that could start a conve
     "pt-pt": pt_pt_default,
     tl: tl_default
   };
-  var I18n2 = {
+  var I18n = {
     _lang: "en",
     getLang() {
       return this._lang;
@@ -25040,11 +17503,6296 @@ Each greeting should be an in-character opening message that could start a conve
     }
   };
   if (typeof window !== "undefined")
-    window.I18n = I18n2;
+    window.I18n = I18n;
+
+  // js/cardEngine.js
+  var CardEngine = {
+    _utf8Decoder: new TextDecoder("utf-8"),
+    THUMBNAIL_MAX_SIZE: 128,
+    THUMBNAIL_JPEG_QUALITY: 0.8,
+    async parseFile(file) {
+      const ext = file.name.split(".").pop().toLowerCase();
+      if (ext === "json") {
+        const text = await file.text();
+        return this.parseJSON(text, file.name);
+      }
+      if (ext === "png") {
+        const buffer = await file.arrayBuffer();
+        const card = await this.parsePNG(buffer, file.name);
+        if (!card._imageBase64) {
+          const blob = new Blob([buffer], { type: "image/png" });
+          card._imageBase64 = await this._blobToBase64(blob);
+        }
+        card._hasImage = true;
+        card._thumbnail = await this._createThumbnail(card._imageBase64);
+        card._fileSize = this.computeFileSize(card);
+        return card;
+      }
+      if (ext === "webp") {
+        const buffer = await file.arrayBuffer();
+        const card = this._createEmptyCard(file.name);
+        const blob = new Blob([buffer], { type: "image/webp" });
+        card._imageBase64 = await this._blobToBase64(blob);
+        card._hasImage = true;
+        card._thumbnail = await this._createThumbnail(card._imageBase64);
+        card._fileSize = this.computeFileSize(card);
+        return card;
+      }
+      throw new Error(I18n.t ? I18n.t("error.unsupportedFile", { ext }) : "Unsupported file type: ." + ext);
+    },
+    _uniqueId() {
+      if (typeof crypto !== "undefined" && crypto.randomUUID) {
+        return "card_" + crypto.randomUUID();
+      }
+      return "card_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
+    },
+    parseJSON(jsonStr, filename) {
+      filename = filename || "untitled.json";
+      let raw;
+      try {
+        raw = JSON.parse(jsonStr);
+      } catch (e) {
+        throw new Error(I18n.t ? I18n.t("error.invalidJson", { message: e.message || "parse error" }) : "Invalid JSON: " + (e.message || "parse error"));
+      }
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        throw new Error(I18n.t ? I18n.t("error.unknownFormat") : "Unknown card format — not a SillyTavern character card");
+      }
+      return this.normalize(raw, filename);
+    },
+    async parsePNG(buffer, filename) {
+      filename = filename || "untitled.png";
+      const bytes = new Uint8Array(buffer);
+      const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+      for (let i = 0;i < 8; i++) {
+        if (bytes[i] !== sig[i])
+          throw new Error(I18n.t ? I18n.t("error.notPng") : "Not a valid PNG file");
+      }
+      let offset = 8;
+      let charaRaw = null;
+      let ccv3Raw = null;
+      let cardChunkUnreadable = false;
+      while (offset + 12 <= bytes.length) {
+        const len = this._readUint32(bytes, offset);
+        offset += 4;
+        const type = this._utf8Decoder.decode(bytes.slice(offset, offset + 4));
+        offset += 4;
+        if (type === "tEXt") {
+          const chunkData = bytes.slice(offset, offset + len);
+          const nullIdx = chunkData.indexOf(0);
+          if (nullIdx >= 0) {
+            const keyword = this._utf8Decoder.decode(chunkData.slice(0, nullIdx)).toLowerCase();
+            if (keyword === "chara") {
+              charaRaw = chunkData.slice(nullIdx + 1);
+            } else if (keyword === "ccv3") {
+              ccv3Raw = chunkData.slice(nullIdx + 1);
+            }
+          }
+        } else if (type === "iTXt" || type === "zTXt") {
+          const chunkData = bytes.slice(offset, offset + len);
+          const nullIdx = chunkData.indexOf(0);
+          if (nullIdx >= 0) {
+            const keyword = this._utf8Decoder.decode(chunkData.slice(0, nullIdx)).toLowerCase();
+            let valueBytes = null;
+            if (type === "iTXt") {
+              let p = nullIdx + 1;
+              const compressionFlag = chunkData[p];
+              p += 1;
+              p += 1;
+              const langEnd = chunkData.indexOf(0, p);
+              if (langEnd < 0) {
+                offset += len + 4;
+                continue;
+              }
+              p = langEnd + 1;
+              const transEnd = chunkData.indexOf(0, p);
+              if (transEnd < 0) {
+                offset += len + 4;
+                continue;
+              }
+              p = transEnd + 1;
+              valueBytes = chunkData.slice(p);
+              if (compressionFlag === 1)
+                valueBytes = await this._inflate(valueBytes);
+            } else {
+              const p = nullIdx + 2;
+              valueBytes = await this._inflate(chunkData.slice(p));
+            }
+            if (valueBytes) {
+              if (keyword === "chara")
+                charaRaw = valueBytes;
+              else if (keyword === "ccv3")
+                ccv3Raw = valueBytes;
+            } else if (keyword === "chara" || keyword === "ccv3") {
+              cardChunkUnreadable = true;
+            }
+          }
+        } else if (type === "IEND") {
+          break;
+        }
+        offset += len + 4;
+      }
+      const rawBytes = charaRaw || ccv3Raw;
+      if (rawBytes) {
+        const rawStr = this._utf8Decoder.decode(rawBytes);
+        const jsonStr = this._decodeCharaValue(rawStr);
+        return this.parseJSON(jsonStr, filename);
+      }
+      if (cardChunkUnreadable) {
+        throw new Error(I18n.t ? I18n.t("error.pngInflateFailed") : "This PNG contains character data that could not be decompressed.");
+      }
+      return this._createEmptyCard(filename);
+    },
+    async _inflate(bytes) {
+      let writer = null;
+      try {
+        if (typeof DecompressionStream === "undefined")
+          return null;
+        let ds;
+        try {
+          ds = new DecompressionStream("zlib");
+        } catch (e) {
+          if (bytes.length <= 6)
+            return null;
+          bytes = bytes.subarray(2, bytes.length - 4);
+          ds = new DecompressionStream("deflate");
+        }
+        writer = ds.writable.getWriter();
+        await writer.write(bytes);
+        await writer.close();
+        const ab = await new Response(ds.readable).arrayBuffer();
+        return new Uint8Array(ab);
+      } catch (e) {
+        console.error("zlib inflate failed", e);
+        return null;
+      } finally {
+        if (writer && typeof writer.releaseLock === "function") {
+          try {
+            writer.releaseLock();
+          } catch (_) {}
+        }
+      }
+    },
+    normalize(raw, filename) {
+      const card = {
+        _id: "",
+        _filename: filename,
+        _hasImage: false,
+        _imageBase64: null
+      };
+      let source;
+      if (raw.spec === "chara_card_v2" || raw.spec === "chara_card_v3") {
+        card.spec = raw.spec;
+        card.spec_version = raw.spec_version || (raw.spec === "chara_card_v3" ? "3.0" : "2.0");
+        source = raw.data || {};
+      } else if (raw.name !== undefined && !raw.spec) {
+        card.spec = "chara_card_v2";
+        card.spec_version = "2.0";
+        source = raw;
+      } else {
+        throw new Error(I18n.t ? I18n.t("error.unknownFormat") : "Unknown card format — not a SillyTavern character card");
+      }
+      const fields = [
+        "name",
+        "description",
+        "personality",
+        "scenario",
+        "first_mes",
+        "mes_example",
+        "creator_notes",
+        "system_prompt",
+        "post_history_instructions",
+        "creator",
+        "character_version"
+      ];
+      for (const f of fields)
+        card[f] = source[f] || "";
+      card.alternate_greetings = Array.isArray(source.alternate_greetings) ? [...source.alternate_greetings] : [];
+      card.tags = Array.isArray(source.tags) ? source.tags.filter((t) => t != null && t !== "").map((t) => String(t).trim()).filter(Boolean) : [];
+      card.character_book = source.character_book ? JSON.parse(JSON.stringify(source.character_book)) : { entries: [] };
+      card.extensions = source.extensions ? JSON.parse(JSON.stringify(source.extensions)) : {};
+      if (!card.character_book || !Array.isArray(card.character_book.entries)) {
+        card.character_book = { entries: [] };
+      } else {
+        card.character_book.entries = card.character_book.entries.map((e) => {
+          if (!e || typeof e !== "object") {
+            return { key: "", keysecondary: [], content: "", order: 100, constant: false, selective: false, position: "after_char", comment: "" };
+          }
+          if (e.keys != null && e.key == null)
+            e.key = e.keys;
+          if (e.secondary_keys != null && e.keysecondary == null)
+            e.keysecondary = e.secondary_keys;
+          if (e.insertion_order != null && e.order == null)
+            e.order = e.insertion_order;
+          if (e.enabled != null && e.disable == null)
+            e.disable = !e.enabled;
+          if (!Array.isArray(e.keysecondary)) {
+            e.keysecondary = e.keysecondary == null ? [] : String(e.keysecondary).split(",").map((s) => s.trim()).filter(Boolean);
+          }
+          if (e.key != null && !Array.isArray(e.key) && typeof e.key !== "string") {
+            e.key = String(e.key);
+          }
+          return e;
+        });
+      }
+      card._id = this._uniqueId();
+      card._createdAt = Date.now();
+      card._fileSize = JSON.stringify(card).length;
+      return card;
+    },
+    createEmptyCard(name) {
+      name = name || (I18n.t ? I18n.t("gen.newCharacter") : "New Character");
+      const card = {
+        _id: this._uniqueId(),
+        _filename: name + ".json",
+        _hasImage: false,
+        _imageBase64: null,
+        _createdAt: Date.now(),
+        _fileSize: 0,
+        spec: "chara_card_v2",
+        spec_version: "2.0",
+        name,
+        description: "",
+        personality: "",
+        scenario: "",
+        first_mes: "",
+        mes_example: "",
+        creator_notes: "",
+        system_prompt: "",
+        post_history_instructions: "",
+        alternate_greetings: [],
+        tags: [],
+        creator: "",
+        character_version: "1.0",
+        character_book: { entries: [] },
+        extensions: {}
+      };
+      card._fileSize = JSON.stringify(card).length;
+      return card;
+    },
+    computeFileSize(card) {
+      const jsonChars = JSON.stringify(this.toJSON(card || {})).length;
+      const b64 = card && card._imageBase64;
+      let imageBytes = 0;
+      if (typeof b64 === "string") {
+        const comma = b64.indexOf(",");
+        if (comma >= 0)
+          imageBytes = Math.round((b64.length - comma - 1) * 3 / 4);
+      }
+      return jsonChars + imageBytes;
+    },
+    toJSON(card) {
+      return JSON.stringify({
+        spec: card.spec || "chara_card_v2",
+        spec_version: card.spec_version || "2.0",
+        data: {
+          name: card.name || "",
+          description: card.description || "",
+          personality: card.personality || "",
+          scenario: card.scenario || "",
+          first_mes: card.first_mes || "",
+          mes_example: card.mes_example || "",
+          creator_notes: card.creator_notes || "",
+          system_prompt: card.system_prompt || "",
+          post_history_instructions: card.post_history_instructions || "",
+          alternate_greetings: card.alternate_greetings || [],
+          tags: card.tags || [],
+          creator: card.creator || "",
+          character_version: card.character_version || "",
+          character_book: card.character_book || { entries: [] },
+          extensions: card.extensions || {}
+        }
+      }, null, 2);
+    },
+    getTextContent(card, field) {
+      if (field && card[field] !== undefined)
+        return card[field] || "";
+      const fields = [
+        ["Name", card.name],
+        ["Description", card.description],
+        ["Personality", card.personality],
+        ["Scenario", card.scenario],
+        ["First Message", card.first_mes],
+        ["Example Messages", card.mes_example],
+        ["System Prompt", card.system_prompt],
+        ["Post-History Instructions", card.post_history_instructions]
+      ];
+      return fields.filter(([_, v]) => v && v.trim()).map(([label, value]) => `[${label}]
+${value}`).join(`
+
+`);
+    },
+    _decodeCharaValue(rawValue) {
+      try {
+        JSON.parse(rawValue);
+        return rawValue;
+      } catch (_) {}
+      try {
+        const binStr = atob(rawValue);
+        const bytes = Uint8Array.from(binStr, (c) => c.charCodeAt(0));
+        const decoded = this._utf8Decoder.decode(bytes);
+        JSON.parse(decoded);
+        return decoded;
+      } catch (_) {}
+      return rawValue;
+    },
+    _readUint32(bytes, offset) {
+      if (offset + 4 > bytes.length)
+        return 0;
+      return (bytes[offset] << 24 | bytes[offset + 1] << 16 | bytes[offset + 2] << 8 | bytes[offset + 3]) >>> 0;
+    },
+    _createEmptyCard(filename) {
+      return this.normalize({ name: filename.replace(/\.[^.]+$/, "") }, filename);
+    },
+    _blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader;
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    },
+    _createThumbnail(base64) {
+      return new Promise((resolve) => {
+        if (!base64)
+          return resolve(null);
+        const img = new Image;
+        img.onload = () => {
+          try {
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            const MAX = this.THUMBNAIL_MAX_SIZE;
+            let { width: w, height: h } = img;
+            if (w > h) {
+              if (w > MAX) {
+                h = Math.round(h * MAX / w);
+                w = MAX;
+              }
+            } else {
+              if (h > MAX) {
+                w = Math.round(w * MAX / h);
+                h = MAX;
+              }
+            }
+            canvas.width = w;
+            canvas.height = h;
+            ctx.drawImage(img, 0, 0, w, h);
+            let needsAlpha = false;
+            try {
+              const pixels = ctx.getImageData(0, 0, w, h).data;
+              for (let i = 3;i < pixels.length; i += 4) {
+                if (pixels[i] < 255) {
+                  needsAlpha = true;
+                  break;
+                }
+              }
+            } catch (_) {}
+            img.removeAttribute("src");
+            img.onload = null;
+            img.onerror = null;
+            resolve(needsAlpha ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", this.THUMBNAIL_JPEG_QUALITY));
+          } catch (_) {
+            img.removeAttribute("src");
+            img.onload = null;
+            img.onerror = null;
+            resolve(null);
+          }
+        };
+        img.onerror = () => {
+          img.removeAttribute("src");
+          img.onload = null;
+          img.onerror = null;
+          resolve(null);
+        };
+        img.src = base64;
+      });
+    }
+  };
+  if (typeof window !== "undefined")
+    window.CardEngine = CardEngine;
+
+  // js/animations.js
+  var Anims = {
+    get _reducedMotion() {
+      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    },
+    _disabled() {
+      return this._reducedMotion || typeof anime === "undefined";
+    },
+    staggerFadeIn(selector, opts) {
+      if (this._disabled())
+        return;
+      let els = typeof selector === "string" ? document.querySelectorAll(selector) : selector;
+      if (els && typeof els.length !== "number")
+        els = [els];
+      if (!els || !els.length)
+        return;
+      anime({
+        targets: els,
+        opacity: [0, 1],
+        translateY: [opts?.from || 8, 0],
+        duration: opts?.duration || 250,
+        delay: anime.stagger(opts?.stagger || 30),
+        easing: opts?.easing || "easeOutCubic"
+      });
+    },
+    _slideToken: 0,
+    _activeTimeline: null,
+    slideStep(outEl, inEl, direction, onDone) {
+      if (this._activeTimeline) {
+        this._activeTimeline.pause();
+        this._activeTimeline = null;
+      }
+      if (this._pendingOutEl && this._pendingOutEl !== inEl && !this._pendingOutEl.classList.contains("d-none")) {
+        this._pendingOutEl.classList.add("d-none");
+        this._pendingOutEl.style.opacity = "";
+        this._pendingOutEl.style.transform = "";
+      }
+      this._pendingOutEl = outEl;
+      const token = ++this._slideToken;
+      if (outEl) {
+        outEl.style.opacity = "";
+        outEl.style.transform = "";
+      }
+      if (inEl) {
+        inEl.style.opacity = "";
+        inEl.style.transform = "";
+      }
+      if (this._disabled()) {
+        if (outEl)
+          outEl.classList.add("d-none");
+        if (inEl)
+          inEl.classList.remove("d-none");
+        this._pendingOutEl = null;
+        if (onDone)
+          onDone();
+        return;
+      }
+      const xOut = direction === "next" ? -20 : 20;
+      const xIn = direction === "next" ? 20 : -20;
+      const tl = anime.timeline({ easing: "easeOutCubic" });
+      this._activeTimeline = tl;
+      const finish = () => {
+        if (token !== this._slideToken)
+          return;
+        if (this._activeTimeline === tl)
+          this._activeTimeline = null;
+        if (onDone)
+          onDone();
+      };
+      if (outEl) {
+        tl.add({ targets: outEl, opacity: [1, 0], translateX: [0, xOut], duration: 180, complete: () => {
+          if (token === this._slideToken)
+            outEl.classList.add("d-none");
+          if (!inEl) {
+            finish();
+          }
+        } });
+      }
+      if (inEl) {
+        inEl.classList.remove("d-none");
+        inEl.style.opacity = "0";
+        tl.add({ targets: inEl, opacity: [0, 1], translateX: [xIn, 0], duration: 220, complete: () => {
+          if (inEl)
+            inEl.style.opacity = "";
+          if (this._pendingOutEl === outEl)
+            this._pendingOutEl = null;
+          finish();
+        } }, outEl ? "-=60" : 0);
+      } else if (!outEl) {
+        finish();
+      }
+    },
+    pulseIcon(el) {
+      if (this._disabled() || !el)
+        return;
+      anime({ targets: el, scale: [1, 1.25, 1], duration: 300, easing: "easeOutCubic" });
+    },
+    shakeElement(el) {
+      if (this._disabled() || !el)
+        return;
+      anime({ targets: el, translateX: [0, -6, 6, -4, 4, -2, 2, 0], duration: 400, easing: "easeOutCubic" });
+    },
+    scaleClick(el) {
+      if (this._disabled() || !el)
+        return;
+      anime({ targets: el, scale: [1, 0.96, 1], duration: 150, easing: "easeOutCubic" });
+    },
+    progressBounce(el) {
+      if (this._disabled() || !el)
+        return;
+      anime({ targets: el, scale: [1, 1.08, 1], duration: 350, easing: "easeOutElastic(1, .6)" });
+    },
+    chevronRotate(el, isOpen) {
+      if (this._disabled() || !el)
+        return;
+      anime({ targets: el, rotateZ: isOpen ? 180 : 0, duration: 250, easing: "easeOutCubic" });
+    },
+    iconSpin(el) {
+      if (this._disabled() || !el)
+        return;
+      anime({ targets: el, rotateZ: 360, duration: 400, easing: "easeOutCubic" });
+    },
+    skeletonReveal(selector) {
+      if (this._disabled())
+        return;
+      let els = typeof selector === "string" ? document.querySelectorAll(selector) : selector;
+      if (els && typeof els.length !== "number")
+        els = [els];
+      if (!els || !els.length)
+        return;
+      anime({
+        targets: els,
+        opacity: [0, 1],
+        translateY: [6, 0],
+        duration: 200,
+        delay: anime.stagger(50),
+        easing: "easeOutCubic"
+      });
+    },
+    toastEnter(el) {
+      if (this._disabled() || !el)
+        return;
+      anime({ targets: el, translateX: [40, 0], opacity: [0, 1], duration: 250, easing: "easeOutCubic" });
+    }
+  };
+  if (typeof window !== "undefined")
+    window.Anims = Anims;
+
+  // js/settings.js
+  var Settings = {
+    PROMPTS: [
+      "assistant",
+      "fullCard",
+      "wizard",
+      "fullCardInstr",
+      "fieldsEdit",
+      "greetingsSystem",
+      "enhance",
+      "personality",
+      "firstmes",
+      "scenario",
+      "shorten",
+      "tone",
+      "grammar",
+      "greetings",
+      "systemprompt",
+      "translate",
+      "tags",
+      "tagsSystem"
+    ],
+    DEFAULT_PROMPTS: {
+      assistant: `You are an AI assistant helping edit SillyTavern character cards.
+SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
+      fullCard: `You are an AI assistant helping edit SillyTavern character cards.
+SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
+      wizard: "Create a complete SillyTavern character card as valid JSON (chara_card_v2 spec).",
+      enhance: "Enhance the character description to be more detailed and vivid. Add sensory details and specific traits.",
+      personality: "Expand the personality to be more nuanced. Add quirks, habits, fears, and motivations.",
+      firstmes: "Improve the first message to be more engaging and in-character.",
+      scenario: "Expand the scenario to be more detailed, immersive, and vivid. Add sensory atmosphere and narrative depth.",
+      shorten: "Shorten and tighten the description while preserving the core meaning and character voice. Remove redundancies.",
+      tone: `Rewrite the following description with a "{tone}" tone while preserving the character's core personality and key information.`,
+      grammar: "Fix all grammar, spelling, and punctuation errors in the description. Improve clarity without changing the meaning or voice.",
+      greetings: "Generate alternate greetings for this character.",
+      systemprompt: "Enhance this system prompt to be more effective and comprehensive. Improve the instructions for the AI roleplay assistant.",
+      translate: `Translate this character card to {lang}. Output the COMPLETE card as valid JSON with all fields translated. Keep the exact same JSON structure. Translate ALL text fields.
+
+Here is the card JSON:
+{card}`,
+      tags: 'Analyze this character card and suggest relevant, short tags for organizing it in a card library. Consider the name, description, personality, scenario, and first message. Respond with ONLY a JSON array of 8-15 short lowercase tag strings, like: ["fantasy", "warrior", "elf"].',
+      tagsSystem: `Respond with ONLY a JSON array of short tag strings. No explanations, no markdown, no code fences.
+Example: ["fantasy", "warrior", "elf"]`,
+      fullCardInstr: `The user wants you to edit or generate the FULL card as JSON.
+Respond with ONLY the updated JSON card. Keep the exact JSON structure.`,
+      fieldsEdit: `The user wants you to edit the "{field}" field of this card.
+
+Below is the current content of that field:
+[{field}]
+{current}
+
+Respond with ONLY the new content for this field. Do not include explanations, JSON wrapping, or markdown fences unless the original content uses them. Never output the whole card as JSON — return only the {field} value.`,
+      greetingsSystem: `The user wants you to generate ALTERNATE GREETINGS for this character.
+Current greetings: {current}
+Generate exactly {count} new alternate greeting(s).
+Respond with ONLY a valid JSON array of greeting strings. No explanations, no markdown.
+Example response format: ["Greeting one...", "Greeting two...", "Greeting three..."]
+Each greeting should be an in-character opening message that could start a conversation with {{user}}.`
+    },
+    _currentModelId(provider) {
+      const p = provider || CardStorage.getProvider() || "openrouter";
+      if (p === "openrouter")
+        return CardStorage.getDefaultModel() || "";
+      if (p === "custom")
+        return CardStorage.getCustomModelId() || "";
+      return CardStorage.getProviderModelId(p) || "";
+    },
+    _setCurrentModelId(modelId, provider) {
+      const p = provider || CardStorage.getProvider() || "openrouter";
+      if (p === "openrouter")
+        CardStorage.setDefaultModel(modelId || "");
+      else if (p === "custom")
+        CardStorage.setCustomModelId(modelId || "");
+      else
+        CardStorage.setProviderModelId(p, modelId || "");
+    },
+    async saveSettings(modal) {
+      const $ = Ui.$;
+      const provider = $("#providerSelect").value;
+      const apiKey = $("#apiKeyInput").value.trim();
+      const defaultModel = $("#defaultModelSelect").value;
+      const maxTokens = parseInt($("#maxTokensInput").value, 10) || 0;
+      const customApiUrl = $("#customApiUrlInput").value.trim();
+      const keyInput = provider === "custom" ? $("#customApiKeyInput") : $("#namedApiKeyInput");
+      const customApiKey = keyInput.value.trim();
+      const customModelId = $("#customModelInput").value.trim();
+      CardStorage.setProvider(provider);
+      if (provider === "openrouter") {
+        await CardStorage.setApiKey(apiKey);
+        AIService.setProvider("openrouter", apiKey);
+        this._setCurrentModelId(defaultModel);
+        $("#aiModelSelect").value = defaultModel;
+      } else {
+        const isCustom = provider === "custom";
+        const info = AIService.getProviderInfo(provider);
+        if (isCustom) {
+          CardStorage.setCustomApiUrl(customApiUrl);
+          await CardStorage.setCustomApiKey(customApiKey);
+        } else {
+          await CardStorage.setProviderKey(provider, customApiKey);
+        }
+        this._setCurrentModelId(customModelId);
+        AIService.setProvider(provider, customApiKey);
+        $("#aiModelSelect").value = customModelId;
+      }
+      CardStorage.setMaxTokens(maxTokens);
+      CardStorage.setInjectCopyright($("#injectCopyrightToggle").checked);
+      const densitySel = $("#glassDensitySelect");
+      if (densitySel)
+        CardStorage.setGlassDensity(densitySel.value);
+      const radiusSel = $("#cardRadiusSelect");
+      if (radiusSel)
+        CardStorage.setCardRadius(radiusSel.value);
+      const vignetteToggle = $("#vignetteToggle");
+      if (vignetteToggle)
+        CardStorage.setVignette(vignetteToggle.checked);
+      this.applyAppearance();
+      this.PROMPTS.forEach((name) => {
+        const input = document.querySelector("#prompt" + name[0].toUpperCase() + name.slice(1) + "Input");
+        const value = input ? input.value : "";
+        CardStorage.setPrompt(name, value === this.getDefaultPrompt(name) ? "" : value);
+      });
+      const theme = document.documentElement.getAttribute("data-theme") || "dark";
+      const themeColorInput = document.querySelector("#themeColorHex");
+      const themeColor = themeColorInput ? themeColorInput.value.trim() : "";
+      if (/^#[0-9a-fA-F]{6}$/.test(themeColor))
+        this.applyAccent(theme, themeColor);
+      modal.hide();
+      Ui.showToast(I18n.t("toast.settingsSaved"), "success");
+      if (provider === "openrouter" && apiKey)
+        this.refreshCredits();
+      if (provider === "custom" || apiKey || customApiKey)
+        this.refreshModelsList();
+    },
+    toggleApiKeyVisibility() {
+      const $ = Ui.$;
+      const input = $("#apiKeyInput");
+      const icon = $("#btnToggleApiKey i");
+      if (input.type === "password") {
+        input.type = "text";
+        icon.className = "bi bi-eye-slash-fill";
+      } else {
+        input.type = "password";
+        icon.className = "bi bi-eye-fill";
+      }
+    },
+    toggleNamedApiKeyVisibility() {
+      const $ = Ui.$;
+      const input = $("#namedApiKeyInput");
+      const icon = $("#btnToggleNamedApiKey i");
+      if (input.type === "password") {
+        input.type = "text";
+        icon.className = "bi bi-eye-slash-fill";
+      } else {
+        input.type = "password";
+        icon.className = "bi bi-eye-fill";
+      }
+    },
+    toggleProvider() {
+      const $ = Ui.$;
+      const provider = $("#providerSelect").value;
+      const isOpenRouter = provider === "openrouter";
+      const isCustom = provider === "custom";
+      const isNamed = !isOpenRouter && !isCustom;
+      AIService.setProvider(provider, isOpenRouter ? CardStorage.getApiKey() : isCustom ? CardStorage.getCustomApiKey() : CardStorage.getProviderKey(provider));
+      $("#openrouterSettings").classList.toggle("d-none", !isOpenRouter);
+      $("#customSettings").classList.toggle("d-none", !isCustom);
+      $("#namedProviderSettings").classList.toggle("d-none", !isNamed);
+      $("#modelIdSection").classList.toggle("d-none", isOpenRouter);
+      $("#openrouterExtras").classList.remove("d-none");
+      $("#creditsSection").classList.toggle("d-none", !isOpenRouter);
+      $("#securityWarning").classList.remove("d-none");
+      if (isNamed) {
+        const info = AIService.getProviderInfo(provider);
+        $("#namedApiUrlInput").value = info.baseUrl;
+        $("#namedApiKeyInput").value = CardStorage.getProviderKey(provider);
+        const linkMap = {
+          nanogpt: "https://nano-gpt.com",
+          xai: "https://console.x.ai",
+          zai: "https://z.ai",
+          chutes: "https://chutes.ai",
+          deepseek: "https://platform.deepseek.com"
+        };
+        $("#namedProviderLink").innerHTML = '<a href="' + (linkMap[provider] || "#") + '" target="_blank" class="text-accent">' + (I18n.t ? I18n.t("settings.getApiKeyFrom") : "Get API key from ") + Ui.escapeHtml(info.name) + ' <i class="bi bi-box-arrow-up-right ms-1"></i></a>';
+      }
+      if (isCustom) {
+        $("#customModelInput").placeholder = I18n.t ? I18n.t("settings.customModelPlaceholder") : "e.g. llama-3.2-8b-instruct";
+        $("#modelIdHint").textContent = I18n.t("settings.modelIdHint");
+      } else if (isNamed) {
+        $("#customModelInput").placeholder = I18n.t ? I18n.t("settings.namedModelPlaceholder", { provider }) : "e.g. " + provider + "-latest";
+        $("#modelIdHint").textContent = I18n.t("settings.modelIdHintNamed");
+      }
+    },
+    applyAccent(theme, color) {
+      const normalized = String(color || "").trim().toLowerCase();
+      if (!/^#[0-9a-f]{6}$/.test(normalized))
+        return false;
+      const shades = this._accentShades(normalized, theme);
+      CardStorage.setAccent(theme, normalized);
+      Object.entries(shades).forEach(([name, value]) => document.documentElement.style.setProperty(name, value));
+      document.documentElement.setAttribute("data-accent-custom", "true");
+      return true;
+    },
+    _accentShades(hex, theme) {
+      const rgb = hex.slice(1).match(/.{2}/g).map((v) => parseInt(v, 16));
+      const mix = (target, amount) => rgb.map((v, i) => Math.round(v * amount + target[i] * (1 - amount)));
+      const css = (values) => "#" + values.map((v) => v.toString(16).padStart(2, "0")).join("");
+      const white = [255, 255, 255];
+      const black = [0, 0, 0];
+      return {
+        "--accent-300": css(mix(white, 0.42)),
+        "--accent-400": css(mix(white, 0.72)),
+        "--accent-500": hex,
+        "--accent-600": css(mix(black, 0.82)),
+        "--accent-700": css(mix(black, 0.62)),
+        "--accent-glow": "rgba(" + rgb.join(", ") + ", 0.25)",
+        "--accent-glow-strong": "rgba(" + rgb.join(", ") + ", 0.45)",
+        "--accent-text": theme === "light" ? css(mix(black, 0.82)) : css(mix(white, 0.78))
+      };
+    },
+    getDefaultPrompt(name) {
+      return this.DEFAULT_PROMPTS[name] || "";
+    },
+    resetPrompts() {
+      this.PROMPTS.forEach((name) => CardStorage.setPrompt(name, ""));
+      this.openSettings();
+    },
+    resetAccent(theme) {
+      this.applyAccent(theme, "#64748b");
+      this.syncAccentControls();
+    },
+    syncAccentControls() {
+      const theme = document.documentElement.getAttribute("data-theme") || "dark";
+      const color = CardStorage.getAccent(theme) || "#64748b";
+      const picker = document.querySelector("#themeColorPicker");
+      const hex = document.querySelector("#themeColorHex");
+      if (picker)
+        picker.value = color;
+      if (hex)
+        hex.value = color;
+    },
+    APPEARANCE_PRESETS: [
+      { id: "slate", name: "Slate", color: "#64748b" },
+      { id: "purple", name: "Cosmic Purple", color: "#8b5cf6" },
+      { id: "magenta", name: "Magenta", color: "#ec4899" },
+      { id: "emerald", name: "Emerald", color: "#10b981" },
+      { id: "solar", name: "Solar", color: "#f59e0b" },
+      { id: "ocean", name: "Ocean", color: "#3b82f6" }
+    ],
+    applyAppearance() {
+      const root = document.documentElement;
+      const theme = root.getAttribute("data-theme") || "dark";
+      const GLASS = {
+        subtle: { dark: "rgba(17,15,30,0.92)", light: "rgba(255,255,255,0.94)", blur: "blur(8px)" },
+        default: { dark: "rgba(17,15,30,0.72)", light: "rgba(255,255,255,0.78)", blur: "blur(12px)" },
+        bold: { dark: "rgba(17,15,30,0.58)", light: "rgba(255,255,255,0.60)", blur: "blur(22px)" }
+      };
+      const g = GLASS[CardStorage.getGlassDensity()] || GLASS.default;
+      root.style.setProperty("--glass-bg", g[theme]);
+      root.style.setProperty("--glass-blur", g.blur);
+      const RADII = {
+        compact: { sm: "6px", md: "10px", lg: "14px" },
+        rounded: { sm: "10px", md: "14px", lg: "18px" },
+        pill: { sm: "14px", md: "18px", lg: "24px" }
+      };
+      const r = RADII[CardStorage.getCardRadius()] || RADII.compact;
+      root.style.setProperty("--radius-sm", r.sm);
+      root.style.setProperty("--radius-md", r.md);
+      root.style.setProperty("--radius-lg", r.lg);
+      root.style.setProperty("--vignette-opacity", CardStorage.getVignette() ? "1" : "0");
+    },
+    syncAppearanceControls() {
+      const $ = Ui.$;
+      const density = $("#glassDensitySelect");
+      if (density)
+        density.value = CardStorage.getGlassDensity();
+      const radius = $("#cardRadiusSelect");
+      if (radius)
+        radius.value = CardStorage.getCardRadius();
+      const vignette = $("#vignetteToggle");
+      if (vignette)
+        vignette.checked = CardStorage.getVignette();
+    },
+    async openSettings() {
+      const $ = Ui.$;
+      await CardStorage._unlockKeys();
+      const provider = CardStorage.getProvider() || "openrouter";
+      $("#providerSelect").value = provider;
+      $("#apiKeyInput").value = CardStorage.getApiKey();
+      $("#namedApiKeyInput").value = provider === "custom" ? "" : CardStorage.getProviderKey(provider);
+      $("#customApiKeyInput").value = CardStorage.getCustomApiKey();
+      $("#customApiUrlInput").value = CardStorage.getCustomApiUrl();
+      $("#customModelInput").value = provider === "custom" ? CardStorage.getCustomModelId() : CardStorage.getProviderModelId(provider);
+      $("#maxTokensInput").value = CardStorage.getMaxTokens() || "";
+      $("#injectCopyrightToggle").checked = CardStorage.getInjectCopyright();
+      this.toggleProvider();
+      this.syncAccentControls();
+      this.syncAppearanceControls();
+      this.PROMPTS.forEach((name) => {
+        const input = $("#prompt" + name[0].toUpperCase() + name.slice(1) + "Input");
+        if (input)
+          input.value = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
+      });
+    },
+    async refreshCredits() {
+      const $ = Ui.$;
+      if (CardStorage.getProvider() !== "openrouter") {
+        this.updateStorageUsage();
+        return;
+      }
+      if (!AIService.hasApiKey()) {
+        this.updateStorageUsage();
+        return;
+      }
+      try {
+        const info = await AIService.fetchKeyInfo();
+        $("#creditsBadge").classList.remove("d-none");
+        $("#creditsAmount").textContent = info.limit_remaining !== null ? "$" + Number(info.limit_remaining).toFixed(2) : I18n.t ? I18n.t("gen.notAvailable") : "N/A";
+        $("#creditLimit").textContent = info.limit > 0 ? "$" + Number(info.limit).toFixed(2) : I18n.t ? I18n.t("gen.unlimited") : "Unlimited";
+        $("#creditRemaining").textContent = info.limit_remaining !== null ? "$" + Number(info.limit_remaining).toFixed(2) : I18n.t ? I18n.t("gen.notAvailable") : "N/A";
+        $("#creditUsage").textContent = info.usage > 0 ? "$" + Number(info.usage).toFixed(2) : "$0.00";
+      } catch (err) {
+        console.error("Failed to fetch credits:", err);
+        $("#creditsBadge").classList.add("d-none");
+      }
+      this.updateStorageUsage();
+    },
+    async refreshModelsList() {
+      const $ = Ui.$;
+      const modalEl = $("#settingsModal");
+      const modalOpen = modalEl && modalEl.classList.contains("show");
+      const provider = modalOpen ? $("#providerSelect").value : CardStorage.getProvider();
+      const isCustom = provider === "custom";
+      let formKey = "";
+      if (modalOpen) {
+        const keyField = provider === "openrouter" ? $("#apiKeyInput") : isCustom ? $("#customApiKeyInput") : $("#namedApiKeyInput");
+        formKey = keyField ? keyField.value.trim() : "";
+      }
+      AIService.setProvider(provider, formKey);
+      if (isCustom && modalOpen) {
+        const urlInput = $("#customApiUrlInput");
+        AIService._customApiUrl = urlInput ? urlInput.value.trim() : "";
+      }
+      if (!AIService.hasApiKey() && !isCustom) {
+        Ui.showToast(I18n.t("error.apiKeyNotSet"), "warning");
+        return;
+      }
+      const myToken = this._modelReqToken = (this._modelReqToken || 0) + 1;
+      const container = document.querySelector("#modelList");
+      if (container)
+        container.innerHTML = '<div class="p-3"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>';
+      try {
+        const models = await AIService.fetchModels();
+        if (myToken !== this._modelReqToken)
+          return;
+        window.AppState.models = models;
+        this.populateModelSelects();
+        this.renderModelList();
+      } catch (err) {
+        if (myToken !== this._modelReqToken)
+          return;
+        console.error("Failed to fetch models:", err);
+        this.populateModelSelects();
+        Ui.showToast(I18n.t("toast.modelsFailed", { error: err.message }), "danger");
+      }
+    },
+    populateModelSelects() {
+      const $ = Ui.$;
+      const d = this._currentModelId($("#providerSelect") ? $("#providerSelect").value : null);
+      const sorted = [...window.AppState.models].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: "base" }));
+      let h = sorted.map((m) => '<option value="' + Ui.escapeAttr(m.id) + '"' + (m.id === d ? " selected" : "") + ">" + Ui.escapeHtml(m.name) + (m.is_free ? " [" + I18n.t("gen.free") + "]" : "") + "</option>").join("");
+      if (d && !window.AppState.models.some((m) => m.id === d)) {
+        h += '<option value="' + Ui.escapeAttr(d) + '" selected>' + Ui.escapeHtml(d) + "</option>";
+      }
+      $("#defaultModelSelect").innerHTML = '<option value="">' + (I18n.t ? I18n.t("settings.modelAuto") : "Auto") + "</option>" + h;
+      $("#aiModelSelect").innerHTML = '<option value="">' + (I18n.t ? I18n.t("nav.selectModel") : "Select model...") + "</option>" + h;
+    },
+    _modelPageSize: 50,
+    _modelPage: 1,
+    renderModelList(filter, resetPage) {
+      const $ = Ui.$;
+      filter = (filter || "").toLowerCase();
+      if (resetPage)
+        this._modelPage = 1;
+      const container = $("#modelList");
+      const filtered = window.AppState.models.filter((m) => {
+        const name = m.name || m.id || "";
+        const id = m.id || "";
+        const prov = m.provider || "";
+        const desc = m.description || "";
+        return !filter || name.toLowerCase().includes(filter) || id.toLowerCase().includes(filter) || prov.toLowerCase().includes(filter) || desc.toLowerCase().includes(filter);
+      });
+      if (!filtered.length) {
+        container.innerHTML = '<div class="text-center text-muted py-4">' + I18n.t("settings.noModels") + "</div>";
+        return;
+      }
+      const d = this._currentModelId();
+      const end = this._modelPage * this._modelPageSize;
+      const shown = filtered.slice(0, end);
+      const hasMore = end < filtered.length;
+      container.innerHTML = shown.map((m) => '<div class="model-item' + (m.id === d ? " selected" : "") + '" data-model-id="' + Ui.escapeAttr(m.id || "") + '">' + '<div class="model-item-info"><div class="model-item-name">' + Ui.escapeHtml(m.name || m.id || "?") + "</div>" + '<div class="model-item-provider">' + Ui.escapeHtml(m.provider || "") + " · " + (m.context_length ? Math.floor(m.context_length / 1000) + "k ctx" : "?") + (m.max_output_tokens ? " · " + Math.floor(m.max_output_tokens / 1000) + "k out" : "") + (m.is_free ? ' · <span class="text-success">' + I18n.t("gen.free") + "</span>" : "") + "</div></div>" + '<div class="model-item-pricing">' + (m.is_free ? '<span class="price-highlight">' + I18n.t("gen.free") + "</span>" : "<div>in: " + AIService.formatPrice(m.pricing ? m.pricing.prompt : null) + "</div><div>out: " + AIService.formatPrice(m.pricing ? m.pricing.completion : null) + "</div>") + "</div></div>").join("") + (hasMore ? '<div class="text-center py-2"><button class="btn btn-outline-accent btn-sm" id="btnLoadMoreModels">' + I18n.t("settings.loadMore", { count: filtered.length - end }) + "</button></div>" : "") + '<div class="text-center text-muted" style="font-size:0.7rem;">' + I18n.t("settings.showingModels", { shown: Math.min(end, filtered.length), total: filtered.length }) + "</div>";
+      Anims.staggerFadeIn(container.querySelectorAll(".model-item"), { stagger: 15, duration: 150 });
+      const self = this;
+      container.querySelectorAll(".model-item").forEach((item) => {
+        item.addEventListener("click", () => {
+          $("#defaultModelSelect").value = item.dataset.modelId;
+          $("#aiModelSelect").value = item.dataset.modelId;
+          self._setCurrentModelId(item.dataset.modelId);
+          self.renderModelList(filter);
+          Ui.showToast(I18n.t("toast.modelSet", { model: item.dataset.modelId }), "info");
+        });
+      });
+      const loadMore = container.querySelector("#btnLoadMoreModels");
+      if (loadMore)
+        loadMore.addEventListener("click", () => {
+          self._modelPage++;
+          self.renderModelList(filter);
+        });
+    },
+    filterModels() {
+      const $ = Ui.$;
+      this.renderModelList($("#modelSearch").value, true);
+    },
+    async updateStorageUsage() {
+      const $ = Ui.$;
+      const bytes = await CardStorage.getUsageEstimate();
+      const kb = (bytes / 1024).toFixed(1);
+      const mb = (bytes / (1024 * 1024)).toFixed(2);
+      const gb = (bytes / (1024 * 1024 * 1024)).toFixed(2);
+      $("#storageUsage").textContent = parseFloat(gb) >= 1 ? gb + " GB" : parseFloat(kb) > 1000 ? mb + " MB" : kb + " KB";
+    },
+    async confirmClearStorage() {
+      const $ = Ui.$;
+      if (!await Ui.confirm({
+        title: I18n.t ? I18n.t("settings.clearTitle") : "Clear all data?",
+        message: I18n.t ? I18n.t("settings.clearConfirm") : "Delete ALL cards, settings, and chat history? This cannot be undone.",
+        buttonLabel: I18n.t ? I18n.t("settings.clearAll") : "Clear All Data"
+      }))
+        return;
+      await CardStorage.clearAll();
+      window.AppState.cards = [];
+      window.AppState.activeCard = null;
+      window.AppState.chatHistory = [];
+      window.AppState.models = [];
+      AiChat.clearChat();
+      try {
+        sessionStorage.removeItem("stce_wizard_draft");
+      } catch (_) {}
+      AIService.setProvider("openrouter");
+      $("#apiKeyInput").value = "";
+      $("#providerSelect").value = "openrouter";
+      $("#customApiUrlInput").value = "";
+      $("#namedApiKeyInput").value = "";
+      $("#customApiKeyInput").value = "";
+      $("#customModelInput").value = "";
+      this.toggleProvider();
+      $("#defaultModelSelect").innerHTML = '<option value="">' + (I18n.t ? I18n.t("settings.modelAuto") : "Auto") + "</option>";
+      $("#aiModelSelect").innerHTML = '<option value="">' + (I18n.t ? I18n.t("nav.selectModel") : "Select model...") + "</option>";
+      Editor.hideEditor();
+      CardManager.renderCardList();
+      this.renderModelList();
+      $("#creditsBadge").classList.add("d-none");
+      $("#aiChatMessages").innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>' + (I18n.t ? I18n.t("ai.welcomeTitle") : "AI Card Assistant") + "</h6><p>" + (I18n.t ? I18n.t("ai.welcomeText") : "Ask the AI to edit, translate, or enhance your character card.") + "</p></div>";
+      Ui.showToast(I18n.t("toast.dataCleared"), "warning");
+    },
+    exportSettings() {
+      const settings = {
+        provider: CardStorage.getProvider(),
+        defaultModel: CardStorage.getDefaultModel(),
+        maxTokens: CardStorage.getMaxTokens(),
+        injectCopyright: CardStorage.getInjectCopyright(),
+        customApiUrl: CardStorage.getCustomApiUrl(),
+        customModelId: CardStorage.getCustomModelId(),
+        providerModelIds: CardStorage.getAllProviderModelIds ? CardStorage.getAllProviderModelIds() : undefined
+      };
+      Ui.downloadFile("st-card-editor-settings.json", JSON.stringify(settings, null, 2), "application/json");
+      Ui.showToast(I18n.t("toast.settingsExported"), "success");
+    },
+    importSettings() {
+      const $ = Ui.$;
+      const input = document.querySelector("#settingsFileInput");
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file)
+          return;
+        const reader = new FileReader;
+        reader.onload = async () => {
+          try {
+            const settings = JSON.parse(reader.result);
+            if (settings.provider) {
+              CardStorage.setProvider(settings.provider);
+              $("#providerSelect").value = settings.provider;
+              this.toggleProvider();
+            }
+            if (settings.defaultModel !== undefined) {
+              CardStorage.setDefaultModel(settings.defaultModel);
+              $("#defaultModelSelect").value = settings.defaultModel;
+              $("#aiModelSelect").value = settings.defaultModel;
+            }
+            if (settings.maxTokens !== undefined) {
+              CardStorage.setMaxTokens(settings.maxTokens);
+              $("#maxTokensInput").value = settings.maxTokens || "";
+            }
+            if (settings.injectCopyright !== undefined) {
+              CardStorage.setInjectCopyright(settings.injectCopyright);
+              $("#injectCopyrightToggle").checked = settings.injectCopyright;
+            }
+            if (settings.customApiUrl !== undefined) {
+              CardStorage.setCustomApiUrl(settings.customApiUrl);
+              $("#customApiUrlInput").value = settings.customApiUrl;
+            }
+            if (settings.customModelId !== undefined) {
+              CardStorage.setCustomModelId(settings.customModelId);
+              $("#customModelInput").value = settings.customModelId;
+            }
+            if (settings.providerModelIds && typeof settings.providerModelIds === "object") {
+              for (const [prov, modelId] of Object.entries(settings.providerModelIds)) {
+                if (modelId)
+                  CardStorage.setProviderModelId(prov, modelId);
+              }
+            }
+            const cur = CardStorage.getProvider();
+            $("#customModelInput").value = cur === "custom" ? CardStorage.getCustomModelId() : CardStorage.getProviderModelId(cur);
+            Ui.showToast(I18n.t("toast.settingsImported"), "success");
+          } catch (err) {
+            Ui.showToast(I18n.t("toast.invalidFile"), "danger");
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = "";
+      };
+      input.click();
+    },
+    exportPrompts() {
+      const prompts = {};
+      this.PROMPTS.forEach((name) => {
+        prompts[name] = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
+      });
+      Ui.downloadFile("st-card-editor-prompts.json", JSON.stringify({ version: 1, prompts }, null, 2), "application/json");
+      Ui.showToast(I18n.t ? I18n.t("settings.promptsExported") : "Prompts exported", "success");
+    },
+    importPrompts() {
+      const $ = Ui.$;
+      const input = document.querySelector("#promptFileInput");
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file)
+          return;
+        const reader = new FileReader;
+        reader.onload = async () => {
+          try {
+            const data = JSON.parse(reader.result);
+            const map = data && data.prompts || {};
+            if (typeof map !== "object" || Array.isArray(map))
+              throw new Error("bad");
+            let count = 0;
+            this.PROMPTS.forEach((name) => {
+              if (!(name in map))
+                return;
+              const value = typeof map[name] === "string" ? map[name] : "";
+              CardStorage.setPrompt(name, value === this.getDefaultPrompt(name) ? "" : value);
+              count++;
+            });
+            if (!count)
+              throw new Error("none");
+            this.PROMPTS.forEach((name) => {
+              const field = $("#prompt" + name[0].toUpperCase() + name.slice(1) + "Input");
+              if (field)
+                field.value = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
+            });
+            Ui.showToast(I18n.t ? I18n.t("settings.promptsImported", { count }) : "Imported " + count + " prompts", "success");
+          } catch (err) {
+            Ui.showToast(I18n.t("toast.invalidFile"), "danger");
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = "";
+      };
+      input.click();
+    },
+    async exportWorkspace() {
+      const $ = Ui.$;
+      const cards = CardStorage.getCards();
+      const fullCards = [];
+      for (const meta of cards) {
+        const card = await CardStorage.getCard(meta._id);
+        if (!card)
+          continue;
+        try {
+          const b64 = await CardStorage.getImage(card._id);
+          if (b64)
+            card._imageBase64 = b64;
+        } catch (_) {}
+        delete card._id;
+        delete card._filename;
+        delete card._createdAt;
+        delete card._fileSize;
+        fullCards.push(card);
+      }
+      const workspace = {
+        version: "2.1",
+        exportedAt: new Date().toISOString(),
+        cards: fullCards,
+        settings: {
+          provider: CardStorage.getProvider(),
+          defaultModel: CardStorage.getDefaultModel(),
+          maxTokens: CardStorage.getMaxTokens(),
+          injectCopyright: CardStorage.getInjectCopyright(),
+          glassDensity: CardStorage.getGlassDensity(),
+          cardRadius: CardStorage.getCardRadius(),
+          vignette: CardStorage.getVignette()
+        }
+      };
+      Ui.downloadFile("st-card-editor-workspace-" + new Date().toISOString().slice(0, 10) + ".json", JSON.stringify(workspace, null, 2), "application/json");
+      Ui.showToast(I18n.t ? I18n.t("settings.workspaceExported", { count: fullCards.length }) : "Workspace exported (" + fullCards.length + " cards)", "success");
+    },
+    importWorkspace() {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".json";
+      const cleanup = () => {
+        input.onchange = null;
+        input.onabort = null;
+        input.oncancel = null;
+        input.remove();
+      };
+      input.onabort = cleanup;
+      input.oncancel = cleanup;
+      input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) {
+          cleanup();
+          return;
+        }
+        try {
+          const text = await file.text();
+          const workspace = JSON.parse(text);
+          if (!workspace.cards || !Array.isArray(workspace.cards)) {
+            throw new Error(I18n.t ? I18n.t("settings.invalidWorkspace") : "Invalid workspace format");
+          }
+          let imported = 0;
+          for (const card of workspace.cards) {
+            if (!card.name && !card.description)
+              continue;
+            const normalized = CardEngine.normalize(card, (card.name || "character") + ".json");
+            const trimmedName = (normalized.name || "").trim();
+            if (trimmedName) {
+              const existing = CardStorage.getCards().find((c) => (c.name || "").trim().toLowerCase() === trimmedName.toLowerCase());
+              if (existing) {
+                let existingFull = null;
+                try {
+                  existingFull = await CardStorage.getCard(existing._id);
+                } catch (_) {}
+                if (existingFull && CardManager._cardSignature(normalized) === CardManager._cardSignature(existingFull)) {
+                  const base = trimmedName;
+                  let n = 2;
+                  const used = new Set(CardStorage.getCards().map((c) => (c.name || "").toLowerCase()));
+                  let candidate = base + " (" + n + ")";
+                  while (used.has(candidate.toLowerCase())) {
+                    n++;
+                    candidate = base + " (" + n + ")";
+                  }
+                  normalized.name = candidate;
+                }
+              }
+            }
+            if (card._imageBase64) {
+              await CardStorage.saveImage(normalized._id, card._imageBase64);
+              normalized._hasImage = true;
+              normalized._thumbnail = normalized._thumbnail || await CardEngine._createThumbnail(card._imageBase64);
+            }
+            normalized._fileSize = CardEngine.computeFileSize(normalized);
+            await CardStorage.upsertCard(normalized);
+            imported++;
+          }
+          if (workspace.settings) {
+            if (workspace.settings.provider) {
+              CardStorage.setProvider(workspace.settings.provider);
+              const isCustom = workspace.settings.provider === "custom";
+              const isOR = workspace.settings.provider === "openrouter";
+              const providerKey = isOR ? CardStorage.getApiKey() : isCustom ? CardStorage.getCustomApiKey() : CardStorage.getProviderKey(workspace.settings.provider);
+              AIService.setProvider(workspace.settings.provider, providerKey);
+              const sel = document.querySelector("#providerSelect");
+              if (sel)
+                sel.value = workspace.settings.provider;
+            }
+            if (workspace.settings.defaultModel) {
+              CardStorage.setDefaultModel(workspace.settings.defaultModel);
+            }
+            if (workspace.settings.maxTokens !== undefined)
+              CardStorage.setMaxTokens(workspace.settings.maxTokens);
+            if (workspace.settings.injectCopyright !== undefined)
+              CardStorage.setInjectCopyright(workspace.settings.injectCopyright);
+            if (workspace.settings.glassDensity !== undefined)
+              CardStorage.setGlassDensity(workspace.settings.glassDensity);
+            if (workspace.settings.cardRadius !== undefined)
+              CardStorage.setCardRadius(workspace.settings.cardRadius);
+            if (workspace.settings.vignette !== undefined)
+              CardStorage.setVignette(workspace.settings.vignette);
+          }
+          window.AppState.cards = CardStorage.getCards();
+          CardManager.renderCardList();
+          Settings.applyAppearance();
+          Settings.refreshModelsList();
+          const modelSel = document.querySelector("#aiModelSelect");
+          if (modelSel)
+            modelSel.value = this._currentModelId() || "";
+          Ui.showToast(I18n.t ? I18n.t("settings.workspaceImported", { count: imported }) : "Workspace imported (" + imported + " cards)", "success");
+        } catch (err) {
+          console.error("Workspace import failed:", err);
+          Ui.showToast(I18n.t ? I18n.t("settings.workspaceImportFailed", { error: err.message }) : "Failed to import workspace: " + err.message, "danger");
+        }
+        cleanup();
+      };
+      document.body.appendChild(input);
+      input.click();
+    }
+  };
+  if (typeof window !== "undefined")
+    window.Settings = Settings;
+
+  // js/chatState.js
+  var selectedFields = new Set;
+  var greetingCount = 3;
+  var historyRendered = false;
+  var currentSessionId = null;
+  var gen = 0;
+  var contextBarGen = 0;
+  var abortControllers = [];
+  var applyQueue = [];
+  var applyStore = new Map;
+  var applyElMap = new WeakMap;
+  var applyIndex = 0;
+  var ChatState = {
+    get selectedFields() {
+      return selectedFields;
+    },
+    set selectedFields(v) {
+      selectedFields = v;
+    },
+    get greetingCount() {
+      return greetingCount;
+    },
+    set greetingCount(v) {
+      greetingCount = v;
+    },
+    get historyRendered() {
+      return historyRendered;
+    },
+    set historyRendered(v) {
+      historyRendered = v;
+    },
+    get currentSessionId() {
+      return currentSessionId;
+    },
+    set currentSessionId(v) {
+      currentSessionId = v;
+    },
+    get gen() {
+      return gen;
+    },
+    set gen(v) {
+      gen = v;
+    },
+    get contextBarGen() {
+      return contextBarGen;
+    },
+    set contextBarGen(v) {
+      contextBarGen = v;
+    },
+    get abortControllers() {
+      return abortControllers;
+    },
+    set abortControllers(v) {
+      abortControllers = v;
+    },
+    get applyQueue() {
+      return applyQueue;
+    },
+    set applyQueue(v) {
+      applyQueue = v;
+    },
+    get applyStore() {
+      return applyStore;
+    },
+    set applyStore(v) {
+      applyStore = v;
+    },
+    get applyElMap() {
+      return applyElMap;
+    },
+    set applyElMap(v) {
+      applyElMap = v;
+    },
+    get applyIndex() {
+      return applyIndex;
+    },
+    set applyIndex(v) {
+      applyIndex = v;
+    },
+    bumpGen() {
+      return ++gen;
+    },
+    bumpContextBarGen() {
+      return ++contextBarGen;
+    },
+    addController(controller) {
+      abortControllers.push(controller);
+    },
+    releaseController(controller) {
+      const idx = abortControllers.indexOf(controller);
+      if (idx >= 0)
+        abortControllers.splice(idx, 1);
+    },
+    abortAll() {
+      abortControllers.forEach((c) => c.abort());
+      abortControllers = [];
+    },
+    registerApply(el, field, content) {
+      if (!el)
+        return null;
+      let item = applyElMap.get(el);
+      if (item) {
+        item.field = field;
+        item.content = content;
+        return item;
+      }
+      item = { el, field, content, applied: false };
+      applyElMap.set(el, item);
+      applyQueue.push(item);
+      return item;
+    },
+    firstUnappliedIndex() {
+      for (let i = 0;i < applyQueue.length; i++) {
+        if (!applyQueue[i].applied)
+          return i;
+      }
+      return -1;
+    },
+    nextUnappliedIndex() {
+      for (let i = applyIndex + 1;i < applyQueue.length; i++) {
+        if (!applyQueue[i].applied)
+          return i;
+      }
+      return -1;
+    },
+    allApplied() {
+      return applyQueue.every((it) => it.applied);
+    },
+    pruneDetached() {
+      applyQueue = applyQueue.filter((it) => {
+        const el = it.el;
+        return !!el && el.isConnected === true;
+      });
+      if (applyIndex >= applyQueue.length)
+        applyIndex = Math.max(0, applyQueue.length - 1);
+    },
+    resetApply() {
+      applyQueue = [];
+      applyIndex = 0;
+      applyElMap = new WeakMap;
+      applyStore.clear();
+    },
+    resetChat() {
+      this.abortAll();
+      this.bumpGen();
+      this.resetApply();
+      currentSessionId = null;
+      historyRendered = false;
+    }
+  };
+  if (typeof window !== "undefined")
+    window.ChatState = ChatState;
+
+  // js/aiChat.js
+  var AiChat = {
+    MAX_PARALLEL_FIELDS: 20,
+    _INTENT_TIMEOUT_MS: 8000,
+    FIELD_DEFS: [
+      { id: "name", labelKey: "ai.target.name", icon: "bi-person-badge" },
+      { id: "description", labelKey: "ai.target.description", icon: "bi-card-text" },
+      { id: "personality", labelKey: "ai.target.personality", icon: "bi-brain" },
+      { id: "first_mes", labelKey: "ai.target.first_mes", icon: "bi-chat-dots" },
+      { id: "scenario", labelKey: "ai.target.scenario", icon: "bi-geo-alt" },
+      { id: "mes_example", labelKey: "ai.target.mes_example", icon: "bi-chat-square-text" },
+      { id: "alternate_greetings", labelKey: "ai.target.alternate_greetings", icon: "bi-list-ol", hasCount: true },
+      { id: "system_prompt", labelKey: "ai.target.system_prompt", icon: "bi-terminal" },
+      { id: "post_history_instructions", labelKey: "ai.target.post_history_instructions", icon: "bi-arrow-repeat" },
+      { id: "creator_notes", labelKey: "ai.target.creator_notes", icon: "bi-pencil" }
+    ],
+    _renderFieldChips() {
+      const $ = Ui.$;
+      const container = $("#aiFieldChips");
+      if (!container)
+        return;
+      const chipHtml = this.FIELD_DEFS.map((f) => {
+        const isActive = ChatState.selectedFields.has(f.id);
+        const label = I18n.t ? I18n.t(f.labelKey) : f.id;
+        return '<span class="ai-field-chip' + (isActive ? " active" : "") + '" data-field="' + f.id + '">' + '<i class="bi ' + f.icon + '"></i>' + Ui.escapeHtml(label) + "</span>";
+      }).join("");
+      const allActive = ChatState.selectedFields.size >= this.FIELD_DEFS.length;
+      const allChip = '<span class="ai-field-chip all-fields' + (allActive ? " active" : "") + '" data-field="__all__">' + '<i class="bi bi-stars"></i>' + (I18n.t ? I18n.t("ai.target.full") : "All Fields") + "</span>";
+      container.innerHTML = allChip + chipHtml;
+      const self = this;
+      container.querySelectorAll(".ai-field-chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const field = chip.dataset.field;
+          self._toggleFieldChip(field);
+          self._renderFieldChips();
+          self.updateContextBar();
+        });
+      });
+      const countWrap = document.querySelector("#aiGreetingCount");
+      if (countWrap) {
+        countWrap.style.display = ChatState.selectedFields.has("alternate_greetings") ? "flex" : "none";
+      }
+      const countInput = document.querySelector("#aiGreetingCountInput");
+      if (countInput) {
+        ChatState.greetingCount = parseInt(countInput.value) || 3;
+      }
+    },
+    _toggleFieldChip(field) {
+      if (field === "__all__") {
+        const allSelected = ChatState.selectedFields.size >= this.FIELD_DEFS.length;
+        if (allSelected) {
+          ChatState.selectedFields.clear();
+        } else {
+          this.FIELD_DEFS.forEach((f) => ChatState.selectedFields.add(f.id));
+        }
+        return;
+      }
+      if (ChatState.selectedFields.has(field)) {
+        ChatState.selectedFields.delete(field);
+      } else {
+        ChatState.selectedFields.add(field);
+      }
+    },
+    getSelectedFields() {
+      return [...ChatState.selectedFields];
+    },
+    async send(retryPrompt) {
+      const $ = Ui.$;
+      const input = $("#aiInput");
+      const rawPrompt = retryPrompt || input.value.trim();
+      const prompt = this._normalizePlaceholders(rawPrompt);
+      const { activeCard } = window.AppState;
+      if (!prompt || window.AppState.isAiLoading)
+        return;
+      if (!activeCard) {
+        Ui.showToast(I18n.t("toast.selectCard"), "warning");
+        return;
+      }
+      let selectedFields2 = this.getSelectedFields();
+      if (selectedFields2.length === 0) {
+        const inferred = await this._resolveTargetFields(prompt);
+        if (inferred.length > 0) {
+          ChatState.selectedFields = new Set(inferred);
+          this._renderFieldChips();
+          selectedFields2 = inferred;
+          const labels = inferred.map((f) => {
+            const def = this.FIELD_DEFS.find((d) => d.id === f);
+            return def ? I18n.t ? I18n.t(def.labelKey) : def.labelKey : f;
+          });
+          Ui.showToast(I18n.t("toast.fieldsDetected", { fields: labels.join(", ") }), "info");
+        } else {
+          Ui.showToast(I18n.t("toast.selectField"), "info");
+          return;
+        }
+      }
+      if (selectedFields2.length > this.MAX_PARALLEL_FIELDS) {
+        Ui.showToast(I18n.t ? I18n.t("toast.tooManyFields", { max: this.MAX_PARALLEL_FIELDS }) : "Too many fields selected. Max " + this.MAX_PARALLEL_FIELDS + " at once.", "warning");
+        return;
+      }
+      const histPanel = $("#aiHistoryPanel");
+      if (histPanel && histPanel.classList.contains("open")) {
+        this.toggleHistory(false);
+      }
+      if (!AIService.hasApiKey()) {
+        Ui.showToast(I18n.t("toast.apiKey"), "warning");
+        return;
+      }
+      const modelId = $("#aiModelSelect").value;
+      if (!modelId) {
+        Ui.showToast(I18n.t("toast.selectModel"), "warning");
+        return;
+      }
+      if (!retryPrompt) {
+        input.value = "";
+        input.focus();
+        const userIdx = window.AppState.chatHistory.length;
+        this.addChatMessage("user", prompt, null, null, userIdx);
+      }
+      window.AppState.isAiLoading = true;
+      this.updateSendButton();
+      window.AppState.chatHistory.push({ role: "user", content: prompt });
+      CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
+      const cardId = window.AppState.activeCard?._id || "global";
+      if (!ChatState.currentSessionId) {
+        const now = Date.now();
+        const session = {
+          id: "ses_" + now + "_" + Math.random().toString(36).slice(2, 7),
+          created: now,
+          lastUpdated: now,
+          preview: prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt,
+          messageCount: 1
+        };
+        ChatState.currentSessionId = session.id;
+        CardStorage.saveChatSession(cardId, session);
+      }
+      CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, window.AppState.chatHistory);
+      const groupedCard = this._createGroupedCard(selectedFields2);
+      this._abortAll();
+      const gen2 = ChatState.bumpGen();
+      const capturedGreetingCount = ChatState.greetingCount;
+      const fieldLabel = (f) => I18n.t ? I18n.t(this.FIELD_DEFS.find((d) => d.id === f)?.labelKey || "") : f;
+      let completedCount = 0;
+      let combinedContent = "";
+      selectedFields2.forEach((field) => {
+        const controller = new AbortController;
+        ChatState.abortControllers.push(controller);
+        const section = this._addFieldSection(groupedCard, field, fieldLabel(field));
+        const contentEl = section.querySelector(".multi-field-content");
+        const history = this._getRecentHistory(10);
+        AIService.chatStream(prompt, this.buildSystemPrompt(field, capturedGreetingCount), modelId, (fullText) => {
+          contentEl.innerHTML = this._formatFieldText(fullText);
+          const container = document.querySelector("#aiChatMessages");
+          container.scrollTop = container.scrollHeight;
+        }, controller.signal, false, history).then((result) => {
+          if (gen2 !== ChatState.gen)
+            return;
+          this._releaseController(controller);
+          try {
+            this._finalizeFieldSection(section, field, result.content);
+          } catch (e) {
+            console.error("aiChat: failed to finalize field section:", e);
+          }
+          completedCount++;
+          combinedContent += `
+
+[` + field + `]
+` + this._fieldDisplayContent(field, result.content);
+          if (completedCount === selectedFields2.length) {
+            this._finalizeGroupedCard(groupedCard, selectedFields2.length);
+            window.AppState.chatHistory.push({ role: "assistant", content: combinedContent });
+            CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
+            this._updateSession();
+            window.AppState.isAiLoading = false;
+            this.updateSendButton();
+            Settings.refreshCredits();
+          }
+        }).catch((err) => {
+          if (gen2 !== ChatState.gen)
+            return;
+          this._releaseController(controller);
+          try {
+            section.classList.add("error");
+            section.classList.remove("streaming");
+            const label = section.querySelector(".multi-field-label");
+            if (label)
+              label.innerHTML = label.innerHTML.replace(I18n.t ? I18n.t("ai.streaming") : "streaming...", I18n.t ? I18n.t("ai.failed") : "failed");
+            contentEl.textContent = err.name === "AbortError" ? I18n.t ? I18n.t("ai.cancelled") : "Cancelled." : (I18n.t ? I18n.t("ai.errorPrefix") : "Error: ") + err.message;
+          } catch (_) {}
+          completedCount++;
+          if (completedCount === selectedFields2.length) {
+            try {
+              this._finalizeGroupedCard(groupedCard, selectedFields2.length);
+            } catch (e) {
+              console.error("aiChat: failed to finalize grouped card:", e);
+            }
+            if (combinedContent.trim()) {
+              window.AppState.chatHistory.push({ role: "assistant", content: combinedContent.trim() });
+              CardStorage.saveChatHistory(window.AppState.chatHistory, window.AppState.activeCard?._id);
+            }
+            this._updateSession();
+            window.AppState.isAiLoading = false;
+            this.updateSendButton();
+            Settings.refreshCredits();
+          }
+        });
+      });
+    },
+    buildSystemPrompt(targetField, greetingCountOverride) {
+      const { activeCard } = window.AppState;
+      const greetingCount2 = greetingCountOverride || ChatState.greetingCount;
+      const fieldLabel = I18n.t ? I18n.t(this.FIELD_DEFS.find((d) => d.id === targetField)?.labelKey || targetField) : targetField;
+      const cardForPrompt = activeCard ? { ...activeCard } : CardEngine.createEmptyCard();
+      delete cardForPrompt._id;
+      delete cardForPrompt._filename;
+      delete cardForPrompt._hasImage;
+      delete cardForPrompt._imageBase64;
+      delete cardForPrompt._thumbnail;
+      delete cardForPrompt._createdAt;
+      delete cardForPrompt._fileSize;
+      const parts = [
+        CardStorage.getPrompt("assistant") || `You are an AI assistant helping edit SillyTavern character cards.
+SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
+        "",
+        "Here is the FULL character card for context:",
+        "```json",
+        this._normalizePlaceholders(CardEngine.toJSON(cardForPrompt)),
+        "```",
+        ""
+      ];
+      if (targetField === "alternate_greetings") {
+        const existing = activeCard && activeCard.alternate_greetings || [];
+        const greetInstr = (CardStorage.getPrompt("greetingsSystem") || Settings.getDefaultPrompt("greetingsSystem")).split("{count}").join(String(greetingCount2)).split("{current}").join(existing.length ? JSON.stringify(existing) : "(none)");
+        parts.push(greetInstr);
+      } else {
+        let current = "(empty)";
+        if (activeCard && typeof activeCard[targetField] === "string" && activeCard[targetField]) {
+          current = this._normalizePlaceholders(activeCard[targetField]);
+        }
+        const fieldInstr = (CardStorage.getPrompt("fieldsEdit") || Settings.getDefaultPrompt("fieldsEdit")).split("{field}").join(fieldLabel).split("{current}").join(current);
+        parts.push(fieldInstr);
+      }
+      return parts.join(`
+`);
+    },
+    _createGroupedCard(fields) {
+      const $ = Ui.$;
+      const container = $("#aiChatMessages");
+      const welcome = container.querySelector(".ai-welcome");
+      if (welcome)
+        welcome.remove();
+      const el = document.createElement("div");
+      el.className = "ai-message assistant multi-field";
+      el.innerHTML = '<div class="multi-field-header">' + '<i class="bi bi-robot"></i> ' + (I18n.t ? I18n.t("ai.editing", { count: fields.length }) : "Editing " + fields.length + " field" + (fields.length > 1 ? "s" : "") + "...") + "</div>";
+      container.appendChild(el);
+      Anims.staggerFadeIn(el, { duration: 200, from: 10 });
+      container.scrollTop = container.scrollHeight;
+      return el;
+    },
+    _addFieldSection(groupedCard, field, label) {
+      const section = document.createElement("div");
+      section.className = "multi-field-section streaming";
+      section.setAttribute("data-field", field);
+      section.innerHTML = '<div class="multi-field-label">' + '<i class="bi bi-hourglass-split"></i> ' + Ui.escapeHtml(label) + '<span class="multi-field-status"><span class="spinner-border spinner-border-sm text-accent"></span> ' + (I18n.t ? I18n.t("ai.streaming") : "streaming...") + "</span>" + "</div>" + '<div class="multi-field-content"></div>' + '<div class="multi-field-actions" style="display:none;"></div>';
+      groupedCard.appendChild(section);
+      return section;
+    },
+    _finalizeFieldSection(section, field, content) {
+      section.classList.remove("streaming");
+      section.classList.add("done");
+      const label = section.querySelector(".multi-field-label");
+      if (label) {
+        const icon = label.querySelector(".bi");
+        if (icon) {
+          icon.className = "bi bi-check-circle-fill";
+        }
+        const status = label.querySelector(".multi-field-status");
+        if (status)
+          status.remove();
+      }
+      const display = this._fieldDisplayContent(field, content);
+      const contentEl = section.querySelector(".multi-field-content");
+      if (contentEl && display !== content) {
+        contentEl.innerHTML = this._formatFieldText(display);
+      }
+      if (contentEl && display.length > 300) {
+        contentEl.classList.add("collapsed");
+        contentEl.addEventListener("click", () => {
+          contentEl.classList.toggle("collapsed");
+          const viewBtn = section.querySelector(".multi-field-expand-btn");
+          if (viewBtn) {
+            const isCollapsed = contentEl.classList.contains("collapsed");
+            viewBtn.innerHTML = isCollapsed ? '<i class="bi bi-arrows-expand"></i> ' + (I18n.t ? I18n.t("ai.viewFullResult") : "View full result") : '<i class="bi bi-arrows-collapse"></i> ' + (I18n.t ? I18n.t("ai.showLess") : "Show less");
+          }
+        });
+      }
+      const actions = section.querySelector(".multi-field-actions");
+      if (actions) {
+        actions.style.display = "flex";
+        const self = this;
+        if (display.length > 300) {
+          const viewBtn = document.createElement("button");
+          viewBtn.className = "multi-field-expand-btn";
+          viewBtn.type = "button";
+          viewBtn.innerHTML = '<i class="bi bi-arrows-expand"></i> ' + (I18n.t ? I18n.t("ai.viewFullResult") : "View full result");
+          viewBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            self._showResultModal(field, display);
+          });
+          actions.appendChild(viewBtn);
+        }
+        this._registerApply(section, field, content);
+        const btn = document.createElement("button");
+        btn.className = "btn btn-outline-accent btn-sm";
+        btn.innerHTML = '<i class="bi bi-eye me-1"></i> ' + (I18n.t ? I18n.t("ai.reviewApply") : "Review & Apply");
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          self.tryApplyAIResponse(content, field, section);
+        });
+        actions.appendChild(btn);
+      }
+    },
+    _showResultModal(field, content) {
+      const $ = Ui.$;
+      const fieldLabel = I18n.t ? I18n.t(this.FIELD_DEFS.find((d) => d.id === field)?.labelKey || field) : field;
+      const modalEl = $("#aiResultModal");
+      if (!modalEl)
+        return;
+      const titleEl = modalEl.querySelector(".modal-title");
+      const bodyEl = modalEl.querySelector(".modal-body");
+      if (titleEl)
+        titleEl.innerHTML = '<i class="bi bi-file-text me-2 text-accent"></i>' + Ui.escapeHtml(fieldLabel);
+      if (bodyEl)
+        bodyEl.textContent = content;
+      this._resultModal = this._resultModal || new bootstrap.Modal(modalEl);
+      const modal = this._resultModal;
+      const copyBtn = modalEl.querySelector("#btnCopyResult");
+      if (copyBtn) {
+        const copyLabel = () => '<i class="bi bi-clipboard me-1"></i>' + (I18n.t ? I18n.t("ai.copy") : "Copy");
+        copyBtn.innerHTML = copyLabel();
+        if (this._copyAbort)
+          this._copyAbort.abort();
+        this._copyAbort = new AbortController;
+        let copyTimeout = null;
+        const cleanupCopy = () => {
+          if (copyTimeout) {
+            clearTimeout(copyTimeout);
+            copyTimeout = null;
+          }
+        };
+        copyBtn.addEventListener("click", () => {
+          navigator.clipboard.writeText(content).then(() => {
+            copyBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>' + (I18n.t ? I18n.t("ai.copied") : "Copied!");
+            copyTimeout = setTimeout(() => {
+              copyBtn.innerHTML = copyLabel();
+            }, 2000);
+          }).catch(() => {
+            copyBtn.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>' + (I18n.t ? I18n.t("ai.copyFailed") : "Failed");
+          });
+        }, { signal: this._copyAbort.signal });
+        modalEl.addEventListener("hidden.bs.modal", cleanupCopy, { once: true });
+      }
+      modal.show();
+    },
+    _finalizeGroupedCard(groupedCard, total) {
+      const header = groupedCard.querySelector(".multi-field-header");
+      if (header) {
+        const done = groupedCard.querySelectorAll(".multi-field-section.done").length;
+        const errs = groupedCard.querySelectorAll(".multi-field-section.error").length;
+        let msg;
+        if (I18n.t) {
+          msg = I18n.t("ai.doneSummary", { done, total, errs });
+        } else {
+          msg = done + "/" + total + " field" + (total > 1 ? "s" : "") + " done";
+          if (errs > 0)
+            msg += " · " + errs + " failed";
+        }
+        header.innerHTML = '<i class="bi bi-robot"></i> ' + Ui.escapeHtml(msg);
+      }
+      const readySections = [...groupedCard.querySelectorAll(".multi-field-section.done")].filter((s) => ChatState.applyElMap.get(s));
+      if (readySections.length > 0) {
+        const footer = document.createElement("div");
+        footer.className = "multi-field-footer";
+        footer.innerHTML = '<span class="multi-field-footer-count">' + (I18n.t ? I18n.t("ai.changesReady", { count: readySections.length }) : readySections.length + " changes ready") + "</span>";
+        const viewBtn = document.createElement("button");
+        viewBtn.type = "button";
+        viewBtn.className = "btn btn-outline-accent btn-sm";
+        viewBtn.innerHTML = '<i class="bi bi-eye me-1"></i> ' + (I18n.t ? I18n.t("ai.reviewApply") : "Review & Apply");
+        viewBtn.addEventListener("click", () => {
+          const idx = this._firstUnappliedIndex();
+          if (idx >= 0)
+            this._openApplyAt(idx);
+        });
+        footer.appendChild(viewBtn);
+        const applyAllBtn = document.createElement("button");
+        applyAllBtn.type = "button";
+        applyAllBtn.className = "btn btn-accent btn-sm";
+        applyAllBtn.innerHTML = '<i class="bi bi-check2-all me-1"></i> ' + (I18n.t ? I18n.t("diff.applyAll") : "Apply all");
+        applyAllBtn.addEventListener("click", () => this._applyAllPending(null));
+        footer.appendChild(applyAllBtn);
+        groupedCard.appendChild(footer);
+      }
+    },
+    _firstUnappliedIndex() {
+      return ChatState.firstUnappliedIndex();
+    },
+    _maybeRetireReadyBars() {
+      if (typeof document === "undefined")
+        return;
+      if (ChatState.allApplied()) {
+        document.querySelectorAll(".multi-field-footer button").forEach((b) => {
+          b.disabled = true;
+          b.classList.add("disabled");
+        });
+      }
+    },
+    _abortAll() {
+      ChatState.abortAll();
+    },
+    _resetApplyQueue() {
+      ChatState.resetApply();
+    },
+    _bumpGen() {
+      return ChatState.bumpGen();
+    },
+    _resetChat() {
+      ChatState.resetChat();
+    },
+    _setCurrentSession(id) {
+      ChatState.currentSessionId = id;
+    },
+    _releaseController(controller) {
+      ChatState.releaseController(controller);
+    },
+    _getRecentHistory(maxMessages = 10, includeLast = false) {
+      const { chatHistory } = window.AppState;
+      if (!chatHistory || chatHistory.length <= 1)
+        return [];
+      return chatHistory.slice(0, includeLast ? chatHistory.length : -1).slice(-maxMessages);
+    },
+    _sendFullCard(prompt, opts) {
+      opts = opts || {};
+      const $ = Ui.$;
+      const { activeCard } = window.AppState;
+      if (window.AppState.isAiLoading)
+        return;
+      if (!AIService.hasApiKey()) {
+        Ui.showToast(I18n.t("toast.apiKey"), "warning");
+        return;
+      }
+      if (!activeCard) {
+        Ui.showToast(I18n.t("toast.selectCard"), "warning");
+        return;
+      }
+      const modelSelect = $("#aiModelSelect");
+      const input = $("#aiInput");
+      if (!modelSelect || !input) {
+        Ui.showToast(I18n.t("toast.selectModel"), "warning");
+        return;
+      }
+      const modelId = modelSelect.value;
+      if (!modelId) {
+        Ui.showToast(I18n.t("toast.selectModel"), "warning");
+        return;
+      }
+      input.value = "";
+      this._abortAll();
+      const gen2 = ChatState.bumpGen();
+      window.AppState.isAiLoading = true;
+      this.updateSendButton();
+      this.addChatMessage("user", prompt, null, null, window.AppState.chatHistory.length);
+      window.AppState.chatHistory.push({ role: "user", content: prompt });
+      CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
+      const cardId = activeCard?._id || "global";
+      if (!ChatState.currentSessionId) {
+        const now = Date.now();
+        const session = {
+          id: "ses_" + now + "_" + Math.random().toString(36).slice(2, 7),
+          created: now,
+          lastUpdated: now,
+          preview: prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt,
+          messageCount: 1
+        };
+        ChatState.currentSessionId = session.id;
+        CardStorage.saveChatSession(cardId, session);
+      }
+      CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, window.AppState.chatHistory);
+      const streamingEl = this.createStreamingMessage();
+      let shimmerGone = false;
+      const startedAt = Date.now();
+      let lastOut = "";
+      const statusEl = streamingEl.querySelector(".ai-stream-status");
+      const liveTimer = setInterval(() => {
+        if (!streamingEl.isConnected) {
+          clearInterval(liveTimer);
+          return;
+        }
+        const secs = Math.floor((Date.now() - startedAt) / 1000) + "s";
+        let liveCount = 0;
+        if (lastOut) {
+          try {
+            liveCount = Tokenizer.syncCount(lastOut);
+          } catch (_) {
+            liveCount = Math.ceil(lastOut.length / 3);
+          }
+        }
+        statusEl.textContent = lastOut ? I18n.t ? I18n.t("ai.streamLive", { tokens: liveCount, secs }) : liveCount + " tokens · " + secs : I18n.t ? I18n.t("ai.thinkingLive", { secs }) : "Thinking… " + secs;
+      }, 500);
+      const cardJson = activeCard ? CardEngine.toJSON(activeCard) : "";
+      const systemPrompt = [
+        CardStorage.getPrompt("fullCard") || `You are an AI assistant helping edit SillyTavern character cards.
+SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
+        "",
+        "Here is the FULL character card for context:",
+        "```json",
+        cardJson,
+        "```",
+        "",
+        opts.systemPromptInstruction || (CardStorage.getPrompt("fullCardInstr") || Settings.getDefaultPrompt("fullCardInstr"))
+      ].join(`
+`);
+      const controller = new AbortController;
+      ChatState.abortControllers.push(controller);
+      AIService.chatStream(prompt, systemPrompt, modelId, (fullText) => {
+        lastOut = fullText;
+        if (!shimmerGone && fullText) {
+          shimmerGone = true;
+          const sk = streamingEl.querySelector(".ai-shimmer");
+          if (sk)
+            sk.remove();
+        }
+        streamingEl.querySelector(".ai-message-content").innerHTML = Ui.escapeHtml(fullText).replace(/```(?:\w+)?\n?([\s\S]*?)```/g, "<pre>$1</pre>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>").replace(/\n/g, "<br>");
+        const container = document.querySelector("#aiChatMessages");
+        container.scrollTop = container.scrollHeight;
+      }, controller.signal, true, this._getRecentHistory(10)).then((result) => {
+        clearInterval(liveTimer);
+        if (gen2 !== ChatState.gen) {
+          streamingEl.remove();
+          return;
+        }
+        streamingEl.remove();
+        const asstIdx = window.AppState.chatHistory.length;
+        const applyTarget = opts.applyTarget || "full";
+        this.addChatMessage("assistant", result.content, result.usage, { content: result.content, field: applyTarget }, asstIdx);
+        window.AppState.chatHistory.push({ role: "assistant", content: result.content });
+        CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
+        this._updateSession();
+        this.tryApplyAIResponse(result.content, applyTarget);
+        Settings.refreshCredits();
+      }).catch((err) => {
+        clearInterval(liveTimer);
+        if (gen2 !== ChatState.gen) {
+          streamingEl.remove();
+          return;
+        }
+        streamingEl.remove();
+        if (err && err.name === "AbortError") {
+          this.addChatMessage("system", I18n.t ? I18n.t("toast.genStopped") : "Generation stopped.");
+        } else {
+          this.addChatMessage("system", (I18n.t ? I18n.t("ai.errorPrefix") : "Error: ") + err.message);
+          Ui.showToast(I18n.t("toast.aiError", { error: err.message }), "danger");
+        }
+      }).finally(() => {
+        this._releaseController(controller);
+        if (gen2 !== ChatState.gen)
+          return;
+        window.AppState.isAiLoading = false;
+        this.updateSendButton();
+      });
+    },
+    _renderDiff(oldText, newText) {
+      const oldEl = document.querySelector("#aiDiffOld");
+      const newEl = document.querySelector("#aiDiffNew");
+      if (!oldEl || !newEl)
+        return;
+      if (typeof Diff === "undefined") {
+        oldEl.textContent = oldText || (I18n.t ? I18n.t("gen.empty") : "(empty)");
+        newEl.textContent = newText;
+        return;
+      }
+      const changes = Diff.diffWords(oldText || "", newText || "");
+      let oldHtml = "";
+      let newHtml = "";
+      changes.forEach((part) => {
+        const escaped = Ui.escapeHtml(part.value);
+        if (part.removed) {
+          oldHtml += '<span class="diff-del">' + escaped + "</span>";
+        } else if (part.added) {
+          newHtml += '<span class="diff-add">' + escaped + "</span>";
+        } else {
+          oldHtml += escaped;
+          newHtml += escaped;
+        }
+      });
+      oldEl.innerHTML = oldHtml || '<span class="diff-empty">' + (I18n.t ? I18n.t("gen.empty") : "(empty)") + "</span>";
+      newEl.innerHTML = newHtml || '<span class="diff-empty">' + (I18n.t ? I18n.t("gen.empty") : "(empty)") + "</span>";
+    },
+    _registerApply(el, field, content) {
+      return ChatState.registerApply(el, field, content);
+    },
+    _prepareApply(field, content, opts) {
+      opts = opts || {};
+      const silent = !!opts.silent;
+      const { activeCard } = window.AppState;
+      if (!activeCard || !content)
+        return null;
+      const card = this._extractCard(content);
+      if (field === "full") {
+        const jsonStr = this._extractJSON(content);
+        if (!jsonStr)
+          return null;
+        try {
+          const parsed = CardEngine.parseJSON(jsonStr, activeCard._filename);
+          this._normalizeCardPlaceholders(parsed);
+          return {
+            oldVal: CardEngine.toJSON(activeCard),
+            newVal: CardEngine.toJSON(parsed),
+            applyFn: () => {
+              const internal = {
+                _id: activeCard._id,
+                _filename: activeCard._filename,
+                _hasImage: activeCard._hasImage,
+                _imageBase64: activeCard._imageBase64,
+                _thumbnail: activeCard._thumbnail,
+                _createdAt: activeCard._createdAt,
+                _fileSize: activeCard._fileSize
+              };
+              Object.assign(activeCard, parsed);
+              Object.assign(activeCard, internal);
+              Editor.populateEditor(activeCard);
+              Editor.syncEditorToCard();
+              if (!silent)
+                Ui.showToast(I18n.t("toast.cardUpdatedAI"), "success");
+            }
+          };
+        } catch (e) {
+          console.error("Failed to parse AI JSON response", e);
+          Ui.showToast(I18n.t("toast.jsonParseFailed"), "warning");
+          return null;
+        }
+      }
+      if (field === "tags") {
+        const cardValue = this._cardFieldValue(card, "tags");
+        const tags = Array.isArray(cardValue) && cardValue.length > 0 && cardValue.every((t) => typeof t === "string") ? cardValue : this._extractJSONArray(content);
+        if (!tags || tags.length === 0) {
+          Ui.showToast(I18n.t ? I18n.t("toast.jsonInvalid") : "Could not parse tags from the response.", "warning");
+          return null;
+        }
+        const existing = (activeCard.tags || []).map((t) => String(t).trim()).filter(Boolean);
+        const merged = [...existing];
+        let added = 0;
+        tags.forEach((t) => {
+          const s = String(t).trim();
+          if (s && !merged.some((m) => m.toLowerCase() === s.toLowerCase())) {
+            merged.push(s);
+            added++;
+          }
+        });
+        return {
+          oldVal: JSON.stringify(existing, null, 2),
+          newVal: JSON.stringify(merged, null, 2),
+          applyFn: () => {
+            activeCard.tags = merged;
+            Editor.populateEditor(activeCard);
+            Editor.syncEditorToCard();
+            CardManager.renderCardList();
+            if (!silent)
+              Ui.showToast(I18n.t("toast.tagsUpdated", { count: added }), "success");
+          }
+        };
+      }
+      if (field === "alternate_greetings") {
+        const cardValue = this._cardFieldValue(card, "alternate_greetings");
+        let greetings = Array.isArray(cardValue) ? cardValue : this._extractJSONArray(content);
+        if (greetings)
+          greetings = greetings.map((g) => this._normalizePlaceholders(g));
+        if (!greetings || greetings.length === 0) {
+          Ui.showToast(I18n.t("toast.greetingsParseFailed"), "warning");
+          return null;
+        }
+        const renamedTo = this._pendingRename(card, activeCard);
+        return {
+          oldVal: JSON.stringify(activeCard.alternate_greetings || [], null, 2),
+          newVal: JSON.stringify(greetings, null, 2),
+          applyFn: () => {
+            activeCard.alternate_greetings = greetings;
+            if (renamedTo)
+              activeCard.name = renamedTo;
+            Editor.renderGreetings(activeCard);
+            Editor.syncEditorToCard();
+            if (renamedTo)
+              CardManager.renderCardList();
+            if (!silent)
+              Ui.showToast(renamedTo ? I18n.t("toast.cardRenamed", { name: renamedTo }) : I18n.t("toast.greetingsUpdated", { count: greetings.length }), "success");
+          }
+        };
+      }
+      if (activeCard[field] !== undefined || ["description", "personality", "first_mes", "scenario", "mes_example", "system_prompt", "post_history_instructions", "creator_notes"].includes(field)) {
+        const cardValue = this._cardFieldValue(card, field);
+        let clean = cardValue !== undefined ? String(cardValue) : content;
+        const fence = clean.match(/```(?:json|text|markdown)?\s*\n?([\s\S]*?)```/);
+        if (fence)
+          clean = fence[1];
+        const fieldLabel = this._applyFieldLabel(field);
+        const headerRe = new RegExp("^\\[" + fieldLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\]\\s*\\n?");
+        clean = this._normalizePlaceholders(clean.replace(headerRe, "")).trim();
+        if (!clean) {
+          Ui.showToast(I18n.t ? I18n.t("toast.emptyResponse") : "AI returned empty content — nothing to apply.", "warning");
+          return null;
+        }
+        const renamedTo = this._pendingRename(card, activeCard);
+        return {
+          oldVal: activeCard[field] || "",
+          newVal: clean,
+          applyFn: () => {
+            activeCard[field] = clean;
+            if (renamedTo)
+              activeCard.name = renamedTo;
+            Editor.populateEditor(activeCard);
+            Editor.syncEditorToCard();
+            CardManager.renderCardList();
+            if (!silent)
+              Ui.showToast(renamedTo ? I18n.t("toast.cardRenamed", { name: renamedTo }) : I18n.t("toast.fieldUpdated", { field }), "success");
+          }
+        };
+      }
+      return null;
+    },
+    _applyFieldLabel(field) {
+      if (field === "full")
+        return I18n.t ? I18n.t("ai.target.full") : "Full Card";
+      if (field === "tags")
+        return I18n.t ? I18n.t("ai.target.tags") : "Tags";
+      return I18n.t ? I18n.t(this.FIELD_DEFS.find((d) => d.id === field)?.labelKey || field) : field;
+    },
+    CARD_FIELDS: [
+      "description",
+      "personality",
+      "first_mes",
+      "scenario",
+      "mes_example",
+      "alternate_greetings",
+      "system_prompt",
+      "post_history_instructions",
+      "creator_notes",
+      "tags"
+    ],
+    _extractCard(text) {
+      if (!text || typeof text !== "string")
+        return null;
+      const json = this._extractJSON(text);
+      if (!json)
+        return null;
+      let parsed;
+      try {
+        parsed = JSON.parse(json);
+      } catch (_) {
+        return null;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        return null;
+      const data = parsed.data && typeof parsed.data === "object" ? parsed.data : null;
+      if (parsed.spec === "chara_card_v2" && data)
+        return parsed;
+      if (data && typeof data.name === "string" && this.CARD_FIELDS.some((k) => data[k] !== undefined))
+        return parsed;
+      if (!data && typeof parsed.name === "string" && this.CARD_FIELDS.some((k) => parsed[k] !== undefined))
+        return parsed;
+      return null;
+    },
+    _cardFieldValue(card, field) {
+      if (!card)
+        return;
+      const data = card.data && typeof card.data === "object" ? card.data : card;
+      return data[field];
+    },
+    _cardName(card) {
+      if (!card)
+        return "";
+      const data = card.data && typeof card.data === "object" ? card.data : card;
+      return typeof data.name === "string" ? data.name.trim() : "";
+    },
+    _pendingRename(card, activeCard) {
+      if (!card || !activeCard)
+        return "";
+      const name = this._cardName(card);
+      if (!name || name === (activeCard.name || "").trim())
+        return "";
+      return name;
+    },
+    _fieldDisplayContent(field, content) {
+      const card = this._extractCard(content);
+      if (!card)
+        return content;
+      let value = this._cardFieldValue(card, field);
+      if (value === undefined)
+        return content;
+      if (field === "alternate_greetings") {
+        if (!Array.isArray(value))
+          return content;
+        const norm = value.map((g) => this._normalizePlaceholders(g));
+        return norm.length ? JSON.stringify(norm, null, 2) : "";
+      }
+      return String(this._normalizePlaceholders(value));
+    },
+    _formatFieldText(text) {
+      return Ui.escapeHtml(text).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>").replace(/\n/g, "<br>");
+    },
+    _normalizePlaceholders(text) {
+      if (!text || typeof text !== "string")
+        return text;
+      let out = text.replace(/\{\{(user|char)\}\}/gi, (m, name) => "{{" + name.toLowerCase() + "}}");
+      out = out.replace(/(?<!\{)\{([^{}\n]{1,40})\}(?!\})/g, (m, name) => {
+        const key = name.trim().toLowerCase();
+        if (key === "user" || key === "char")
+          return "{{" + key + "}}";
+        return m;
+      });
+      return out;
+    },
+    _normalizeCardPlaceholders(card) {
+      if (!card || typeof card !== "object")
+        return card;
+      [
+        "name",
+        "description",
+        "personality",
+        "first_mes",
+        "scenario",
+        "mes_example",
+        "system_prompt",
+        "post_history_instructions",
+        "creator_notes"
+      ].forEach((f) => {
+        if (typeof card[f] === "string")
+          card[f] = this._normalizePlaceholders(card[f]);
+      });
+      if (Array.isArray(card.alternate_greetings)) {
+        card.alternate_greetings = card.alternate_greetings.map((g) => this._normalizePlaceholders(g));
+      }
+      return card;
+    },
+    async _resolveTargetFields(prompt) {
+      if (AIService.hasApiKey && AIService.hasApiKey()) {
+        if (!this._classifyInFlight) {
+          this._classifyInFlight = this._classifyFields(prompt);
+          this._classifyInFlight.finally(() => {
+            this._classifyInFlight = null;
+          });
+        }
+        const llm = await this._classifyInFlight;
+        if (llm.length > 0)
+          return llm;
+      }
+      return this._inferFields(prompt);
+    },
+    async _classifyFields(prompt) {
+      const validIds = this.FIELD_DEFS.map((d) => d.id);
+      const valid = new Set(validIds);
+      const listed = this.FIELD_DEFS.map((d) => d.id + ' ("' + (I18n.t ? I18n.t(d.labelKey) : d.id) + '")').join(", ");
+      const system = "You map a user request to the character-card fields it asks to change. " + 'Reply with ONLY a JSON array of field ids — e.g. ["name","description"]. ' + "Valid ids: " + listed + ". " + "If nothing matches or you are unsure, reply []. No explanations, no markdown.";
+      const controller = new AbortController;
+      const timer = setTimeout(() => controller.abort(), this._INTENT_TIMEOUT_MS);
+      try {
+        const result = await AIService.chat(prompt, system, "", { jsonMode: true, signal: controller.signal });
+        const parsed = JSON.parse(result.content);
+        if (!Array.isArray(parsed))
+          return [];
+        const picked = [...new Set(parsed.map((x) => String(x).trim()).filter((x) => valid.has(x)))];
+        return validIds.filter((id) => picked.includes(id));
+      } catch (_) {
+        return [];
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    _inferFields(prompt) {
+      if (!prompt || typeof prompt !== "string")
+        return [];
+      const p = prompt.toLowerCase();
+      const has = (re) => re.test(p);
+      const fields = new Set;
+      if (has(/(renomme|rename|s'appelle|s’appelle|nom de la carte|card name)/))
+        fields.add("name");
+      if (has(/(dit\s*[«"“'‘]|premier message|first message|first_mes|salue\s|greet)/))
+        fields.add("first_mes");
+      if (has(/(personnalit|personality|caract[èe]re)/))
+        fields.add("personality");
+      if (has(/(sc[ée]nario|scenario|arrive chez|se rend chez|situation|contexte)/))
+        fields.add("scenario");
+      if (has(/(salutation|greeting|alternatif)/))
+        fields.add("alternate_greetings");
+      if (has(/(exemple|example)/))
+        fields.add("mes_example");
+      if (has(/(system prompt|prompt syst[èe]me|instructions? pour l'?ia)/))
+        fields.add("system_prompt");
+      if (has(/(cr[ée]ateur|creator)/))
+        fields.add("creator_notes");
+      if (has(/(étudiant|etudiant|fauch|femme de m[ée]nage|housekeeper|est une|est un|est [a-zà-ÿ]+ et|traits|character)/))
+        fields.add("description");
+      if (fields.size > 0 && !fields.has("description") && p.length > 40)
+        fields.add("description");
+      return [...fields];
+    },
+    tryApplyAIResponse(content, targetField, sourceEl) {
+      const { activeCard } = window.AppState;
+      if (!activeCard || !content)
+        return;
+      let item = null;
+      if (sourceEl) {
+        item = ChatState.applyElMap.get(sourceEl);
+        if (item) {
+          item.field = targetField;
+          item.content = content;
+        }
+      } else {
+        item = ChatState.applyQueue.find((it) => it.content === content && it.field === targetField) || null;
+      }
+      if (!item) {
+        item = this._registerApply(sourceEl || null, targetField, content);
+      }
+      if (!item)
+        return;
+      ChatState.applyIndex = ChatState.applyQueue.indexOf(item);
+      this._openApplyAt(ChatState.applyIndex);
+    },
+    _openApplyAt(index) {
+      const queue = ChatState.applyQueue;
+      if (!queue.length)
+        return;
+      const n = queue.length;
+      const i = (index % n + n) % n;
+      const item = queue[i];
+      ChatState.applyIndex = i;
+      const modalEl = document.querySelector("#aiPreviewModal");
+      if (!modalEl)
+        return;
+      const prep = this._prepareApply(item.field, item.content);
+      if (!prep)
+        return;
+      this._previewModal = this._previewModal || new bootstrap.Modal(modalEl);
+      const modal = this._previewModal;
+      this._renderDiff(prep.oldVal, prep.newVal);
+      const titleEl = modalEl.querySelector(".modal-title");
+      if (titleEl)
+        titleEl.innerHTML = '<i class="bi bi-split-cells me-2 text-accent"></i>' + Ui.escapeHtml(this._applyFieldLabel(item.field));
+      const showNav = n > 1;
+      const navGroup = document.querySelector("#applyNavGroup");
+      const counterEl = document.querySelector("#applyNavCounter");
+      const prevBtn = document.querySelector("#btnApplyPrev");
+      const nextBtn = document.querySelector("#btnApplyNext");
+      if (navGroup)
+        navGroup.style.display = showNav ? "flex" : "none";
+      if (counterEl)
+        counterEl.textContent = showNav ? I18n.t ? I18n.t("ai.changesNav", { current: i + 1, total: n }) : i + 1 + " / " + n : "";
+      if (prevBtn)
+        prevBtn.disabled = !showNav;
+      if (nextBtn)
+        nextBtn.disabled = !showNav;
+      const acceptBtn = document.querySelector("#btnAcceptAI");
+      const applyAllBtn = document.querySelector("#btnApplyAll");
+      if (this._previewCleanup)
+        this._previewCleanup();
+      const handler = () => {
+        if (item.applied) {
+          modal.hide();
+          return;
+        }
+        this._markApplied(item);
+        if (prep.applyFn)
+          prep.applyFn();
+        this._maybeRetireReadyBars();
+        const nextIdx = this._nextUnappliedIndex();
+        if (nextIdx >= 0)
+          this._openApplyAt(nextIdx);
+        else
+          modal.hide();
+      };
+      const applyAllHandler = () => {
+        this._applyAllPending(modal);
+      };
+      const keyHandler = (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          handler();
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          this._applyNav(-1);
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          this._applyNav(1);
+        } else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "a") {
+          e.preventDefault();
+          applyAllHandler();
+        }
+      };
+      const cleanup = () => {
+        acceptBtn.removeEventListener("click", handler);
+        if (applyAllBtn)
+          applyAllBtn.removeEventListener("click", applyAllHandler);
+        modalEl.removeEventListener("keydown", keyHandler);
+        modalEl.removeEventListener("hidden.bs.modal", cleanup);
+        if (this._previewCleanup === cleanup)
+          this._previewCleanup = null;
+      };
+      this._previewCleanup = cleanup;
+      acceptBtn.addEventListener("click", handler);
+      if (applyAllBtn)
+        applyAllBtn.addEventListener("click", applyAllHandler);
+      modalEl.addEventListener("keydown", keyHandler);
+      modalEl.addEventListener("hidden.bs.modal", cleanup);
+      modal.show();
+      if (acceptBtn)
+        acceptBtn.focus();
+    },
+    _applyNav(delta) {
+      const queue = ChatState.applyQueue;
+      if (queue.length < 2)
+        return;
+      this._openApplyAt((ChatState.applyIndex + delta + queue.length) % queue.length);
+    },
+    _nextUnappliedIndex() {
+      return ChatState.nextUnappliedIndex();
+    },
+    _applyAllPending(modal) {
+      const queue = ChatState.applyQueue;
+      let applied = 0;
+      let failed = 0;
+      for (const item of queue) {
+        if (item.applied)
+          continue;
+        const prep = this._prepareApply(item.field, item.content, { silent: true });
+        if (!prep) {
+          failed++;
+          continue;
+        }
+        try {
+          this._markApplied(item);
+          prep.applyFn();
+          applied++;
+        } catch (e) {
+          console.error("aiChat: failed to apply change:", e);
+          failed++;
+        }
+      }
+      if (modal && typeof modal.hide === "function")
+        modal.hide();
+      this._maybeRetireReadyBars();
+      if (applied > 0) {
+        Ui.showToast(I18n.t("toast.changesApplied", { count: applied }), "success");
+      }
+    },
+    _pruneApplyQueue() {
+      ChatState.pruneDetached();
+    },
+    _markApplied(item) {
+      item.applied = true;
+      const el = item.el;
+      if (!el)
+        return;
+      el.dataset.applied = "1";
+      const actions = el.matches(".multi-field-section") ? el.querySelector(".multi-field-actions") : el.querySelector(".ai-message-actions") || el;
+      const badge = document.createElement("span");
+      badge.className = "ai-applied-badge";
+      badge.innerHTML = '<i class="bi bi-check2-circle"></i> ' + (I18n.t ? I18n.t("ai.applied") : "Applied");
+      actions.appendChild(badge);
+      [...el.querySelectorAll("button")].forEach((b) => {
+        if (/apply/i.test(b.textContent) || b.classList.contains("ai-message-reapply")) {
+          b.disabled = true;
+          b.classList.add("disabled");
+        }
+      });
+    },
+    _extractJSONArray(text) {
+      if (!text)
+        return null;
+      const textStart = text.indexOf("[");
+      if (textStart < 0)
+        return null;
+      let start = textStart;
+      let depth = 0, inStr = false, esc = false;
+      for (let i = start;i < text.length; i++) {
+        const c = text[i];
+        if (inStr) {
+          if (esc)
+            esc = false;
+          else if (c === "\\")
+            esc = true;
+          else if (c === '"')
+            inStr = false;
+          continue;
+        }
+        if (c === '"')
+          inStr = true;
+        else if (c === "[") {
+          if (depth === 0)
+            start = i;
+          depth++;
+        } else if (c === "]") {
+          depth--;
+          if (depth === 0) {
+            const candidate = text.slice(start, i + 1);
+            try {
+              const parsed = JSON.parse(candidate);
+              if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+                return parsed;
+              }
+            } catch (_) {}
+          }
+        }
+      }
+      try {
+        const parsed = JSON.parse(text.trim());
+        if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+          return parsed;
+        }
+      } catch (_) {}
+      return null;
+    },
+    _extractJSON(text) {
+      if (!text)
+        return null;
+      const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      const candidate = fence ? fence[1].trim() : text.trim();
+      const balanced = this._balancedBraces(candidate);
+      if (balanced)
+        return balanced;
+      return this._balancedBraces(text);
+    },
+    _balancedBraces(text) {
+      const start = text.indexOf("{");
+      if (start < 0)
+        return null;
+      let depth = 0, inStr = false, esc = false;
+      for (let i = start;i < text.length; i++) {
+        const c = text[i];
+        if (inStr) {
+          if (esc)
+            esc = false;
+          else if (c === "\\")
+            esc = true;
+          else if (c === '"')
+            inStr = false;
+          continue;
+        }
+        if (c === '"')
+          inStr = true;
+        else if (c === "{")
+          depth++;
+        else if (c === "}") {
+          depth--;
+          if (depth === 0)
+            return text.slice(start, i + 1);
+        }
+      }
+      return null;
+    },
+    async handleQuickAction(action) {
+      const $ = Ui.$;
+      const { activeCard } = window.AppState;
+      if (action === "newcard") {
+        Wizard.show();
+        return;
+      }
+      if (!AIService.hasApiKey()) {
+        Ui.showToast(I18n.t("toast.apiKey"), "warning");
+        return;
+      }
+      if (!activeCard) {
+        Ui.showToast(I18n.t("toast.selectCard"), "warning");
+        return;
+      }
+      const promptFor = (name) => CardStorage.getPrompt(name) || Settings.getDefaultPrompt(name);
+      const currentOf = {
+        shorten: activeCard.description,
+        enhance: activeCard.description,
+        tone: activeCard.description,
+        grammar: activeCard.description,
+        personality: activeCard.personality,
+        firstmes: activeCard.first_mes,
+        scenario: activeCard.scenario,
+        systemprompt: activeCard.system_prompt
+      };
+      const withCurrent = (name, field) => promptFor(name) + `
+
+Current:
+` + (currentOf[field] || "(empty)");
+      const prompts = {
+        enhance: withCurrent("enhance", "enhance"),
+        personality: withCurrent("personality", "personality"),
+        firstmes: withCurrent("firstmes", "firstmes"),
+        scenario: withCurrent("scenario", "scenario"),
+        shorten: withCurrent("shorten", "shorten"),
+        tone: promptFor("tone"),
+        grammar: withCurrent("grammar", "grammar"),
+        greetings: promptFor("greetings"),
+        systemprompt: withCurrent("systemprompt", "systemprompt"),
+        translate: promptFor("translate"),
+        tags: promptFor("tags")
+      };
+      if (action === "translate") {
+        const LANG_CODES = ["en", "fr", "es", "de", "pt", "ja", "zh", "ko", "el", "ru", "it", "pl", "tr", "nl", "uk", "vi", "id", "hi", "ar", "he", "fa", "ro", "cs", "sv", "th", "pt-pt", "tl"];
+        const options = LANG_CODES.map((code) => {
+          const label = I18n.t && I18n.t("wizard.language." + code) !== "wizard.language." + code ? I18n.t("wizard.language." + code) : code;
+          return { value: label, label };
+        });
+        const lang = await Ui.prompt({
+          title: I18n.t ? I18n.t("ai.translateTitle") : "Translate card",
+          message: I18n.t ? I18n.t("ai.translateMessage") : "Which language should the card be translated to?",
+          select: options,
+          value: I18n.t ? I18n.t("wizard.language.fr") !== "wizard.language.fr" ? I18n.t("wizard.language.fr") : "French" : "French",
+          buttonLabel: I18n.t ? I18n.t("dialog.ok") : "OK"
+        });
+        if (!lang)
+          return;
+        prompts.translate = prompts.translate.split("{lang}").join(lang).split("{card}").join(CardEngine.toJSON(activeCard));
+      }
+      if (action === "tone") {
+        const tone = await Ui.prompt({
+          title: I18n.t ? I18n.t("ai.toneTitle") : "Change tone",
+          message: I18n.t ? I18n.t("ai.toneMessage") : "Which tone should the description be rewritten in?",
+          text: "",
+          value: I18n.t ? I18n.t("ai.toneDefault") !== "ai.toneDefault" ? I18n.t("ai.toneDefault") : "formal" : "formal",
+          placeholder: I18n.t ? I18n.t("ai.toneMessage") : "formal, casual, dark, humorous, poetic…",
+          buttonLabel: I18n.t ? I18n.t("dialog.ok") : "OK"
+        });
+        if (!tone)
+          return;
+        prompts.tone = prompts.tone.split("{tone}").join(tone) + `
+
+Current:
+` + (currentOf.tone || "(empty)");
+      }
+      if (action === "tags") {
+        this._sendFullCard(prompts.tags, {
+          applyTarget: "tags",
+          systemPromptInstruction: promptFor("tagsSystem")
+        });
+        return;
+      }
+      const aiPrompt = action === "translate" ? prompts.translate : prompts[action];
+      if (!aiPrompt)
+        return;
+      ChatState.selectedFields.clear();
+      const fieldMap = {
+        translate: null,
+        personality: "personality",
+        firstmes: "first_mes",
+        scenario: "scenario",
+        enhance: "description",
+        shorten: "description",
+        tone: "description",
+        grammar: "description",
+        greetings: "alternate_greetings",
+        systemprompt: "system_prompt"
+      };
+      if (action === "translate") {
+        this._renderFieldChips();
+        const inp2 = $("#aiInput");
+        if (inp2)
+          inp2.value = aiPrompt;
+        this._sendFullCard(aiPrompt);
+        return;
+      } else if (fieldMap[action]) {
+        ChatState.selectedFields.add(fieldMap[action]);
+      }
+      this._renderFieldChips();
+      const inp = $("#aiInput");
+      if (inp)
+        inp.value = aiPrompt;
+      this.send();
+    },
+    addChatMessage(role, content, usage, applyData, historyIndex) {
+      const $ = Ui.$;
+      const container = $("#aiChatMessages");
+      const welcome = container.querySelector(".ai-welcome");
+      if (welcome)
+        welcome.remove();
+      let formatted;
+      if (typeof Ui !== "undefined" && Ui.renderMarkdown) {
+        formatted = Ui.renderMarkdown(content);
+      } else {
+        formatted = Ui.escapeHtml(content).replace(/```(?:\w+)?\n?([\s\S]*?)```/g, "<pre>$1</pre>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\*(.+?)\*/g, "<em>$1</em>").replace(/^[-*] (.+)$/gm, "<li>$1</li>").replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>").replace(/\n/g, "<br>");
+      }
+      const usageInfo = usage ? '<div class="text-muted mt-1" style="font-size:0.65rem;">' + (usage.total_tokens || "?") + " tokens · $" + (usage.cost || 0).toFixed(5) + "</div>" : "";
+      const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const el = document.createElement("div");
+      el.className = "ai-message " + role;
+      if (typeof historyIndex === "number")
+        el.dataset.historyIndex = String(historyIndex);
+      el.innerHTML = formatted + '<div class="text-muted mt-1" style="font-size:0.6rem;">' + time + "</div>" + usageInfo;
+      if (role === "assistant") {
+        const actionsWrap = document.createElement("div");
+        actionsWrap.className = "ai-message-actions";
+        const msgId = "msg_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
+        if (applyData && applyData.content) {
+          ChatState.applyStore.set(msgId, applyData);
+          if (ChatState.applyStore.size > 50) {
+            const oldest = ChatState.applyStore.keys().next().value;
+            ChatState.applyStore.delete(oldest);
+          }
+          el.setAttribute("data-apply-id", msgId);
+          this._registerApply(el, applyData.field, applyData.content);
+          const reapplyBtn = document.createElement("button");
+          reapplyBtn.className = "ai-message-reapply";
+          reapplyBtn.innerHTML = '<i class="bi bi-check2-circle"></i> ' + (I18n.t ? I18n.t("ai.apply") : "Apply");
+          reapplyBtn.title = I18n.t ? I18n.t("ai.applyTitle") : "Apply these changes to the card";
+          reapplyBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const stored = ChatState.applyStore.get(msgId);
+            if (stored) {
+              this.tryApplyAIResponse(stored.content, stored.field, el);
+            }
+          });
+          actionsWrap.appendChild(reapplyBtn);
+        }
+        const retryBtn = document.createElement("button");
+        retryBtn.className = "ai-message-retry";
+        retryBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> ' + (I18n.t ? I18n.t("ai.retry") : "Retry");
+        retryBtn.title = I18n.t ? I18n.t("ai.retryTitle") : "Regenerate this response";
+        retryBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const idx = parseInt(el.dataset.historyIndex, 10);
+          this.retryLastMessage(Number.isNaN(idx) ? undefined : idx);
+        });
+        actionsWrap.appendChild(retryBtn);
+        el.appendChild(actionsWrap);
+      }
+      container.appendChild(el);
+      Anims.staggerFadeIn(el, { duration: 200, from: 10 });
+      container.scrollTop = container.scrollHeight;
+    },
+    retryLastMessage(historyIndex) {
+      const { chatHistory } = window.AppState;
+      let targetUserIdx = -1;
+      if (typeof historyIndex === "number") {
+        for (let i = historyIndex;i >= 0; i--) {
+          if (chatHistory[i] && chatHistory[i].role === "user") {
+            targetUserIdx = i;
+            break;
+          }
+        }
+      }
+      if (targetUserIdx < 0) {
+        for (let i = chatHistory.length - 1;i >= 0; i--) {
+          if (chatHistory[i].role === "user") {
+            targetUserIdx = i;
+            break;
+          }
+        }
+      }
+      if (targetUserIdx < 0)
+        return;
+      const lastUserPrompt = chatHistory[targetUserIdx].content;
+      this._abortAll();
+      ChatState.bumpGen();
+      chatHistory.splice(targetUserIdx);
+      window.AppState.isAiLoading = false;
+      this.updateSendButton();
+      CardStorage.saveChatHistory(chatHistory, window.AppState.activeCard?._id);
+      if (ChatState.currentSessionId) {
+        const cardId = window.AppState.activeCard?._id || "global";
+        CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, chatHistory);
+      }
+      const $ = Ui.$;
+      const container = $("#aiChatMessages");
+      const allMsgs = container.querySelectorAll(".ai-message");
+      let removedDom = 0;
+      const targetEl = [...allMsgs].find((el) => parseInt(el.dataset.historyIndex, 10) === targetUserIdx);
+      if (targetEl) {
+        let el = targetEl;
+        while (el) {
+          const next = el.nextElementSibling;
+          el.remove();
+          removedDom++;
+          el = next;
+        }
+      }
+      if (removedDom === 0) {
+        for (let i = allMsgs.length - 1;i >= 0 && removedDom < 2; i--) {
+          const msg = allMsgs[i];
+          if (msg.classList.contains("system"))
+            continue;
+          msg.remove();
+          removedDom++;
+        }
+      }
+      this._pruneApplyQueue();
+      this.addChatMessage("user", lastUserPrompt, null, null, targetUserIdx);
+      this.send(lastUserPrompt);
+    },
+    createStreamingMessage() {
+      const $ = Ui.$;
+      const container = $("#aiChatMessages");
+      const welcome = container.querySelector(".ai-welcome");
+      if (welcome)
+        welcome.remove();
+      const el = document.createElement("div");
+      el.className = "ai-message assistant";
+      el.innerHTML = '<div class="ai-message-content"></div>' + '<div class="ai-stream-status" aria-live="polite" aria-atomic="true"></div>' + '<div class="ai-shimmer" aria-hidden="true"><div class="shimmer-line"></div><div class="shimmer-line"></div><div class="shimmer-line short"></div></div>';
+      container.appendChild(el);
+      Anims.staggerFadeIn(el, { duration: 200, from: 10 });
+      container.scrollTop = container.scrollHeight;
+      return el;
+    },
+    renderChatHistory() {
+      if (ChatState.historyRendered)
+        return;
+      const { chatHistory } = window.AppState;
+      const $ = Ui.$;
+      const container = $("#aiChatMessages");
+      if (chatHistory.length === 0) {
+        ChatState.historyRendered = true;
+        this._showWelcome();
+        return;
+      }
+      container.innerHTML = "";
+      chatHistory.forEach((msg, i) => this.addChatMessage(msg.role, msg.content, null, null, i));
+      ChatState.historyRendered = true;
+    },
+    _updateSession() {
+      const { chatHistory, activeCard } = window.AppState;
+      if (!chatHistory || chatHistory.length < 2)
+        return;
+      const cardId = activeCard?._id || "global";
+      const sessions = CardStorage.getChatSessions(cardId);
+      const firstUser = chatHistory.find((m) => m.role === "user");
+      const preview = firstUser ? firstUser.content.length > 80 ? firstUser.content.slice(0, 80) + "..." : firstUser.content : I18n.t ? I18n.t("ai.chatSession") : "Chat session";
+      const now = Date.now();
+      const SESSION_TIMEOUT = 30 * 60 * 1000;
+      let currentSession = ChatState.currentSessionId ? sessions.find((s) => s.id === ChatState.currentSessionId) : sessions.length > 0 ? sessions[0] : null;
+      if (currentSession && now - (currentSession.lastUpdated || currentSession.created) < SESSION_TIMEOUT) {
+        currentSession.lastUpdated = now;
+        currentSession.preview = preview;
+        currentSession.messageCount = chatHistory.length;
+        ChatState.currentSessionId = currentSession.id;
+        CardStorage.saveChatSession(cardId, currentSession);
+        CardStorage.saveSessionMessages(cardId, currentSession.id, chatHistory);
+      } else {
+        const session = {
+          id: "ses_" + now + "_" + Math.random().toString(36).slice(2, 7),
+          created: now,
+          lastUpdated: now,
+          preview,
+          messageCount: chatHistory.length
+        };
+        ChatState.currentSessionId = session.id;
+        CardStorage.saveChatSession(cardId, session);
+        CardStorage.saveSessionMessages(cardId, session.id, chatHistory);
+      }
+    },
+    _renderHistoryList() {
+      const $ = Ui.$;
+      const list = $("#aiHistoryList");
+      if (!list)
+        return;
+      const cardId = window.AppState.activeCard?._id || "global";
+      const sessions = CardStorage.getChatSessions(cardId);
+      if (sessions.length === 0) {
+        list.innerHTML = '<div class="ai-history-empty">' + (I18n.t ? I18n.t("ai.historyEmpty") : "No conversations yet") + "</div>";
+        return;
+      }
+      list.innerHTML = sessions.map((s) => {
+        const date = new Date(s.created);
+        const dateStr = date.toLocaleDateString([], { month: "short", day: "numeric" });
+        const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        return '<div class="ai-history-item" data-session-id="' + Ui.escapeAttr(s.id) + '">' + '<div class="ai-history-item-preview">' + Ui.escapeHtml(s.preview) + "</div>" + '<div class="ai-history-item-meta">' + '<span class="ai-history-item-time">' + dateStr + " " + timeStr + "</span>" + '<span class="ai-history-item-count">' + (I18n.t ? I18n.t("ai.msgs", { count: s.messageCount || "?" }) : (s.messageCount || "?") + " msgs") + "</span>" + "</div></div>";
+      }).join("");
+      list.querySelectorAll(".ai-history-item").forEach((item) => {
+        item.addEventListener("click", () => {
+          this._loadSession(item.dataset.sessionId);
+        });
+      });
+    },
+    _showWelcome() {
+      const $ = Ui.$;
+      const container = $("#aiChatMessages");
+      if (!container)
+        return;
+      container.innerHTML = '<div class="ai-welcome"><div class="ai-welcome-icon"><i class="bi bi-magic"></i></div><h6>' + I18n.t("ai.welcomeTitle") + "</h6><p>" + I18n.t("ai.welcomeText") + '</p><div class="quick-actions">' + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="newcard"><i class="bi bi-magic me-1"></i> ' + I18n.t("ai.actionNewCard") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="translate"><i class="bi bi-translate me-1"></i> ' + I18n.t("ai.actionTranslate") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="enhance"><i class="bi bi-stars me-1"></i> ' + I18n.t("ai.actionEnhance") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="shorten"><i class="bi bi-arrows-angle-contract me-1"></i> ' + I18n.t("ai.actionShorten") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="tone"><i class="bi bi-palette me-1"></i> ' + I18n.t("ai.actionTone") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="grammar"><i class="bi bi-check2-all me-1"></i> ' + I18n.t("ai.actionGrammar") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="personality"><i class="bi bi-emoji-smile me-1"></i> ' + I18n.t("ai.actionPersonality") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="firstmes"><i class="bi bi-chat-dots me-1"></i> ' + I18n.t("ai.actionFirstMes") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="scenario"><i class="bi bi-geo-alt me-1"></i> ' + I18n.t("ai.actionScenario") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="greetings"><i class="bi bi-list-ol me-1"></i> ' + I18n.t("ai.actionGreetings") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="systemprompt"><i class="bi bi-terminal me-1"></i> ' + I18n.t("ai.actionSystemprompt") + "</button>" + '<button class="btn btn-outline-accent btn-sm quick-action" data-action="tags"><i class="bi bi-tags me-1"></i> ' + I18n.t("ai.actionTags") + "</button>" + "</div></div>";
+      const self = this;
+      container.querySelectorAll(".quick-action").forEach((btn) => {
+        btn.addEventListener("click", () => self.handleQuickAction(btn.dataset.action));
+      });
+      Anims.staggerFadeIn(container.querySelectorAll(".quick-action"), { stagger: 40, duration: 180 });
+    },
+    _loadSession(sessionId) {
+      const cardId = window.AppState.activeCard?._id || "global";
+      const sessions = CardStorage.getChatSessions(cardId);
+      const session = sessions.find((s) => s.id === sessionId);
+      if (!session)
+        return;
+      const sessionMessages = CardStorage.getSessionMessages(cardId, sessionId);
+      window.AppState.chatHistory = sessionMessages;
+      ChatState.currentSessionId = sessionId;
+      ChatState.historyRendered = false;
+      this._resetApplyQueue();
+      const $ = Ui.$;
+      const container = $("#aiChatMessages");
+      if (container)
+        container.innerHTML = "";
+      this.toggleHistory(false);
+      if (!sessionMessages || sessionMessages.length === 0) {
+        this._showWelcome();
+      } else {
+        this.renderChatHistory();
+      }
+      this._renderHistoryList();
+      const item = $("#aiHistoryList")?.querySelector('[data-session-id="' + sessionId + '"]');
+      if (item)
+        item.classList.add("active");
+    },
+    toggleHistory(forceState) {
+      const $ = Ui.$;
+      const panel = $("#aiHistoryPanel");
+      const messages = $("#aiChatMessages");
+      const inputArea = $(".ai-input-area");
+      if (!panel)
+        return;
+      const isOpen = forceState !== undefined ? forceState : !panel.classList.contains("open");
+      panel.classList.toggle("open", isOpen);
+      if (messages)
+        messages.style.display = isOpen ? "none" : "";
+      if (inputArea)
+        inputArea.style.display = isOpen ? "none" : "";
+      if (isOpen) {
+        this._renderHistoryList();
+      }
+    },
+    clearChat() {
+      ChatState.resetChat();
+      ChatState.selectedFields.clear();
+      window.AppState.isAiLoading = false;
+      this.updateSendButton();
+      this._renderFieldChips();
+      window.AppState.chatHistory = [];
+      CardStorage.clearChatHistory(window.AppState.activeCard?._id);
+      this._showWelcome();
+      Ui.showToast(I18n.t("toast.chatCleared"), "info");
+    },
+    updateSendButton() {
+      const $ = Ui.$;
+      const btn = $("#btnAiSend");
+      const stop = $("#btnAiStop");
+      if (!btn)
+        return;
+      btn.disabled = window.AppState.isAiLoading;
+      btn.innerHTML = window.AppState.isAiLoading ? '<span class="spinner-border spinner-border-sm"></span>' : '<i class="bi bi-send-fill"></i>';
+      if (stop)
+        stop.classList.toggle("d-none", !window.AppState.isAiLoading);
+    },
+    async updateContextBar() {
+      const $ = Ui.$;
+      const bar = $("#contextBarFill");
+      const label = $("#contextBarLabel");
+      if (!bar || !label)
+        return;
+      const modelSelect = $("#aiModelSelect");
+      const input = $("#aiInput");
+      if (!modelSelect || !input)
+        return;
+      const modelId = modelSelect.value;
+      const prompt = input.value || "";
+      const { activeCard } = window.AppState;
+      const gen2 = ChatState.bumpContextBarGen();
+      if (!modelId) {
+        bar.style.width = "0%";
+        bar.classList.remove("warn", "danger");
+        label.textContent = I18n.t("ai.selectModel");
+        return;
+      }
+      const ctx = AIService.getContextLength(modelId);
+      const cardJson = activeCard ? CardEngine.toJSON(activeCard) : "";
+      const systemPromptBase = [
+        CardStorage.getPrompt("assistant") || `You are an AI assistant helping edit SillyTavern character cards.
+SillyTavern is an AI roleplay frontend. Cards define character personalities.`
+      ].join(`
+`);
+      const inputText = systemPromptBase + `
+
+` + cardJson;
+      const history = this._getRecentHistory(10, true);
+      let historyText = "";
+      for (const msg of history) {
+        historyText += (msg.content || "") + `
+`;
+      }
+      let inputTokens = 0;
+      try {
+        if (window.Tokenizer && typeof window.Tokenizer.count === "function") {
+          inputTokens = await window.Tokenizer.count(inputText + `
+` + historyText + `
+` + prompt);
+        }
+      } catch (_) {
+        inputTokens = 0;
+      }
+      if (gen2 !== ChatState.contextBarGen)
+        return;
+      if (!inputTokens) {
+        inputTokens = Tokenizer.syncCount(inputText + `
+` + historyText + `
+` + prompt);
+      }
+      const modelData = (window.AppState.models || []).find((m) => m.id === modelId);
+      const modelMaxOut = modelData && modelData.max_output_tokens > 0 ? modelData.max_output_tokens : AIService.DEFAULT_MAX_TOKENS;
+      const userMaxTokens = CardStorage.getMaxTokens();
+      const outputCap = userMaxTokens > 0 ? Math.min(userMaxTokens, modelMaxOut) : modelMaxOut;
+      const historyMsgs = history.map((m) => ({ role: m.role, content: m.content || "" }));
+      const allMessages = [{ role: "system", content: inputText }, ...historyMsgs, { role: "user", content: prompt }];
+      const resolvedMax = await AIService.resolveMaxTokens(modelId, allMessages);
+      if (gen2 !== ChatState.contextBarGen)
+        return;
+      const actualMaxOut = Math.min(outputCap, resolvedMax);
+      const total = inputTokens + actualMaxOut;
+      const ratio = ctx > 0 ? total / ctx : 0;
+      const pct = Math.min(100, Math.round(ratio * 100));
+      bar.style.width = pct + "%";
+      bar.classList.toggle("warn", ratio >= 0.9 && ratio < 1);
+      bar.classList.toggle("danger", ratio >= 1);
+      let labelText = this._fmt(inputTokens) + (I18n.t ? I18n.t("ai.tokensIn") : " in · ") + this._fmt(actualMaxOut) + (I18n.t ? I18n.t("ai.tokensOut") : " out · ") + this._fmt(ctx) + (I18n.t ? I18n.t("ai.tokensCtx") : " ctx");
+      if (ratio >= 1) {
+        labelText += I18n.t ? I18n.t("ai.exceedsLimit") : " ⚠ Exceeds limit!";
+      } else if (ratio >= 0.9) {
+        labelText += I18n.t ? I18n.t("ai.approachingLimit") : " ⚠ Approaching limit";
+      }
+      label.textContent = labelText;
+    },
+    _fmt(n) {
+      n = n || 0;
+      if (n >= 1000)
+        return (n / 1000).toFixed(n >= 1e4 ? 0 : 1) + "k";
+      return "" + n;
+    }
+  };
+  if (typeof window !== "undefined")
+    window.AiChat = AiChat;
+
+  // js/editor.js
+  var Editor = {
+    _undoStack: [],
+    _redoStack: [],
+    _maxUndo: 50,
+    _undoCardId: null,
+    _lastSnapField: null,
+    _FIELD_MAP: {
+      firstMes: "first_mes",
+      mesExample: "mes_example",
+      creatorNotes: "creator_notes",
+      systemPrompt: "system_prompt",
+      postHistory: "post_history_instructions",
+      version: "character_version"
+    },
+    _toCardProp(field) {
+      return this._FIELD_MAP[field] || field;
+    },
+    _fieldToDomId(field) {
+      const map = {
+        name: "editName",
+        description: "editDescription",
+        personality: "editPersonality",
+        scenario: "editScenario",
+        firstMes: "editFirstMes",
+        mesExample: "editMesExample",
+        creatorNotes: "editCreatorNotes",
+        systemPrompt: "editSystemPrompt",
+        postHistory: "editPostHistory",
+        creator: "editCreator",
+        version: "editVersion",
+        tags: "editTags"
+      };
+      return map[field] || "edit" + field.charAt(0).toUpperCase() + field.slice(1);
+    },
+    _snapshot(field) {
+      const { activeCard } = window.AppState;
+      if (!activeCard)
+        return;
+      const prop = this._toCardProp(field);
+      const val = activeCard[prop];
+      const oldVal = Array.isArray(val) || val && typeof val === "object" ? JSON.parse(JSON.stringify(val)) : val || "";
+      this._undoStack.push({ field, prop, oldValue: oldVal });
+      if (this._undoStack.length > this._maxUndo)
+        this._undoStack.shift();
+      this._redoStack = [];
+    },
+    _SUB_MAP: { greetings: "alternate_greetings", lorebook: "character_book", extensions: "extensions" },
+    _subDefault(activeCard, prop) {
+      if (prop === "alternate_greetings")
+        return activeCard[prop] || [];
+      if (prop === "character_book")
+        return activeCard[prop] || { entries: [] };
+      if (prop === "extensions")
+        return activeCard[prop] || {};
+      return activeCard[prop] || "";
+    },
+    _snapshotSub(kind) {
+      const { activeCard } = window.AppState;
+      if (!activeCard)
+        return;
+      const prop = this._SUB_MAP[kind];
+      if (!prop)
+        return;
+      let def;
+      if (prop === "character_book")
+        def = { entries: [] };
+      else if (prop === "extensions")
+        def = {};
+      else
+        def = [];
+      this._undoStack.push({
+        field: kind,
+        prop,
+        oldValue: JSON.parse(JSON.stringify(activeCard[prop] || def))
+      });
+      if (this._undoStack.length > this._maxUndo)
+        this._undoStack.shift();
+      this._redoStack = [];
+    },
+    _applySubEntry(entry, newValue) {
+      const { activeCard } = window.AppState;
+      if (!activeCard)
+        return;
+      if (entry.prop === "alternate_greetings") {
+        activeCard.alternate_greetings = newValue;
+        this.renderGreetings(activeCard);
+      } else if (entry.prop === "character_book") {
+        activeCard.character_book = newValue;
+        this.renderLorebook(activeCard);
+      } else if (entry.prop === "extensions") {
+        activeCard.extensions = newValue;
+        this.renderExtensions(activeCard);
+      }
+    },
+    async undo() {
+      if (!this._undoStack.length)
+        return;
+      const { activeCard } = window.AppState;
+      if (!activeCard)
+        return;
+      this._lastSnapField = null;
+      const entry = this._undoStack.pop();
+      this._redoStack.push({
+        ...entry,
+        oldValue: entry.oldValue,
+        newValue: JSON.parse(JSON.stringify(this._subDefault(activeCard, entry.prop)))
+      });
+      if (entry.prop === "alternate_greetings" || entry.prop === "character_book" || entry.prop === "extensions") {
+        this._applySubEntry(entry, entry.oldValue);
+        await this.syncEditorToCard();
+        AiChat.updateContextBar();
+        Ui.showToast(I18n.t("toast.undo") + ": " + entry.field, "info");
+        return;
+      }
+      activeCard[entry.prop] = entry.oldValue;
+      const el = document.querySelector("#" + this._fieldToDomId(entry.field));
+      if (el)
+        el.value = entry.oldValue;
+      await Editor.syncEditorToCard();
+      this.updateCharCounts();
+      this.autoResizeTextareas();
+      AiChat.updateContextBar();
+      Ui.showToast(I18n.t("toast.undo") + ": " + entry.field, "info");
+    },
+    async redo() {
+      if (!this._redoStack.length)
+        return;
+      const { activeCard } = window.AppState;
+      if (!activeCard)
+        return;
+      this._lastSnapField = null;
+      const entry = this._redoStack.pop();
+      this._undoStack.push({
+        ...entry,
+        oldValue: JSON.parse(JSON.stringify(this._subDefault(activeCard, entry.prop))),
+        newValue: entry.newValue
+      });
+      if (entry.prop === "alternate_greetings" || entry.prop === "character_book" || entry.prop === "extensions") {
+        this._applySubEntry(entry, entry.newValue);
+        await this.syncEditorToCard();
+        AiChat.updateContextBar();
+        Ui.showToast(I18n.t("toast.redo") + ": " + entry.field, "info");
+        return;
+      }
+      activeCard[entry.prop] = entry.newValue;
+      const el = document.querySelector("#" + this._fieldToDomId(entry.field));
+      if (el)
+        el.value = entry.newValue;
+      await Editor.syncEditorToCard();
+      this.updateCharCounts();
+      this.autoResizeTextareas();
+      AiChat.updateContextBar();
+      Ui.showToast(I18n.t("toast.redo") + ": " + entry.field, "info");
+    },
+    populateEditor(card) {
+      const $ = Ui.$;
+      function safeStyle(id, displayVal) {
+        const el = $(id);
+        if (el)
+          el.style.display = displayVal;
+      }
+      this._renderedCardId = card._id;
+      if (card._id !== this._undoCardId) {
+        this._undoStack = [];
+        this._redoStack = [];
+        this._lastSnapField = null;
+        this._undoCardId = card._id;
+      }
+      $("#editName").value = card.name || "";
+      $("#editDescription").value = card.description || "";
+      $("#editPersonality").value = card.personality || "";
+      $("#editScenario").value = card.scenario || "";
+      $("#editFirstMes").value = card.first_mes || "";
+      $("#editMesExample").value = card.mes_example || "";
+      $("#editCreatorNotes").value = card.creator_notes || "";
+      $("#editSystemPrompt").value = card.system_prompt || "";
+      $("#editPostHistory").value = card.post_history_instructions || "";
+      $("#editCreator").value = card.creator || "";
+      $("#editVersion").value = card.character_version || "";
+      $("#editTags").value = (card.tags || []).join(", ");
+      const allTags = new Set;
+      (window.AppState.cards || []).forEach((c) => (c.tags || []).forEach((t) => allTags.add(t)));
+      const datalist = document.querySelector("#tagSuggestions");
+      if (datalist)
+        datalist.innerHTML = [...allTags].map((t) => '<option value="' + Ui.escapeAttr(t) + '">').join("");
+      document.querySelectorAll(".field-toggle-group").forEach((group) => {
+        const targetId = group.dataset.target;
+        group.querySelectorAll(".field-toggle-btn").forEach((b) => b.classList.remove("active"));
+        const editBtn = group.querySelector('[data-mode="edit"]');
+        if (editBtn)
+          editBtn.classList.add("active");
+        const textarea = document.getElementById(targetId);
+        const previewId = "preview" + targetId.replace("edit", "");
+        const preview = document.getElementById(previewId);
+        if (textarea)
+          textarea.style.display = "";
+        if (preview) {
+          preview.classList.remove("visible");
+          preview.innerHTML = "";
+        }
+      });
+      this.renderGreetings(card);
+      const metaCreator = $("#metaCreator");
+      if (metaCreator) {
+        metaCreator.textContent = card.creator ? I18n.t("gen.byCreator", { name: card.creator }) : "";
+        safeStyle("#metaCreator", card.creator ? "" : "none");
+      }
+      safeStyle("#metaVersion", card.character_version ? "" : "none");
+      const metaVersion = $("#metaVersion");
+      if (metaVersion) {
+        metaVersion.textContent = card.character_version ? "v" + card.character_version : "";
+      }
+      safeStyle("#metaTags", card.tags?.length ? "" : "none");
+      const metaTags = $("#metaTags");
+      if (metaTags) {
+        metaTags.textContent = (card.tags || []).slice(0, 3).join(", ");
+      }
+      if (card._imageBase64) {
+        const img = $("#charAvatarImg");
+        if (img) {
+          img.src = card._imageBase64;
+          img.hidden = false;
+        }
+        safeStyle("#avatarPlaceholder", "none");
+      } else {
+        safeStyle("#avatarPlaceholder", "");
+        const img = $("#charAvatarImg");
+        if (img)
+          img.hidden = true;
+      }
+      this.renderLorebook(card);
+      this.renderExtensions(card);
+      this.showEditor();
+      this.updateCharCounts();
+      this.autoResizeTextareas();
+      window.syncFloatingLabels?.();
+      window.Ui.updateUIState();
+    },
+    _captureFields(activeCard) {
+      const $ = Ui.$;
+      activeCard.name = $("#editName").value.trim();
+      activeCard.description = $("#editDescription").value;
+      activeCard.personality = $("#editPersonality").value;
+      activeCard.scenario = $("#editScenario").value;
+      activeCard.first_mes = $("#editFirstMes").value;
+      activeCard.mes_example = $("#editMesExample").value;
+      activeCard.creator_notes = $("#editCreatorNotes").value;
+      activeCard.system_prompt = $("#editSystemPrompt").value;
+      activeCard.post_history_instructions = $("#editPostHistory").value;
+      this.syncGreetings();
+      activeCard.creator = $("#editCreator").value.trim();
+      activeCard.character_version = $("#editVersion").value.trim();
+      activeCard.tags = $("#editTags").value.split(/[,，\n]/).map((s) => s.trim()).filter(Boolean);
+      activeCard._fileSize = CardEngine.computeFileSize(activeCard);
+    },
+    async syncEditorToCard() {
+      const { activeCard } = window.AppState;
+      if (!activeCard)
+        return;
+      const prev = this._pendingSync || Promise.resolve();
+      const run = prev.then(() => this._doSync(activeCard));
+      this._pendingSync = run.catch(() => {});
+      return run;
+    },
+    async _doSync(activeCard) {
+      if (this._renderedCardId && this._renderedCardId !== activeCard._id)
+        return;
+      this._captureFields(activeCard);
+      if (!activeCard.name && !this._nameWarned) {
+        this._nameWarned = true;
+        Ui.showToast(I18n.t("toast.noNameWarning"), "warning");
+      } else if (activeCard.name && this._nameWarned) {
+        this._nameWarned = false;
+      }
+      await CardStorage.upsertCard(activeCard);
+      window.AppState.cards = CardStorage.getCards();
+      window.AppState._dirty = true;
+      Ui.setDirty(true);
+    },
+    syncEditorToCardSync() {
+      const { activeCard } = window.AppState;
+      if (!activeCard)
+        return;
+      if (this._renderedCardId && this._renderedCardId !== activeCard._id)
+        return;
+      this._captureFields(activeCard);
+      try {
+        CardStorage.upsertCard(activeCard).catch(() => {});
+      } catch (_) {}
+      const index = CardStorage.getCards();
+      const idx = index.findIndex((c) => c._id === activeCard._id);
+      const meta = CardStorage._extractMeta(activeCard);
+      if (idx >= 0) {
+        index[idx] = meta;
+      } else {
+        index.unshift(meta);
+      }
+      try {
+        localStorage.setItem(CardStorage.PREFIX + CardStorage._keys.cardIndex, JSON.stringify(index));
+      } catch (_) {}
+      window.AppState._dirty = true;
+    },
+    showEditor() {
+      const $ = Ui.$;
+      $("#noCardSelected").classList.add("d-none");
+      $("#editorContainer").classList.remove("d-none");
+    },
+    async setAvatar(file) {
+      const $ = Ui.$;
+      const { activeCard } = window.AppState;
+      if (!activeCard) {
+        Ui.showToast(I18n.t("toast.selectCard"), "warning");
+        return;
+      }
+      try {
+        const b64 = await CardEngine._blobToBase64(file);
+        activeCard._imageBase64 = b64;
+        activeCard._hasImage = true;
+        activeCard._thumbnail = await CardEngine._createThumbnail(b64);
+        const img = $("#charAvatarImg");
+        if (img) {
+          img.src = b64;
+          img.hidden = false;
+        }
+        const ph = $("#avatarPlaceholder");
+        if (ph)
+          ph.style.display = "none";
+        await CardStorage.saveImage(activeCard._id, b64);
+        await this.syncEditorToCard();
+        Ui.showToast(I18n.t("toast.avatarUpdated"), "success");
+      } catch (e) {
+        console.error("Avatar load failed", e);
+        Ui.showToast(I18n.t("toast.imgFailed"), "danger");
+      }
+    },
+    hideEditor() {
+      const $ = Ui.$;
+      $("#noCardSelected").classList.remove("d-none");
+      $("#editorContainer").classList.add("d-none");
+    },
+    _fieldIds: [
+      "editName",
+      "editDescription",
+      "editPersonality",
+      "editScenario",
+      "editFirstMes",
+      "editMesExample",
+      "editCreatorNotes",
+      "editSystemPrompt",
+      "editPostHistory",
+      "editCreator",
+      "editVersion",
+      "editTags"
+    ],
+    autoResizeTextareas() {
+      document.querySelectorAll(".editor-textarea").forEach((ta) => {
+        if (ta.offsetParent === null)
+          return;
+        ta.style.height = "auto";
+        ta.style.height = Math.min(ta.scrollHeight, 800) + "px";
+      });
+    },
+    updateCharCounts() {
+      const maxTokens = typeof CardStorage !== "undefined" && CardStorage.getMaxTokens ? CardStorage.getMaxTokens() : 0;
+      for (const id of this._fieldIds) {
+        const el = document.querySelector("#" + id);
+        if (!el)
+          continue;
+        let countEl = el.parentElement.querySelector(".char-count");
+        if (!countEl) {
+          countEl = document.createElement("small");
+          countEl.className = "char-count field-counter text-secondary d-block mt-1";
+          countEl.style.fontSize = "0.7rem";
+          el.insertAdjacentElement("afterend", countEl);
+        }
+        countEl.classList.add("field-counter");
+        countEl.classList.remove("is-warn", "is-danger");
+        const len = (el.value || "").length;
+        const tokens = Tokenizer.syncCount(el.value || "");
+        countEl.textContent = I18n.t ? I18n.t("editor.charCount", { chars: len, tokens }) : len + " chars ~" + tokens + " tokens";
+        if (maxTokens > 0) {
+          if (tokens > maxTokens) {
+            countEl.classList.add("is-danger");
+            countEl.title = I18n.t ? I18n.t("editor.counterDanger", { tokens, max: maxTokens }) : "Exceeds the output token limit (" + maxTokens + ").";
+          } else if (tokens > maxTokens * 0.75) {
+            countEl.classList.add("is-warn");
+            countEl.title = I18n.t ? I18n.t("editor.counterWarn", { tokens, max: maxTokens }) : "Approaching the output token limit (" + maxTokens + ").";
+          }
+        }
+      }
+      this._updateCardTokenTotal();
+    },
+    renderGreetings(card) {
+      const $ = Ui.$;
+      const container = $("#greetingsList");
+      const count = $("#greetingCount");
+      const greetings = card.alternate_greetings || [];
+      const gen2 = this._greetGen = (this._greetGen || 0) + 1;
+      count.textContent = greetings.length ? "(" + greetings.length + ")" : "";
+      if (!greetings.length) {
+        container.innerHTML = '<div style="font-size:0.82rem;padding:0.5rem 0;color:var(--text-secondary);"><i class="bi bi-info-circle me-1" style="color:var(--purple-400);"></i>' + (I18n.t ? I18n.t("editor.noGreetings") : "No greetings yet. Click <strong>Add Greeting</strong> or use AI to generate some.") + "</div>";
+        return;
+      }
+      container.innerHTML = greetings.map((g, idx) => {
+        const isDefault = idx === greetings.indexOf(card.first_mes);
+        return '<div class="greeting-item' + (isDefault ? " default-greeting" : "") + '" data-greeting-idx="' + idx + '">' + '<div class="greeting-item-actions">' + '<button class="btn btn-outline-secondary btn-sm greeting-up" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t("editor.greetingMoveUp") : "Move up") + '"><i class="bi bi-chevron-up"></i></button>' + '<button class="btn btn-outline-secondary btn-sm greeting-down" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t("editor.greetingMoveDown") : "Move down") + '"><i class="bi bi-chevron-down"></i></button>' + (isDefault ? '<span class="greeting-item-badge bg-purple" title="' + (I18n.t ? I18n.t("editor.greetingIsDefault") : "This is the current first message") + '"><i class="bi bi-star-fill"></i></span>' : '<button class="btn btn-outline-accent btn-sm greeting-set-default" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t("editor.greetingSetDefault") : "Set as first message") + '"><i class="bi bi-star"></i></button>') + '<button class="btn btn-outline-danger btn-sm greeting-delete" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t("editor.greetingRemove") : "Remove") + '"><i class="bi bi-x-lg"></i></button>' + "</div>" + '<textarea class="form-control greeting-textarea" rows="4" placeholder="' + (I18n.t ? I18n.t("editor.greetingPlaceholder", { num: idx + 1 }) : "Greeting " + (idx + 1) + "...") + '" data-greeting-idx="' + idx + '">' + Ui.escapeHtml(g) + "</textarea>" + "</div>";
+      }).join("");
+      const self = this;
+      container.querySelectorAll(".greeting-delete").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          self.syncGreetings();
+          window.AppState.activeCard.alternate_greetings.splice(parseInt(btn.dataset.idx), 1);
+          self.renderGreetings(window.AppState.activeCard);
+          await self.syncEditorToCard();
+          self.updateCharCounts();
+        });
+      });
+      container.querySelectorAll(".greeting-set-default").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          self.syncGreetings();
+          const g = window.AppState.activeCard.alternate_greetings[parseInt(btn.dataset.idx)];
+          if (g) {
+            window.AppState.activeCard.first_mes = g;
+            $("#editFirstMes").value = g;
+            self.renderGreetings(window.AppState.activeCard);
+            await self.syncEditorToCard();
+            Ui.showToast(I18n.t("toast.firstMesUpdated"), "success");
+          }
+        });
+      });
+      container.querySelectorAll(".greeting-up").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          self.syncGreetings();
+          const idx = parseInt(btn.dataset.idx);
+          if (idx > 0) {
+            const arr = window.AppState.activeCard.alternate_greetings;
+            [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+            self.renderGreetings(window.AppState.activeCard);
+            await self.syncEditorToCard();
+          }
+        });
+      });
+      container.querySelectorAll(".greeting-down").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          self.syncGreetings();
+          const idx = parseInt(btn.dataset.idx);
+          const arr = window.AppState.activeCard.alternate_greetings;
+          if (idx < arr.length - 1) {
+            [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
+            self.renderGreetings(window.AppState.activeCard);
+            await self.syncEditorToCard();
+          }
+        });
+      });
+      container.querySelectorAll(".greeting-textarea").forEach((ta) => {
+        ta.addEventListener("focus", () => {
+          self._lastSnapField = null;
+        });
+        ta.addEventListener("beforeinput", () => {
+          if (self._lastSnapField !== "greetings") {
+            self._snapshotSub("greetings");
+            self._lastSnapField = "greetings";
+          }
+        });
+        ta.addEventListener("input", Ui.debounce(async () => {
+          if (!ta.isConnected || gen2 !== self._greetGen) {
+            self.syncGreetings();
+            await self.syncEditorToCard();
+            return;
+          }
+          const idx = parseInt(ta.dataset.greetingIdx);
+          if (window.AppState.activeCard.alternate_greetings[idx] !== undefined) {
+            window.AppState.activeCard.alternate_greetings[idx] = ta.value;
+          }
+          await self.syncEditorToCard();
+          self.updateCharCounts();
+        }, 500));
+      });
+    },
+    syncGreetings() {
+      const { activeCard } = window.AppState;
+      if (!activeCard)
+        return;
+      const $ = Ui.$;
+      const greetings = [];
+      const list = $("#greetingsList");
+      if (list) {
+        list.querySelectorAll(".greeting-textarea").forEach((ta) => {
+          greetings.push(ta.value);
+        });
+      }
+      activeCard.alternate_greetings = greetings;
+    },
+    async addGreeting() {
+      const { activeCard } = window.AppState;
+      if (!activeCard)
+        return;
+      const $ = Ui.$;
+      if (!activeCard.alternate_greetings)
+        activeCard.alternate_greetings = [];
+      activeCard.alternate_greetings.push("");
+      this.renderGreetings(activeCard);
+      await this.syncEditorToCard();
+      const allTas = $("#greetingsList").querySelectorAll(".greeting-textarea");
+      const last = allTas[allTas.length - 1];
+      if (last)
+        last.focus();
+    },
+    renderExtensions(card) {
+      if (!card)
+        return;
+      const el = document.querySelector("#editExtensions");
+      const st = document.querySelector("#extensionsStatus");
+      if (!el)
+        return;
+      el.value = card.extensions && typeof card.extensions === "object" ? JSON.stringify(card.extensions, null, 2) : "{}";
+      el.classList.remove("is-invalid-json");
+      if (st) {
+        st.textContent = "";
+        st.classList.remove("is-danger");
+      }
+    },
+    async _applyExtensionsFromDom() {
+      const { activeCard } = window.AppState;
+      const el = document.querySelector("#editExtensions");
+      const st = document.querySelector("#extensionsStatus");
+      if (!activeCard || !el)
+        return false;
+      const val = el.value.trim();
+      let parsed = {};
+      if (val) {
+        try {
+          parsed = JSON.parse(val);
+        } catch (_) {
+          el.classList.add("is-invalid-json");
+          if (st) {
+            st.textContent = I18n.t ? I18n.t("editor.extensionsParseError") : "Invalid JSON — keeping the last valid extensions.";
+            st.classList.add("is-danger");
+          }
+          return false;
+        }
+        if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
+          el.classList.add("is-invalid-json");
+          if (st) {
+            st.textContent = I18n.t ? I18n.t("editor.extensionsParseError") : "Invalid JSON — expected an object.";
+            st.classList.add("is-danger");
+          }
+          return false;
+        }
+      }
+      el.classList.remove("is-invalid-json");
+      if (st) {
+        st.textContent = "";
+        st.classList.remove("is-danger");
+      }
+      activeCard.extensions = parsed;
+      await this.syncEditorToCard();
+      this.updateCharCounts();
+      return true;
+    },
+    _cardTotals() {
+      let chars = 0;
+      let tokens = 0;
+      for (const id of this._fieldIds) {
+        const el = document.querySelector("#" + id);
+        if (!el)
+          continue;
+        const v = el.value || "";
+        chars += v.length;
+        tokens += Tokenizer.syncCount(v);
+      }
+      const extra = [];
+      const extEl = document.querySelector("#editExtensions");
+      if (extEl && extEl.value && !extEl.classList.contains("is-invalid-json"))
+        extra.push(extEl.value);
+      const gr = document.querySelector("#greetingsList");
+      if (gr)
+        gr.querySelectorAll(".greeting-textarea").forEach((ta) => extra.push(ta.value || ""));
+      const lb = document.querySelector("#lorebookEntries");
+      if (lb)
+        lb.querySelectorAll("textarea[data-lore-idx]").forEach((ta) => extra.push(ta.value || ""));
+      for (const v of extra) {
+        chars += v.length;
+        tokens += Tokenizer.syncCount(v);
+      }
+      return { chars, tokens };
+    },
+    _updateCardTokenTotal() {
+      const el = document.querySelector("#metaTokens");
+      if (!el)
+        return;
+      const { chars, tokens } = this._cardTotals();
+      const fmt = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : String(n);
+      const label = I18n.t ? I18n.t("editor.cardTokenTotal", { tokens: fmt(tokens), chars: fmt(chars) }) : "~" + tokens + " tokens · " + chars + " chars";
+      el.textContent = label;
+      const maxTokens = CardStorage.getMaxTokens ? CardStorage.getMaxTokens() : 0;
+      el.classList.toggle("is-warn", maxTokens > 0 && tokens > maxTokens);
+      el.title = "";
+    },
+    _lorebookEntryMatches(entry, query) {
+      const toStr = (v) => Array.isArray(v) ? v.join(" ") : v == null ? "" : String(v);
+      const q = query.toLowerCase();
+      return toStr(entry && entry.key).toLowerCase().includes(q) || toStr(entry && entry.keysecondary).toLowerCase().includes(q) || toStr(entry && entry.content).toLowerCase().includes(q) || toStr(entry && entry.comment).toLowerCase().includes(q);
+    },
+    renderLorebook(card) {
+      const $ = Ui.$;
+      const container = $("#lorebookEntries");
+      const entries = (card.character_book?.entries || []).map((e) => {
+        if (!e || typeof e !== "object") {
+          return { key: "", keysecondary: [], content: "", order: 100, constant: false, selective: false, position: "after_char", comment: "" };
+        }
+        if (!Array.isArray(e.keysecondary)) {
+          e.keysecondary = e.keysecondary == null ? [] : String(e.keysecondary).split(",").map((s) => s.trim()).filter(Boolean);
+        }
+        if (e.key != null && !Array.isArray(e.key) && typeof e.key !== "string") {
+          e.key = String(e.key);
+        }
+        return e;
+      });
+      const gen2 = this._loreGen = (this._loreGen || 0) + 1;
+      const searchInput = $("#lorebookSearchInput");
+      const searchQuery = searchInput ? searchInput.value.trim().toLowerCase() : "";
+      if (entries.length === 0) {
+        container.innerHTML = '<div class="text-center py-4" id="lorebookEmpty" style="color:var(--text-secondary);"><i class="bi bi-journal-text d-block mb-2" style="font-size: 2.5rem;color:var(--purple-400);"></i><span style="font-size:0.85rem;">' + I18n.t("editor.lorebookEmpty") + "</span></div>";
+        return;
+      }
+      let filteredEntries = entries.map((entry, idx) => ({ entry, idx }));
+      if (searchQuery) {
+        filteredEntries = filteredEntries.filter(({ entry }) => this._lorebookEntryMatches(entry, searchQuery));
+      }
+      if (filteredEntries.length === 0) {
+        container.innerHTML = '<div class="text-muted text-center py-3">' + (I18n.t ? I18n.t("editor.noEntriesMatch", { query: Ui.escapeHtml(searchQuery) }) : 'No entries match "' + Ui.escapeHtml(searchQuery) + '"') + "</div>";
+        return;
+      }
+      container.innerHTML = '<div class="lorebook-accordion">' + filteredEntries.map(({ entry, idx }) => {
+        const keys = (Array.isArray(entry.key) ? entry.key : (entry.key || "").split(",")).map((s) => String(s).trim()).filter(Boolean);
+        const secondary = entry.keysecondary || [];
+        const label = entry.comment || (Array.isArray(entry.key) ? entry.key.join(", ") : entry.key) || (I18n.t ? I18n.t("editor.loreEntry", { num: idx + 1 }) : "Entry " + (idx + 1));
+        const keyTagsHtml = keys.slice(0, 3).map((k) => '<span class="lorebook-key-tag primary">' + Ui.escapeHtml(k) + "</span>").join("") + secondary.slice(0, 2).map((k) => '<span class="lorebook-key-tag secondary">' + Ui.escapeHtml(k) + "</span>").join("");
+        return '<div class="lorebook-accordion-item" data-entry-idx="' + idx + '">' + '<div class="lorebook-accordion-header" data-lore-toggle="' + idx + '" role="button" tabindex="0" aria-expanded="false">' + '<i class="bi bi-chevron-right lorebook-chevron"></i>' + '<span class="lorebook-entry-label">' + Ui.escapeHtml(label) + "</span>" + '<div class="lorebook-key-tags">' + keyTagsHtml + "</div>" + '<button class="btn btn-outline-danger btn-sm lorebook-delete-btn" data-idx="' + idx + '" title="' + (I18n.t ? I18n.t("editor.loreDeleteEntry") : "Delete entry") + '"><i class="bi bi-trash"></i></button>' + "</div>" + '<div class="lorebook-accordion-body">' + '<div class="row g-2 mb-2" style="font-size:0.8rem;">' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.lorePrimaryKeys") : "Primary Keywords") + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((Array.isArray(entry.key) ? entry.key.join(", ") : entry.key) || "") + '" placeholder="' + (I18n.t ? I18n.t("editor.lorePrimaryKeysPlaceholder") : "Primary keywords — comma separated") + '" data-lore-key-idx="' + idx + '"></div>' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.loreSecondaryKeys") : "Secondary Keywords") + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr((entry.keysecondary || []).join(", ")) + '" placeholder="' + (I18n.t ? I18n.t("editor.loreSecondaryKeysPlaceholder") : "Secondary keywords") + '" data-lore-secondary-idx="' + idx + '"></div>' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.loreComment") : "Comment") + '</label><input type="text" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.comment || "") + '" placeholder="' + (I18n.t ? I18n.t("editor.loreCommentPlaceholder") : "Comment") + '" data-lore-comment-idx="' + idx + '"></div>' + '<div class="col-6"><label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.loreOrder") : "Order") + '</label><input type="number" class="form-control form-control-sm" value="' + Ui.escapeAttr(entry.order ?? 100) + '" placeholder="' + (I18n.t ? I18n.t("editor.loreOrderPlaceholder") : "Order") + '" data-lore-order-idx="' + idx + '"></div>' + "</div>" + '<div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">' + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.constant ? " checked" : "") + ' data-lore-constant-idx="' + idx + '"><label class="form-check-label">' + (I18n.t ? I18n.t("editor.loreConstant") : "Constant") + "</label></div>" + '<div class="form-check"><input class="form-check-input" type="checkbox"' + (entry.selective ? " checked" : "") + ' data-lore-selective-idx="' + idx + '"><label class="form-check-label">' + (I18n.t ? I18n.t("editor.loreSelective") : "Selective") + "</label></div>" + '<select class="form-select form-select-sm" style="width:auto;" data-lore-position-idx="' + idx + '">' + '<option value="before_char"' + (entry.position === "before_char" ? " selected" : "") + ">" + (I18n.t ? I18n.t("editor.loreBeforeChar") : "Before char") + "</option>" + '<option value="after_char"' + (entry.position === "after_char" ? " selected" : "") + ">" + (I18n.t ? I18n.t("editor.loreAfterChar") : "After char") + "</option></select>" + "</div>" + '<label class="form-label" style="font-size:0.72rem;">' + (I18n.t ? I18n.t("editor.loreContent") : "Content") + "</label>" + '<textarea class="form-control editor-textarea font-mono" rows="6" placeholder="' + (I18n.t ? I18n.t("editor.loreContentPlaceholder") : "Entry content...") + '" data-lore-idx="' + idx + '">' + Ui.escapeHtml(entry.content || "") + "</textarea>" + "</div>" + "</div>";
+      }).join("") + "</div>";
+      container.querySelectorAll("[data-lore-toggle]").forEach((header) => {
+        const toggle = (e) => {
+          if (e.target.closest(".lorebook-delete-btn"))
+            return;
+          const item = header.closest(".lorebook-accordion-item");
+          if (item) {
+            item.classList.toggle("open");
+            header.setAttribute("aria-expanded", item.classList.contains("open") ? "true" : "false");
+          }
+        };
+        header.addEventListener("click", toggle);
+        header.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggle(e);
+          }
+        });
+      });
+      const self = this;
+      container.querySelectorAll(".lorebook-delete-btn").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          window.AppState.activeCard.character_book.entries.splice(parseInt(btn.dataset.idx), 1);
+          self.renderLorebook(window.AppState.activeCard);
+          await self.syncEditorToCard();
+          self.updateCharCounts();
+        });
+      });
+      const loreFields = container.querySelectorAll("textarea[data-lore-idx], input[data-lore-key-idx], input[data-lore-secondary-idx], input[data-lore-comment-idx], input[data-lore-order-idx]");
+      loreFields.forEach((fld) => {
+        fld.addEventListener("focus", () => {
+          self._lastSnapField = null;
+        });
+        fld.addEventListener("beforeinput", () => {
+          if (self._lastSnapField !== "lorebook") {
+            self._snapshotSub("lorebook");
+            self._lastSnapField = "lorebook";
+          }
+        });
+      });
+      container.querySelectorAll("textarea[data-lore-idx]").forEach((ta) => {
+        ta.addEventListener("input", Ui.debounce(async () => {
+          if (!ta.isConnected || gen2 !== self._loreGen)
+            return;
+          const idx = parseInt(ta.dataset.loreIdx);
+          if (window.AppState.activeCard.character_book.entries[idx]) {
+            window.AppState.activeCard.character_book.entries[idx].content = ta.value;
+            await self.syncEditorToCard();
+            self.autoResizeTextareas();
+            self.updateCharCounts();
+          }
+        }, 600));
+      });
+      container.querySelectorAll("input[data-lore-key-idx]").forEach((input) => {
+        input.addEventListener("input", Ui.debounce(async () => {
+          if (!input.isConnected || gen2 !== self._loreGen)
+            return;
+          const idx = parseInt(input.dataset.loreKeyIdx);
+          if (window.AppState.activeCard.character_book.entries[idx]) {
+            window.AppState.activeCard.character_book.entries[idx].key = input.value.trim();
+            await self.syncEditorToCard();
+          }
+        }, 600));
+      });
+      container.querySelectorAll("input[data-lore-secondary-idx]").forEach((input) => {
+        input.addEventListener("input", Ui.debounce(async () => {
+          if (!input.isConnected || gen2 !== self._loreGen)
+            return;
+          const idx = parseInt(input.dataset.loreSecondaryIdx);
+          if (window.AppState.activeCard.character_book.entries[idx]) {
+            window.AppState.activeCard.character_book.entries[idx].keysecondary = input.value.split(",").map((s) => s.trim()).filter(Boolean);
+            await self.syncEditorToCard();
+          }
+        }, 600));
+      });
+      container.querySelectorAll("input[data-lore-comment-idx]").forEach((input) => {
+        input.addEventListener("input", Ui.debounce(async () => {
+          if (!input.isConnected || gen2 !== self._loreGen)
+            return;
+          const idx = parseInt(input.dataset.loreCommentIdx);
+          if (window.AppState.activeCard.character_book.entries[idx]) {
+            window.AppState.activeCard.character_book.entries[idx].comment = input.value;
+            await self.syncEditorToCard();
+          }
+        }, 600));
+      });
+      container.querySelectorAll("input[data-lore-order-idx]").forEach((input) => {
+        input.addEventListener("input", Ui.debounce(async () => {
+          if (!input.isConnected || gen2 !== self._loreGen)
+            return;
+          const idx = parseInt(input.dataset.loreOrderIdx);
+          if (window.AppState.activeCard.character_book.entries[idx]) {
+            const parsed = parseInt(input.value, 10);
+            window.AppState.activeCard.character_book.entries[idx].order = Number.isNaN(parsed) ? 100 : parsed;
+            await self.syncEditorToCard();
+          }
+        }, 600));
+      });
+      container.querySelectorAll("input[data-lore-constant-idx]").forEach((cb) => {
+        cb.addEventListener("change", async () => {
+          const idx = parseInt(cb.dataset.loreConstantIdx);
+          if (window.AppState.activeCard.character_book.entries[idx]) {
+            window.AppState.activeCard.character_book.entries[idx].constant = cb.checked;
+            await self.syncEditorToCard();
+          }
+        });
+      });
+      container.querySelectorAll("input[data-lore-selective-idx]").forEach((cb) => {
+        cb.addEventListener("change", async () => {
+          const idx = parseInt(cb.dataset.loreSelectiveIdx);
+          if (window.AppState.activeCard.character_book.entries[idx]) {
+            window.AppState.activeCard.character_book.entries[idx].selective = cb.checked;
+            await self.syncEditorToCard();
+          }
+        });
+      });
+      container.querySelectorAll("select[data-lore-position-idx]").forEach((sel) => {
+        sel.addEventListener("change", async () => {
+          const idx = parseInt(sel.dataset.lorePositionIdx);
+          if (window.AppState.activeCard.character_book.entries[idx]) {
+            window.AppState.activeCard.character_book.entries[idx].position = sel.value;
+            await self.syncEditorToCard();
+          }
+        });
+      });
+    },
+    async addLorebookEntry() {
+      const { activeCard } = window.AppState;
+      if (!activeCard)
+        return;
+      if (!activeCard.character_book)
+        activeCard.character_book = { entries: [] };
+      if (!activeCard.character_book.entries)
+        activeCard.character_book.entries = [];
+      activeCard.character_book.entries.push({ key: I18n.t ? I18n.t("editor.loreNewEntry") : "New Entry", content: "", keysecondary: [], constant: false, selective: false, position: "after_char", order: 100, comment: "" });
+      this.renderLorebook(activeCard);
+      await this.syncEditorToCard();
+    }
+  };
+  if (typeof window !== "undefined")
+    window.Editor = Editor;
+
+  // js/exportUtils.js
+  var ExportUtils = {
+    EDITOR_CREDIT: "Made using https://maxime-fleury.github.io/ST-cardEditor/",
+    injectCopyright(card) {
+      const note = card.creator_notes || "";
+      if (!note.includes(this.EDITOR_CREDIT)) {
+        card.creator_notes = note ? note.trimEnd() + `
+
+` + this.EDITOR_CREDIT : this.EDITOR_CREDIT;
+      }
+      return card;
+    },
+    async exportAsJSON() {
+      const { activeCard } = window.AppState;
+      if (!activeCard)
+        return;
+      await Editor.syncEditorToCard();
+      if (!activeCard.name)
+        Ui.showToast(I18n.t("toast.noNameWarning"), "warning");
+      const clone = JSON.parse(JSON.stringify(activeCard));
+      if (CardStorage.getInjectCopyright())
+        this.injectCopyright(clone);
+      Ui.downloadFile((activeCard.name || "character") + ".json", CardEngine.toJSON(clone), "application/json");
+      Ui.showToast(I18n.t("toast.exportedJson"), "success");
+    },
+    async exportAsPNG() {
+      const { activeCard } = window.AppState;
+      if (!activeCard)
+        return;
+      await Editor.syncEditorToCard();
+      const clone = JSON.parse(JSON.stringify(activeCard));
+      if (CardStorage.getInjectCopyright())
+        this.injectCopyright(clone);
+      const json = CardEngine.toJSON(clone);
+      try {
+        let pngBytes = null;
+        if (activeCard._imageBase64) {
+          pngBytes = this._dataUrlToBytes(activeCard._imageBase64);
+          if (!pngBytes) {
+            pngBytes = await this.imageBase64ToPNGBytes(activeCard._imageBase64);
+          }
+        }
+        if (!pngBytes) {
+          pngBytes = await this.createMinimalPNGBytes();
+        }
+        const blob = new Blob([this.embedCharaChunk(pngBytes, json)], { type: "image/png" });
+        Ui.downloadBlob(blob, (activeCard.name || "character") + ".png");
+        Ui.showToast(I18n.t("toast.exportedPng"), "success");
+      } catch (err) {
+        console.error("PNG export failed:", err);
+        Ui.showToast(I18n.t("toast.exportFailed"), "warning");
+        this.exportAsJSON();
+      }
+    },
+    async imageBase64ToPNGBytes(imageBase64) {
+      try {
+        const img = await new Promise((resolve, reject) => {
+          const el = new Image;
+          el.onload = () => resolve(el);
+          el.onerror = reject;
+          el.src = imageBase64;
+        });
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        return new Promise((resolve) => {
+          canvas.toBlob((blob) => {
+            if (!blob)
+              return resolve(null);
+            const reader = new FileReader;
+            reader.onload = () => resolve(new Uint8Array(reader.result));
+            reader.readAsArrayBuffer(blob);
+          }, "image/png");
+        });
+      } catch (err) {
+        console.error("Failed to convert image to PNG:", err);
+        return null;
+      }
+    },
+    async embedJSONInPNG(imageBase64, jsonStr) {
+      try {
+        const pngBytes = await this.imageBase64ToPNGBytes(imageBase64);
+        if (!pngBytes)
+          return null;
+        return new Blob([this.embedCharaChunk(pngBytes, jsonStr)], { type: "image/png" });
+      } catch (err) {
+        console.error("Failed to embed PNG chunk:", err);
+        return null;
+      }
+    },
+    _dataUrlToBytes(dataUrl) {
+      try {
+        if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/png"))
+          return null;
+        const comma = dataUrl.indexOf(",");
+        if (comma < 0)
+          return null;
+        const bin = atob(dataUrl.slice(comma + 1));
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0;i < bin.length; i++)
+          bytes[i] = bin.charCodeAt(i);
+        const PNG_SIG = [137, 80, 78, 71, 13, 10, 26, 10];
+        for (let i = 0;i < PNG_SIG.length; i++) {
+          if (bytes[i] !== PNG_SIG[i])
+            return null;
+        }
+        return bytes;
+      } catch (e) {
+        console.error("Failed to decode data URL:", e);
+        return null;
+      }
+    },
+    async createMinimalPNGBytes() {
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 64;
+      const ctx = canvas.getContext("2d");
+      const g = ctx.createLinearGradient(0, 0, 64, 64);
+      g.addColorStop(0, "#772ce8");
+      g.addColorStop(1, "#ec4899");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 64, 64);
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 11px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(I18n.t ? I18n.t("export.minimalPngLabel") : "ST Card", 32, 36);
+      return new Promise((resolve) => {
+        let settled = false;
+        const settle = (bytes) => {
+          if (!settled) {
+            settled = true;
+            resolve(bytes);
+          }
+        };
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            try {
+              const dataUrl = canvas.toDataURL("image/png");
+              const bin = atob(dataUrl.split(",")[1]);
+              const out = new Uint8Array(bin.length);
+              for (let i = 0;i < bin.length; i++)
+                out[i] = bin.charCodeAt(i);
+              settle(out);
+            } catch (e) {
+              settle(new Uint8Array(0));
+            }
+            return;
+          }
+          const reader = new FileReader;
+          reader.onload = () => settle(new Uint8Array(reader.result));
+          reader.onerror = () => settle(new Uint8Array(0));
+          reader.readAsArrayBuffer(blob);
+        }, "image/png");
+      });
+    },
+    embedCharaChunk(pngBytes, jsonStr) {
+      const bytes = new Uint8Array(pngBytes);
+      let offset = 8, iendPos = -1;
+      const kept = [];
+      while (offset + 12 <= bytes.length) {
+        const length = CardEngine._readUint32(bytes, offset);
+        if (offset + 12 + length > bytes.length)
+          break;
+        const type = String.fromCharCode(bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7]);
+        if (type === "IEND") {
+          iendPos = offset;
+          break;
+        }
+        const isCharaText = type === "tEXt" && (() => {
+          const nullIdx = bytes.indexOf(0, offset + 8);
+          if (nullIdx < 0 || nullIdx > offset + 8 + 79)
+            return false;
+          const kw = String.fromCharCode.apply(null, bytes.subarray(offset + 8, nullIdx));
+          return kw === "chara";
+        })();
+        if (!isCharaText) {
+          kept.push(bytes.subarray(offset, offset + 12 + length));
+        }
+        offset += 12 + length;
+      }
+      if (iendPos < 0) {
+        console.warn("exportUtils: PNG missing IEND chunk — card data was not embedded");
+        return bytes;
+      }
+      const keyword = "chara";
+      const jsonBytes = new TextEncoder().encode(jsonStr);
+      let b64 = "";
+      const CHUNK = 32768;
+      for (let i = 0;i < jsonBytes.length; i += CHUNK) {
+        b64 += String.fromCharCode.apply(null, jsonBytes.subarray(i, i + CHUNK));
+      }
+      b64 = btoa(b64);
+      const textData = new TextEncoder().encode(keyword + "\x00" + b64);
+      const typeBytes = new TextEncoder().encode("tEXt");
+      const crcData = new Uint8Array(4 + textData.length);
+      crcData.set(typeBytes, 0);
+      crcData.set(textData, 4);
+      const crc = this.crc32(crcData);
+      const chunk = new Uint8Array(12 + textData.length);
+      new DataView(chunk.buffer).setUint32(0, textData.length, false);
+      chunk.set(typeBytes, 4);
+      chunk.set(textData, 8);
+      new DataView(chunk.buffer).setUint32(8 + textData.length, crc, false);
+      const keptSize = kept.reduce((n, c) => n + c.length, 0);
+      const result = new Uint8Array(8 + keptSize + chunk.length + (bytes.length - iendPos));
+      result.set(bytes.subarray(0, 8), 0);
+      let pos = 8;
+      for (const c of kept) {
+        result.set(c, pos);
+        pos += c.length;
+      }
+      result.set(chunk, pos);
+      pos += chunk.length;
+      result.set(bytes.subarray(iendPos), pos);
+      return result;
+    },
+    crc32(data) {
+      let crc = 4294967295;
+      for (let i = 0;i < data.length; i++) {
+        crc ^= data[i];
+        for (let j = 0;j < 8; j++)
+          crc = crc & 1 ? crc >>> 1 ^ 3988292384 : crc >>> 1;
+      }
+      return (crc ^ 4294967295) >>> 0;
+    }
+  };
+  if (typeof window !== "undefined")
+    window.ExportUtils = ExportUtils;
+
+  // js/cardManager.js
+  var DEBOUNCE_SEARCH_MS = 300;
+  var CardManager = {
+    async migrateImagesToIndexedDB() {
+      const all = CardStorage.getCards();
+      for (const meta of all) {
+        const full = await CardStorage.getCard(meta._id);
+        if (!full || !full._imageBase64)
+          continue;
+        try {
+          await CardStorage.saveImage(full._id, full._imageBase64);
+          full._thumbnail = full._thumbnail || await CardEngine._createThumbnail(full._imageBase64);
+          full._hasImage = true;
+          delete full._imageBase64;
+          await CardStorage.upsertCard(full);
+        } catch (e) {
+          console.error("Image migration failed for", full._id, e);
+        }
+      }
+      window.AppState.cards = CardStorage.getCards();
+    },
+    handleFileSelect(e) {
+      if (e.target.files?.length) {
+        this.processFiles(Array.from(e.target.files));
+      }
+      e.target.value = "";
+    },
+    async processFiles(fileList) {
+      const validExts = ["png", "webp", "json"];
+      let loaded = 0, errors = 0, lastCardId = null;
+      for (const file of fileList) {
+        const ext = file.name.split(".").pop().toLowerCase();
+        if (!validExts.includes(ext)) {
+          errors++;
+          continue;
+        }
+        try {
+          const card = await CardEngine.parseFile(file);
+          const trimmedName = (card.name || "").trim();
+          if (trimmedName) {
+            const existing = CardStorage.getCards().find((c) => (c.name || "").trim().toLowerCase() === trimmedName.toLowerCase());
+            if (existing) {
+              let existingFull = null;
+              try {
+                existingFull = await CardStorage.getCard(existing._id);
+              } catch (_) {}
+              if (existingFull && this._cardSignature(card) === this._cardSignature(existingFull)) {
+                const base = trimmedName;
+                let n = 2;
+                const used = new Set(CardStorage.getCards().map((c) => (c.name || "").toLowerCase()));
+                let candidate = base + " (" + n + ")";
+                while (used.has(candidate.toLowerCase())) {
+                  n++;
+                  candidate = base + " (" + n + ")";
+                }
+                card.name = candidate;
+                Ui.showToast(I18n.t("toast.importDupe", { name: candidate }), "info");
+              }
+            }
+          }
+          if (card._imageBase64) {
+            const approxBytes = Math.round(card._imageBase64.length * 3 / 4);
+            if (approxBytes > 5 * 1024 * 1024) {
+              Ui.showToast(I18n.t("toast.largeImage", { name: file.name, size: (approxBytes / (1024 * 1024)).toFixed(1) }), "warning");
+            }
+            await CardStorage.saveImage(card._id, card._imageBase64);
+          }
+          await CardStorage.upsertCard(card);
+          lastCardId = card._id;
+          loaded++;
+        } catch (err) {
+          console.error("Parse error:", file.name, err);
+          errors++;
+          Ui.showToast(I18n.t("toast.loadFailed", { name: file.name + " — " + err.message }), "danger");
+        }
+      }
+      if (loaded > 0) {
+        window.AppState.cards = CardStorage.getCards();
+        this.renderCardList();
+        if (loaded === 1 && lastCardId) {
+          const meta = window.AppState.cards.find((c) => c._id === lastCardId);
+          if (meta)
+            await this.selectCard(meta);
+        }
+        Ui.showToast(I18n.t("toast.loaded", { count: loaded }), "success");
+      }
+      if (errors > 0 && loaded === 0)
+        Ui.showToast(I18n.t("toast.noValid"), "warning");
+    },
+    _cardListBound: false,
+    _cardSignature(card) {
+      const tags = (card.tags || []).map((t) => String(t == null ? "" : t).trim().toLowerCase()).filter(Boolean);
+      return JSON.stringify([
+        card.spec_version || "",
+        (card.description || "").trim(),
+        (card.first_mes || "").trim(),
+        (card.personality || "").trim(),
+        (card.scenario || "").trim(),
+        (card.mes_example || "").trim(),
+        (card.creator_notes || "").trim(),
+        (card.system_prompt || "").trim(),
+        (card.post_history_instructions || "").trim(),
+        (card.character_version || "").trim(),
+        tags.join("|")
+      ]);
+    },
+    _tagSet(card) {
+      return new Set((card.tags || []).map((t) => String(t == null ? "" : t).trim().toLowerCase()).filter(Boolean));
+    },
+    _searchQuery: "",
+    _selectedIds: new Set,
+    _sortMode: "manual",
+    _activeTagFilters: new Set,
+    _collapsedGroups: new Set,
+    _toggleBatchSelect(cardId) {
+      if (this._selectedIds.has(cardId))
+        this._selectedIds.delete(cardId);
+      else
+        this._selectedIds.add(cardId);
+      this._updateBatchToolbar();
+    },
+    _updateBatchToolbar() {
+      const toolbar = document.querySelector("#batchToolbar");
+      const count = document.querySelector("#batchCount");
+      const compareBtn = document.querySelector("#btnBatchCompare");
+      if (!toolbar)
+        return;
+      if (this._selectedIds.size > 0) {
+        toolbar.classList.remove("d-none");
+        count.textContent = I18n.t("left.selected", { count: this._selectedIds.size });
+        if (compareBtn)
+          compareBtn.classList.toggle("d-none", this._selectedIds.size !== 2);
+      } else {
+        toolbar.classList.add("d-none");
+      }
+    },
+    async batchDelete() {
+      if (this._selectedIds.size === 0) {
+        Ui.showToast(I18n.t("toast.noSelected"), "info");
+        return;
+      }
+      if (!await Ui.confirm({
+        title: I18n.t("batch.deleteTitle", { count: this._selectedIds.size }),
+        message: I18n.t("batch.deleteConfirm", { count: this._selectedIds.size }),
+        buttonLabel: I18n.t("dialog.delete")
+      }))
+        return;
+      for (const id of this._selectedIds)
+        await CardStorage.deleteCard(id);
+      this._selectedIds.clear();
+      this._updateBatchToolbar();
+      window.AppState.cards = CardStorage.getCards();
+      if (window.AppState.activeCard && !window.AppState.cards.find((c) => c._id === window.AppState.activeCard._id)) {
+        window.AppState.activeCard = null;
+        Editor.hideEditor();
+      }
+      this.renderCardList();
+      Ui.showToast(I18n.t("toast.cardsDeleted"), "warning");
+    },
+    async batchCompare() {
+      if (this._selectedIds.size !== 2) {
+        Ui.showToast(I18n.t ? I18n.t("batch.select2ForCompare") : "Select exactly 2 cards to compare", "info");
+        return;
+      }
+      const [idA, idB] = [...this._selectedIds];
+      const cardA = await CardStorage.getCard(idA);
+      const cardB = await CardStorage.getCard(idB);
+      if (!cardA || !cardB) {
+        Ui.showToast(I18n.t ? I18n.t("batch.compareLoadFailed") : "Failed to load cards for comparison", "danger");
+        return;
+      }
+      const jsonA = CardEngine.toJSON(cardA);
+      const jsonB = CardEngine.toJSON(cardB);
+      const oldEl = document.querySelector("#aiDiffOld");
+      const newEl = document.querySelector("#aiDiffNew");
+      const titleEl = document.querySelector("#aiPreviewModal .modal-title");
+      if (!oldEl || !newEl)
+        return;
+      if (titleEl)
+        titleEl.innerHTML = '<i class="bi bi-layout-sidebar-inset me-2 text-accent"></i>' + (I18n.t ? I18n.t("batch.comparePrefix") : "Compare: ") + Ui.escapeHtml(cardA.name || (I18n.t ? I18n.t("batch.cardA") : "Card A")) + (I18n.t ? I18n.t("batch.compareVs") : " vs ") + Ui.escapeHtml(cardB.name || (I18n.t ? I18n.t("batch.cardB") : "Card B"));
+      AiChat._renderDiff(jsonA, jsonB);
+      const acceptBtn = document.querySelector("#btnAcceptAI");
+      const discardBtn = document.querySelector("#btnDiscardAI");
+      if (acceptBtn)
+        acceptBtn.classList.add("d-none");
+      if (discardBtn)
+        discardBtn.classList.add("d-none");
+      const applyNav = document.querySelector("#applyNavGroup");
+      if (applyNav)
+        applyNav.style.display = "none";
+      const modal = this._aiPreviewModal = this._aiPreviewModal || new bootstrap.Modal("#aiPreviewModal");
+      const modalEl = document.querySelector("#aiPreviewModal");
+      const restoreButtons = () => {
+        if (acceptBtn)
+          acceptBtn.classList.remove("d-none");
+        if (discardBtn)
+          discardBtn.classList.remove("d-none");
+        modalEl.removeEventListener("hidden.bs.modal", restoreButtons);
+      };
+      modalEl.addEventListener("hidden.bs.modal", restoreButtons);
+      modal.show();
+    },
+    async batchExportJSON() {
+      if (this._selectedIds.size === 0) {
+        Ui.showToast(I18n.t("toast.noSelected"), "info");
+        return;
+      }
+      const cards = [];
+      for (const id of this._selectedIds) {
+        const card = await CardStorage.getCard(id);
+        if (card) {
+          const clone = JSON.parse(JSON.stringify(card));
+          delete clone._id;
+          delete clone._filename;
+          delete clone._createdAt;
+          delete clone._fileSize;
+          delete clone._thumbnail;
+          delete clone._imageBase64;
+          if (CardStorage.getInjectCopyright())
+            ExportUtils.injectCopyright(clone);
+          cards.push(clone);
+        }
+      }
+      if (cards.length === 1) {
+        Ui.downloadFile((cards[0].name || "character") + ".json", CardEngine.toJSON(cards[0]), "application/json");
+      } else {
+        Ui.downloadFile("cards_export.json", JSON.stringify(cards, null, 2), "application/json");
+      }
+      Ui.showToast(I18n.t("toast.exported", { count: cards.length }), "success");
+    },
+    _sortCards(cards) {
+      const mode = this._sortMode;
+      const sorted = [...cards];
+      switch (mode) {
+        case "name-asc":
+          sorted.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+          break;
+        case "name-desc":
+          sorted.sort((a, b) => (b.name || "").localeCompare(a.name || ""));
+          break;
+        case "newest":
+          sorted.sort((a, b) => (b._createdAt || 0) - (a._createdAt || 0));
+          break;
+        case "oldest":
+          sorted.sort((a, b) => (a._createdAt || 0) - (b._createdAt || 0));
+          break;
+        case "largest":
+          sorted.sort((a, b) => (b._fileSize || 0) - (a._fileSize || 0));
+          break;
+        case "smallest":
+          sorted.sort((a, b) => (a._fileSize || 0) - (b._fileSize || 0));
+          break;
+        case "manual":
+          break;
+      }
+      return sorted;
+    },
+    _renderTagCloud() {
+      const tagCloudEl = document.querySelector("#tagCloud");
+      if (!tagCloudEl)
+        return;
+      const tagCounts = {};
+      (window.AppState.cards || []).forEach((c) => {
+        (c.tags || []).forEach((t) => {
+          tagCounts[t] = (tagCounts[t] || 0) + 1;
+        });
+      });
+      const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+      if (sortedTags.length === 0) {
+        tagCloudEl.innerHTML = '<span style="font-size:0.68rem;color:var(--text-muted);">' + I18n.t("gen.untagged") + "</span>";
+        return;
+      }
+      tagCloudEl.innerHTML = sortedTags.map(([tag, count]) => {
+        const isActive = this._activeTagFilters.has(tag);
+        return '<span class="tag-chip' + (isActive ? " active" : "") + '" data-tag="' + Ui.escapeAttr(tag) + '">' + Ui.escapeHtml(tag) + ' <span class="tag-count">' + count + "</span>" + "</span>";
+      }).join("");
+      tagCloudEl.querySelectorAll(".tag-chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const tag = chip.dataset.tag;
+          if (this._activeTagFilters.has(tag)) {
+            this._activeTagFilters.delete(tag);
+          } else {
+            this._activeTagFilters.add(tag);
+          }
+          this.renderCardList();
+        });
+      });
+    },
+    _rowHtml(card, activeCard) {
+      const isActive = activeCard && activeCard._id === card._id;
+      const isBatch = this._selectedIds.has(card._id);
+      const tags = (card.tags || []).slice(0, 2);
+      const thumb = card._thumbnail || card._imageBase64;
+      const desc = (card.description || "").slice(0, 300);
+      const fileSize = card._fileSize ? Ui.formatFileSize(card._fileSize) : "";
+      return '<div class="card-list-item' + (isActive ? " active" : "") + (isBatch ? " batch-selected" : "") + '" data-card-id="' + card._id + '" role="option" aria-selected="' + isActive + '">' + '<div class="card-list-avatar">' + (thumb ? '<img src="' + Ui.escapeAttr(thumb) + '" alt="">' : '<i class="bi bi-person-fill"></i>') + "</div>" + '<div class="card-list-info">' + '<div class="card-list-name">' + Ui.escapeHtml(card.name || I18n.t("gen.unnamed")) + "</div>" + '<div class="card-list-meta">' + (card.creator ? Ui.escapeHtml(card.creator) : "") + (card.creator && tags.length ? " · " : "") + tags.map((t) => Ui.escapeHtml(t)).join(", ") + (fileSize ? ' <span class="meta-filesize">' + fileSize + "</span>" : "") + "</div></div>" + '<button type="button" class="card-preview-btn" data-card-id="' + card._id + '" title="' + (I18n.t ? I18n.t("preview.open") : "Preview card") + '" aria-label="' + (I18n.t ? I18n.t("preview.open") : "Preview card") + '"><i class="bi bi-eye"></i></button>' + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? " checked" : "") + ">" + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"><i class="bi bi-grip-vertical"></i></span>' + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + "</span>" : "") + '<div class="card-preview-tooltip">' + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : "") + '<div class="fw-semibold">' + Ui.escapeHtml(card.name || I18n.t("gen.unnamed")) + "</div>" + (card.creator ? '<div class="text-muted" style="font-size:0.7rem;">' + I18n.t("gen.byCreator", { name: Ui.escapeHtml(card.creator) }) + "</div>" : "") + (desc ? '<div class="preview-desc">' + Ui.escapeHtml(desc) + "</div>" : "") + "</div></div>";
+    },
+    _groupCards(list) {
+      if (this._sortMode !== "name-asc" && this._sortMode !== "name-desc") {
+        return [{ letter: "", items: list }];
+      }
+      const groups = [];
+      const byLetter = new Map;
+      for (const card of list) {
+        const name = (card.name || "").trim();
+        let letter = "#", ch = name ? name[0] : "";
+        if (/[A-Za-z0-9]/.test(ch))
+          letter = ch.toUpperCase();
+        let g = byLetter.get(letter);
+        if (!g) {
+          g = { letter, items: [] };
+          byLetter.set(letter, g);
+          groups.push(g);
+        }
+        g.items.push(card);
+      }
+      if (this._sortMode === "name-desc") {
+        groups.sort((a, b) => a.letter < b.letter ? 1 : a.letter > b.letter ? -1 : 0);
+      }
+      return groups;
+    },
+    _renderTagChipStrip() {
+      const el = document.querySelector("#tagChipStrip");
+      if (!el)
+        return;
+      const counts = {};
+      (window.AppState.cards || []).forEach((c) => (c.tags || []).forEach((t) => counts[t] = (counts[t] || 0) + 1));
+      const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 12);
+      if (sorted.length === 0) {
+        el.style.display = "none";
+        el.innerHTML = "";
+        return;
+      }
+      el.style.display = "";
+      el.innerHTML = sorted.map(([tag]) => {
+        const active = this._activeTagFilters.has(tag);
+        return '<button type="button" class="tag-chip-strip-chip' + (active ? " active" : "") + '" data-tag="' + Ui.escapeAttr(tag) + '">#' + Ui.escapeHtml(tag) + "</button>";
+      }).join("") + (this._activeTagFilters.size ? '<button type="button" class="tag-chip-strip-clear" data-clear="1" aria-label="Clear filters">×</button>' : "");
+      el.querySelectorAll(".tag-chip-strip-chip, .tag-chip-strip-clear").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (btn.dataset.clear)
+            this._activeTagFilters.clear();
+          else {
+            const t = btn.dataset.tag;
+            this._activeTagFilters.has(t) ? this._activeTagFilters.delete(t) : this._activeTagFilters.add(t);
+          }
+          this.renderCardList();
+        });
+      });
+    },
+    renderCardList() {
+      const $ = Ui.$;
+      const { cards, activeCard } = window.AppState;
+      const container = $("#cardList");
+      const emptyState = $("#emptyState");
+      const searchWrap = $("#cardSearchWrap");
+      const controlsWrap = $("#libraryControls");
+      $("#cardCount").textContent = I18n.t("left.cards", { count: cards.length });
+      if (searchWrap)
+        searchWrap.style.display = cards.length > 3 ? "" : "none";
+      if (controlsWrap)
+        controlsWrap.style.display = cards.length > 3 ? "" : "none";
+      this._renderTagCloud();
+      this._renderTagChipStrip();
+      let filtered = cards;
+      if (this._searchQuery) {
+        const q = this._searchQuery.toLowerCase();
+        filtered = cards.filter((c) => (c.name || "").toLowerCase().includes(q) || (c.creator || "").toLowerCase().includes(q) || [...this._tagSet(c)].some((t) => t.includes(q)));
+      }
+      if (this._activeTagFilters.size > 0) {
+        filtered = filtered.filter((c) => {
+          const cardTags = this._tagSet(c);
+          for (const filter of this._activeTagFilters) {
+            if (!cardTags.has(filter.toLowerCase()))
+              return false;
+          }
+          return true;
+        });
+      }
+      filtered = this._sortCards(filtered);
+      if (filtered.length === 0 && (this._searchQuery || this._activeTagFilters.size > 0)) {
+        container.innerHTML = '<div class="text-center text-muted py-4">' + I18n.t("gen.noMatch") + "</div>";
+        emptyState.style.display = "none";
+        return;
+      }
+      if (filtered.length === 0) {
+        container.innerHTML = "";
+        emptyState.style.display = "flex";
+        return;
+      }
+      emptyState.style.display = "none";
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      container.innerHTML = this._groupCards(filtered).map((group) => {
+        const rows = group.items.map((card) => this._rowHtml(card, activeCard)).join("");
+        const collapsed = group.letter ? this._collapsedGroups.has(group.letter) : false;
+        return '<div class="card-list-group" data-letter="' + Ui.escapeAttr(group.letter) + '">' + (group.letter ? '<button type="button" class="card-group-header" data-letter="' + Ui.escapeAttr(group.letter) + '" aria-expanded="' + (collapsed ? "false" : "true") + '"><span class="card-group-letter">' + Ui.escapeHtml(group.letter) + '</span><span class="card-group-count">' + group.items.length + "</span></button>" : "") + '<div class="card-group-body' + (collapsed ? " collapsed" : "") + '">' + rows + "</div>" + "</div>";
+      }).join("");
+      Anims.staggerFadeIn(container.querySelectorAll(".card-list-item"), { stagger: 25, duration: 200 });
+      if (!reducedMotion) {
+        container.querySelectorAll(".card-list-item").forEach((item) => {
+          item.addEventListener("mousemove", (e) => {
+            const rect = item.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
+            const rotateX = (y - centerY) / centerY * -4;
+            const rotateY = (x - centerX) / centerX * 4;
+            item.style.transform = "perspective(400px) rotateX(" + rotateX + "deg) rotateY(" + rotateY + "deg) scale(1.01)";
+            item.style.setProperty("--mouse-x", x / rect.width * 100 + "%");
+            item.style.setProperty("--mouse-y", y / rect.height * 100 + "%");
+          });
+          item.addEventListener("mouseleave", () => {
+            item.style.transform = "";
+          });
+        });
+      }
+      if (!this._previewHoverBound && container) {
+        this._previewHoverBound = true;
+        container.addEventListener("mouseover", (e) => {
+          const item = e.target.closest(".card-list-item");
+          if (!item)
+            return;
+          const descEl = item.querySelector(".preview-desc");
+          if (!descEl || descEl.dataset.filled)
+            return;
+          const id = item.dataset.cardId;
+          if (this._previewCache.has(id)) {
+            this._fillTooltipDesc(descEl, id);
+            return;
+          }
+          CardStorage.getCard(id).then((full) => {
+            if (full) {
+              this._previewCache.set(id, full);
+              this._fillTooltipDesc(descEl, id);
+            }
+          }).catch(() => {});
+        });
+      }
+      if (!this._cardListBound && container) {
+        this._cardListBound = true;
+        container.addEventListener("click", (e) => {
+          const groupHeader = e.target.closest(".card-group-header");
+          if (groupHeader) {
+            const letter = groupHeader.dataset.letter;
+            const body = groupHeader.parentElement && groupHeader.parentElement.querySelector(".card-group-body");
+            if (body) {
+              const collapsed = body.classList.toggle("collapsed");
+              groupHeader.setAttribute("aria-expanded", collapsed ? "false" : "true");
+              if (collapsed)
+                this._collapsedGroups.add(letter);
+              else
+                this._collapsedGroups.delete(letter);
+            }
+            return;
+          }
+          const previewBtn = e.target.closest(".card-preview-btn");
+          if (previewBtn) {
+            e.stopPropagation();
+            CardManager.showCardPreview(previewBtn.dataset.cardId);
+            return;
+          }
+          const checkbox = e.target.closest(".card-batch-check");
+          if (checkbox) {
+            e.stopPropagation();
+            CardManager._toggleBatchSelect(checkbox.dataset.cardId);
+            return;
+          }
+          const item = e.target.closest(".card-list-item");
+          if (!item)
+            return;
+          const card = window.AppState.cards.find((c) => c._id === item.dataset.cardId);
+          if (card)
+            CardManager.selectCard(card);
+        });
+        const searchInput = $("#cardSearchInput");
+        if (searchInput) {
+          searchInput.addEventListener("input", Ui.debounce(() => {
+            this._searchQuery = searchInput.value.trim();
+            this.renderCardList();
+          }, DEBOUNCE_SEARCH_MS));
+        }
+        let dragId = null;
+        container.addEventListener("dragstart", (e) => {
+          const handle = e.target.closest(".card-drag-handle");
+          if (!handle)
+            return;
+          dragId = handle.dataset.cardId;
+          if (e.dataTransfer)
+            e.dataTransfer.effectAllowed = "move";
+          const dragItem = handle.closest(".card-list-item");
+          if (dragItem && !Anims._disabled()) {
+            dragItem.style.transition = "transform 150ms ease, opacity 150ms ease";
+            dragItem.style.transform = "scale(0.97)";
+            dragItem.style.opacity = "0.7";
+          }
+        });
+        container.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          const item = e.target.closest(".card-list-item");
+          if (item)
+            item.classList.add("drag-over");
+        });
+        container.addEventListener("dragleave", (e) => {
+          const item = e.target.closest(".card-list-item");
+          if (item)
+            item.classList.remove("drag-over");
+        });
+        container.addEventListener("drop", (e) => {
+          e.preventDefault();
+          const item = e.target.closest(".card-list-item");
+          if (item)
+            item.classList.remove("drag-over");
+          if (!dragId || !item)
+            return;
+          if (this._searchQuery || this._activeTagFilters.size > 0) {
+            Ui.showToast(I18n.t("toast.reorderFiltered"), "info");
+            dragId = null;
+            return;
+          }
+          if (this._sortMode !== "manual") {
+            Ui.showToast(I18n.t("toast.reorderManual"), "info");
+            dragId = null;
+            return;
+          }
+          const dropId = item.dataset.cardId;
+          if (dragId === dropId)
+            return;
+          const cards2 = window.AppState.cards;
+          const fromIdx = cards2.findIndex((c) => c._id === dragId);
+          const toIdx = cards2.findIndex((c) => c._id === dropId);
+          if (fromIdx < 0 || toIdx < 0)
+            return;
+          const [moved] = cards2.splice(fromIdx, 1);
+          const adjustedTo = toIdx > fromIdx ? toIdx - 1 : toIdx;
+          cards2.splice(adjustedTo, 0, moved);
+          CardStorage.saveCardIndex(cards2);
+          this.renderCardList();
+          dragId = null;
+        });
+        container.addEventListener("dragend", () => {
+          const dragItem = container.querySelector('.card-list-item[style*="scale"]');
+          if (dragItem) {
+            dragItem.style.transform = "";
+            dragItem.style.opacity = "";
+          }
+          dragId = null;
+        });
+      }
+    },
+    _switchPromise: Promise.resolve(),
+    async selectCard(cardMeta) {
+      if (!cardMeta || !cardMeta._id)
+        return;
+      const run = () => this._doSelect(cardMeta);
+      const next = this._switchPromise.then(run, run);
+      this._switchPromise = next.catch(() => {});
+      return next;
+    },
+    async _doSelect(cardMeta) {
+      const { activeCard, isAiLoading } = window.AppState;
+      if (isAiLoading) {
+        AiChat._abortAll();
+        AiChat._bumpGen();
+        window.AppState.isAiLoading = false;
+        AiChat.updateSendButton();
+      }
+      if (activeCard && activeCard._id !== cardMeta._id)
+        await Editor.syncEditorToCard();
+      const fullCard = await CardStorage.getCard(cardMeta._id);
+      if (!fullCard)
+        return;
+      window.AppState.activeCard = fullCard;
+      CardStorage.setActiveCardId(fullCard._id);
+      AiChat._resetChat();
+      try {
+        const b64 = await CardStorage.getImage(fullCard._id);
+        if (b64)
+          window.AppState.activeCard._imageBase64 = b64;
+      } catch (e) {
+        console.error("Failed to load image from IndexedDB:", e);
+      }
+      const cardHistory = CardStorage.getChatHistory(fullCard._id);
+      window.AppState.chatHistory = cardHistory;
+      const sessions = CardStorage.getChatSessions(fullCard._id);
+      if (sessions.length > 0) {
+        const latestSession = sessions[0];
+        const sessionMessages = CardStorage.getSessionMessages(fullCard._id, latestSession.id);
+        if (sessionMessages.length > 0) {
+          window.AppState.chatHistory = sessionMessages;
+          AiChat._setCurrentSession(latestSession.id);
+        } else {
+          AiChat._setCurrentSession(latestSession.id);
+          CardStorage.saveSessionMessages(fullCard._id, latestSession.id, cardHistory);
+        }
+      }
+      AiChat.renderChatHistory();
+      Editor.populateEditor(fullCard);
+      this.renderCardList();
+      Ui.setDirty(false);
+      Ui.updateUIState();
+      AiChat.updateContextBar();
+      setTimeout(() => {
+        const aiInput = document.querySelector("#aiInput");
+        if (aiInput)
+          aiInput.focus();
+      }, 100);
+    },
+    async createNewCard() {
+      const { activeCard } = window.AppState;
+      if (activeCard)
+        await Editor.syncEditorToCard();
+      const card = CardEngine.createEmptyCard();
+      await CardStorage.upsertCard(card);
+      window.AppState.cards = CardStorage.getCards();
+      this.renderCardList();
+      await this.selectCard(card);
+      document.querySelector("#editName").focus();
+      Ui.showToast(I18n.t("toast.newBlank"), "success");
+    },
+    async saveCurrentCard() {
+      const { activeCard } = window.AppState;
+      if (!activeCard) {
+        Ui.showToast(I18n.t("toast.noCardSave"), "warning");
+        return;
+      }
+      await Editor.syncEditorToCard();
+      window.AppState._dirty = false;
+      Ui.setDirty(false);
+      Ui.flashSaved();
+      this.renderCardList();
+      Ui.showToast(I18n.t("toast.cardSaved"), "success");
+    },
+    async duplicateCard() {
+      const { activeCard } = window.AppState;
+      if (!activeCard) {
+        Ui.showToast(I18n.t("toast.noCardDup"), "warning");
+        return;
+      }
+      await Editor.syncEditorToCard();
+      const clone = JSON.parse(JSON.stringify(activeCard));
+      clone._id = CardEngine._uniqueId();
+      clone.name = (clone.name || (I18n.t ? I18n.t("gen.unnamed") : "Unnamed")) + (I18n.t ? I18n.t("gen.copySuffix") : " (Copy)");
+      await CardStorage.upsertCard(clone);
+      if (clone._imageBase64)
+        await CardStorage.saveImage(clone._id, clone._imageBase64);
+      window.AppState.cards = CardStorage.getCards();
+      this.renderCardList();
+      await this.selectCard(clone);
+      Ui.showToast(I18n.t("toast.cardDup"), "success");
+    },
+    async deleteActiveCard() {
+      const { activeCard, cards } = window.AppState;
+      if (!activeCard)
+        return;
+      await Editor.syncEditorToCard();
+      const snapshot = { ...activeCard };
+      if (!snapshot._imageBase64) {
+        try {
+          const b64 = await CardStorage.getImage(snapshot._id);
+          if (b64)
+            snapshot._imageBase64 = b64;
+        } catch (_) {}
+      }
+      const snapshotIndex = cards.findIndex((c) => c._id === activeCard._id);
+      try {
+        await CardStorage.deleteCard(activeCard._id);
+      } catch (e) {
+        console.error("Failed to delete card:", e);
+        Ui.showToast(I18n.t ? I18n.t("toast.deleteFailed") || "Failed to delete card" : "Failed to delete card", "danger");
+        return;
+      }
+      window.AppState.cards = CardStorage.getCards();
+      window.AppState.activeCard = null;
+      Editor.hideEditor();
+      this.renderCardList();
+      if (window.AppState.cards.length > 0)
+        await this.selectCard(window.AppState.cards[0]);
+      let undone = false;
+      const DURATION = 8000;
+      const toastLabel = I18n && I18n.t ? I18n.t("gen.toastAutoHide", { s: Math.ceil(DURATION / 1000) }) : "Auto-hides in 8s";
+      const toastEl = document.createElement("div");
+      toastEl.className = "toast align-items-center border-0";
+      toastEl.setAttribute("role", "alert");
+      toastEl.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2 w-100"><div class="flex-grow-1 d-flex align-items-center gap-2">' + '<i class="bi bi-trash-fill text-danger"></i>' + I18n.t("toast.cardDeleted", { name: Ui.escapeHtml(snapshot.name || I18n.t("gen.unnamed")) }) + '<button class="btn btn-sm btn-outline-accent ms-2" id="undoDeleteBtn">' + I18n.t("toast.undo") + "</button>" + '</div><div class="toast-timer" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">' + toastLabel + '</div><button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
+      document.querySelector("#toastContainer").appendChild(toastEl);
+      const toast = new bootstrap.Toast(toastEl, { delay: DURATION });
+      toast.show();
+      const timerEl = toastEl.querySelector(".toast-timer");
+      if (timerEl) {
+        const interval = 200;
+        let remaining = DURATION;
+        const tick = () => {
+          remaining -= interval;
+          if (remaining <= 0 || undone) {
+            timerEl.textContent = "";
+            return;
+          }
+          const secs = Math.ceil(remaining / 1000);
+          timerEl.textContent = I18n && I18n.t ? I18n.t("gen.toastAutoHide", { s: secs }) : "Auto-hides in " + secs + "s";
+        };
+        const timer = setInterval(tick, interval);
+        const clearTimer = () => {
+          clearInterval(timer);
+          toastEl.removeEventListener("hidden.bs.toast", clearTimer);
+        };
+        toastEl.addEventListener("hidden.bs.toast", clearTimer);
+        const observer = new MutationObserver(() => {
+          if (!document.body.contains(toastEl)) {
+            clearTimer();
+            observer.disconnect();
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        toastEl.addEventListener("hidden.bs.toast", () => {
+          toastEl.remove();
+          if (!undone)
+            return;
+        });
+      } else {
+        toastEl.addEventListener("hidden.bs.toast", () => {
+          toastEl.remove();
+          if (!undone)
+            return;
+        });
+      }
+      const undoBtn = toastEl.querySelector("#undoDeleteBtn");
+      undoBtn.addEventListener("click", async () => {
+        undone = true;
+        toast.hide();
+        await CardStorage.upsertCard(snapshot);
+        if (snapshot._imageBase64) {
+          await CardStorage.saveImage(snapshot._id, snapshot._imageBase64);
+          snapshot._hasImage = true;
+        }
+        window.AppState.cards = CardStorage.getCards();
+        this.renderCardList();
+        await this.selectCard(snapshot);
+        Ui.showToast(I18n.t("toast.cardRestored"), "success");
+      });
+    },
+    _previewModal: null,
+    _previewCardId: null,
+    _previewCache: new Map,
+    _previewHoverBound: false,
+    _fillTooltipDesc(descEl, cardId) {
+      const full = this._previewCache.get(cardId);
+      if (!full)
+        return;
+      const text = (full.description || "").trim();
+      const snippet = (text || (full.first_mes || "").trim()).slice(0, 400);
+      if (snippet) {
+        descEl.textContent = snippet;
+        descEl.dataset.filled = "1";
+      }
+    },
+    async showCardPreview(cardId) {
+      const full = await CardStorage.getCard(cardId);
+      if (!full)
+        return;
+      this._previewCardId = cardId;
+      const $ = Ui.$;
+      const t = (key, fallback) => I18n && I18n.t ? I18n.t(key) : fallback;
+      $("#cardPreviewTitle").textContent = full.name || t("gen.unnamed", "Unnamed");
+      const img = $("#cardPreviewAvatar");
+      const b64 = full._imageBase64 || full._thumbnail;
+      if (b64) {
+        img.src = b64;
+        img.hidden = false;
+        $("#cardPreviewAvatarPlaceholder").style.display = "none";
+      } else {
+        img.removeAttribute("src");
+        img.hidden = true;
+        $("#cardPreviewAvatarPlaceholder").style.display = "";
+      }
+      const metaParts = [];
+      if (full.creator)
+        metaParts.push(Ui.escapeHtml(full.creator));
+      if (full.spec_version)
+        metaParts.push("v" + Ui.escapeHtml(full.spec_version));
+      if ((full.tags || []).length)
+        metaParts.push((full.tags || []).map((x) => Ui.escapeHtml(String(x))).join(", "));
+      $("#cardPreviewMeta").innerHTML = metaParts.join(" · ");
+      const body = $("#cardPreviewBody");
+      const sections = [];
+      if ((full.description || "").trim()) {
+        sections.push('<h6 class="card-preview-section-title">' + t("editor.desc", "Description") + "</h6>" + '<div class="card-preview-section" id="cardPreviewDesc"></div>');
+      }
+      if ((full.first_mes || "").trim()) {
+        sections.push('<h6 class="card-preview-section-title">' + t("editor.firstMes", "First Message") + "</h6>" + '<div class="card-preview-section" id="cardPreviewFirstMes"></div>');
+      }
+      if (!sections.length) {
+        sections.push('<p class="text-muted mb-0" style="font-size:0.85rem;">' + t("preview.empty", "No description or first message.") + "</p>");
+      }
+      body.innerHTML = sections.join("");
+      const descEl = $("#cardPreviewDesc");
+      if (descEl)
+        descEl.innerHTML = Ui.renderMarkdown(full.description || "", descEl);
+      const fmEl = $("#cardPreviewFirstMes");
+      if (fmEl)
+        fmEl.innerHTML = Ui.renderMarkdown(full.first_mes || "", fmEl);
+      this._previewModal = this._previewModal || new bootstrap.Modal("#cardPreviewModal");
+      this._previewModal.show();
+    },
+    async _fileHasChara(file) {
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (bytes.length < 8)
+          return false;
+        const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+        for (let i = 0;i < 8; i++)
+          if (bytes[i] !== sig[i])
+            return false;
+        const dec = new TextDecoder("utf-8");
+        let offset = 8;
+        while (offset + 12 <= bytes.length) {
+          const len = (bytes[offset] << 24 | bytes[offset + 1] << 16 | bytes[offset + 2] << 8 | bytes[offset + 3]) >>> 0;
+          const type = dec.decode(bytes.slice(offset + 4, offset + 8));
+          if (type === "tEXt" || type === "iTXt" || type === "zTXt") {
+            const data = bytes.slice(offset + 8, offset + 8 + len);
+            const nullIdx = data.indexOf(0);
+            if (nullIdx > 0) {
+              const kw = dec.decode(data.slice(0, nullIdx)).toLowerCase();
+              if (kw === "chara" || kw === "ccv3")
+                return true;
+            }
+          } else if (type === "IEND") {
+            break;
+          }
+          offset += 12 + len;
+        }
+        return false;
+      } catch (e) {
+        return false;
+      }
+    },
+    async _pasteAsAvatar(file) {
+      if (!window.AppState.activeCard) {
+        Ui.showToast(I18n.t ? I18n.t("toast.pasteAvatarNoCard") : "Select a card first, then paste the image as its avatar", "warning");
+        return;
+      }
+      try {
+        await Editor.setAvatar(file);
+      } catch (_) {}
+    },
+    async _importPastedFile(file) {
+      await this.processFiles([file]);
+    },
+    async processPaste(files, text) {
+      const t = (key, fallback) => I18n && I18n.t ? I18n.t(key) : fallback;
+      if (files && files.length) {
+        for (const file of files) {
+          const ext = (file.name.split(".").pop() || "").toLowerCase();
+          const isImage = (file.type || "").startsWith("image/");
+          if (ext === "json") {
+            await this._importPastedFile(file);
+            continue;
+          }
+          if (isImage && ext === "png" && await this._fileHasChara(file)) {
+            await this._importPastedFile(file);
+            continue;
+          }
+          if (isImage) {
+            await this._pasteAsAvatar(file);
+            continue;
+          }
+          Ui.showToast(t("toast.pasteNoCard", "Clipboard contains no character card or image"), "warning");
+        }
+        return;
+      }
+      if (!text)
+        return;
+      if (/^data:image\//i.test(text)) {
+        try {
+          const blob = await (await fetch(text)).blob();
+          await this._pasteAsAvatar(new File([blob], "pasted-avatar", { type: blob.type || "image/png" }));
+        } catch (_) {
+          Ui.showToast(t("toast.pasteNoCard", "Clipboard contains no character card or image"), "warning");
+        }
+        return;
+      }
+      if (text[0] === "{" || text[0] === "[") {
+        await this._importPastedFile(new File([text], "pasted-card.json", { type: "application/json" }));
+        return;
+      }
+      Ui.showToast(t("toast.pasteNoCard", "Clipboard contains no character card or image"), "warning");
+    }
+  };
+  if (typeof window !== "undefined")
+    window.CardManager = CardManager;
+
+  // js/wizard.js
+  var Wizard2 = {
+    _step: 1,
+    _totalSteps: 5,
+    _answers: {},
+    _modal: null,
+    _fetchedImages: [],
+    _selectedImageIdx: -1,
+    _tagSearch: "",
+    _autoFetched: false,
+    _fetching: false,
+    _wizardDirtyKey: "stce_wizard_draft",
+    _draftCleared: false,
+    init() {
+      this._modal = new bootstrap.Modal("#wizardModal");
+      this._bindEvents();
+      document.querySelector("#wizardModal").addEventListener("hidden.bs.modal", () => this._onModalClose());
+    },
+    show() {
+      this._step = 1;
+      this._answers = {};
+      this._fetchedImages = [];
+      this._selectedImageIdx = -1;
+      this._tagSearch = "";
+      this._autoFetched = false;
+      this._fetching = false;
+      this._resetFormUI();
+      this._resetImageUI();
+      this._renderStepIndicator();
+      this._showStep(1);
+      this._modal.show();
+      if (this._restoreDraft()) {
+        this._populateStep(1);
+      }
+      setTimeout(() => {
+        const step1 = document.querySelector('.wizard-step[data-step="1"]');
+        if (step1)
+          Anims.staggerFadeIn(step1.querySelectorAll(".mb-3, .mb-4"), { stagger: 30, duration: 200 });
+      }, 100);
+    },
+    _onModalClose() {
+      if (!this._draftCleared) {
+        try {
+          this._collectStep(this._step);
+        } catch (_) {}
+        this._saveDraft();
+      }
+      this._fetchedImages.forEach((img) => {
+        if (img && img._objUrl)
+          URL.revokeObjectURL(img._objUrl);
+      });
+      this._fetchedImages = [];
+      this._selectedImageIdx = -1;
+      this._draftCleared = false;
+    },
+    _saveDraft() {
+      try {
+        if (this._answers && Object.keys(this._answers).length > 0) {
+          sessionStorage.setItem(this._wizardDirtyKey, JSON.stringify(this._answers));
+        }
+      } catch (_) {}
+    },
+    _clearDraft() {
+      try {
+        sessionStorage.removeItem(this._wizardDirtyKey);
+      } catch (_) {}
+      this._draftCleared = true;
+    },
+    _restoreDraft() {
+      try {
+        const saved = sessionStorage.getItem(this._wizardDirtyKey);
+        if (!saved)
+          return false;
+        const data = JSON.parse(saved);
+        if (typeof data !== "object" || !data.name)
+          return false;
+        this._answers = data;
+        Ui.showToast(I18n.t("wizard.draftRestored"), "info");
+        return true;
+      } catch (_) {
+        sessionStorage.removeItem(this._wizardDirtyKey);
+        return false;
+      }
+    },
+    _resetFormUI() {
+      const body = document.querySelector("#wizardModal .modal-body");
+      if (!body)
+        return;
+      body.querySelectorAll('input[type="text"], textarea').forEach((el) => {
+        el.value = "";
+      });
+      body.querySelectorAll("select").forEach((el) => {
+        el.selectedIndex = 0;
+      });
+      body.querySelectorAll(".wizard-chip.active").forEach((c) => c.classList.remove("active"));
+      const gc = document.querySelector("#wizGenderCustom");
+      if (gc) {
+        gc.value = "";
+        gc.classList.add("d-none");
+      }
+      const lc = document.querySelector("#wizLanguageCustom");
+      if (lc) {
+        lc.value = "";
+        lc.classList.add("d-none");
+      }
+      if (window.syncFloatLabels)
+        window.syncFloatLabels();
+    },
+    _resetImageUI() {
+      const btnFetch = document.querySelector("#wizBtnFetchImage");
+      if (btnFetch)
+        btnFetch.innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.fetchImages");
+      document.querySelectorAll(".wizard-image-card").forEach((c) => {
+        c.classList.remove("selected");
+        const thumb = c.querySelector(".wiz-thumb");
+        if (thumb) {
+          thumb.src = "";
+          thumb.hidden = true;
+        }
+        const loader = c.querySelector(".wiz-image-loader");
+        if (loader)
+          loader.classList.add("d-none");
+        const ph = c.querySelector(".wizard-image-placeholder");
+        if (ph)
+          ph.classList.remove("d-none");
+      });
+      const btnUse = document.querySelector("#wizBtnUseImage");
+      const btnRemove = document.querySelector("#wizBtnRemoveImage");
+      if (btnUse)
+        btnUse.classList.add("d-none");
+      if (btnRemove)
+        btnRemove.classList.add("d-none");
+    },
+    _bindEvents() {
+      const self = this;
+      const on = (selector, event, fn) => {
+        const el = document.querySelector(selector);
+        if (el)
+          el.addEventListener(event, fn);
+      };
+      on("#wizBtnNext", "click", () => self._next());
+      on("#wizBtnBack", "click", () => self._back());
+      on("#wizardModal", "keydown", (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && self._step === self._totalSteps) {
+          e.preventDefault();
+          self._generateWithAI();
+        }
+      });
+      on("#wizGender", "change", (e) => {
+        document.querySelector("#wizGenderCustom")?.classList.toggle("d-none", e.target.value !== "other");
+      });
+      on("#wizLanguage", "change", (e) => {
+        document.querySelector("#wizLanguageCustom")?.classList.toggle("d-none", e.target.value !== "other");
+      });
+      document.querySelectorAll(".wizard-chip-group").forEach((group) => {
+        group.querySelectorAll(".wizard-chip").forEach((chip) => {
+          chip.addEventListener("click", () => {
+            chip.classList.toggle("active");
+            Anims.scaleClick(chip);
+          });
+        });
+      });
+      on("#wizBtnAI", "click", () => self._generateWithAI());
+      on("#wizBtnBlank", "click", () => self._generateBlank());
+      on("#wizBtnFetchImage", "click", () => self._fetchImage());
+      on("#wizBtnUseImage", "click", () => self._useFetchedImage());
+      on("#wizBtnRemoveImage", "click", () => self._removeFetchedImage());
+      const searchInput = document.querySelector("#wizImageTagSearch");
+      const searchBtn = document.querySelector("#wizBtnSearchImages");
+      if (searchInput) {
+        searchInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            self._syncTagSearch();
+            self._fetchImage();
+          }
+        });
+        searchInput.addEventListener("input", () => {
+          self._tagSearch = searchInput.value;
+          self._renderQuickTags();
+        });
+      }
+      if (searchBtn) {
+        searchBtn.addEventListener("click", () => {
+          self._syncTagSearch();
+          self._fetchImage();
+        });
+      }
+      on("#btnWizardNav", "click", () => self.show());
+      const centerBtn = document.querySelector("#btnWizard");
+      if (centerBtn)
+        centerBtn.addEventListener("click", () => self.show());
+      self._bindImageEvents();
+    },
+    _collectStep(step) {
+      const a = this._answers;
+      switch (step) {
+        case 1:
+          a.name = document.querySelector("#wizName").value.trim();
+          a.gender = document.querySelector("#wizGender").value;
+          a.genderCustom = document.querySelector("#wizGenderCustom").value.trim();
+          a.tags = document.querySelector("#wizTags").value.split(",").map((s) => s.trim()).filter(Boolean);
+          a.creator = document.querySelector("#wizCreator").value.trim();
+          break;
+        case 2:
+          a.type = document.querySelector("#wizType").value;
+          a.language = document.querySelector("#wizLanguage").value;
+          a.languageCustom = document.querySelector("#wizLanguageCustom").value.trim();
+          a.genres = this._getChips("wizGenre");
+          a.moods = this._getChips("wizMood");
+          break;
+        case 3:
+          a.personalityDesc = document.querySelector("#wizPersonalityDesc").value.trim();
+          a.appearance = document.querySelector("#wizAppearance").value.trim();
+          a.abilities = document.querySelector("#wizAbilities").value.trim();
+          break;
+        case 4:
+          a.scenario = document.querySelector("#wizScenario").value.trim();
+          a.relationship = document.querySelector("#wizRelationship").value.trim();
+          a.openingVibe = this._getChips("wizOpening");
+          a.notes = document.querySelector("#wizNotes").value.trim();
+          break;
+      }
+    },
+    _populateStep(step) {
+      const a = this._answers;
+      switch (step) {
+        case 1:
+          if (a.name)
+            document.querySelector("#wizName").value = a.name;
+          if (a.gender)
+            document.querySelector("#wizGender").value = a.gender;
+          if (a.genderCustom) {
+            document.querySelector("#wizGenderCustom").value = a.genderCustom;
+            document.querySelector("#wizGenderCustom").classList.remove("d-none");
+          }
+          if (a.tags?.length)
+            document.querySelector("#wizTags").value = a.tags.join(", ");
+          if (a.creator)
+            document.querySelector("#wizCreator").value = a.creator;
+          break;
+        case 2:
+          if (a.type)
+            document.querySelector("#wizType").value = a.type;
+          if (a.language)
+            document.querySelector("#wizLanguage").value = a.language;
+          if (a.languageCustom) {
+            document.querySelector("#wizLanguageCustom").value = a.languageCustom;
+            document.querySelector("#wizLanguageCustom").classList.remove("d-none");
+          }
+          this._setChips("wizGenre", a.genres || []);
+          this._setChips("wizMood", a.moods || []);
+          break;
+        case 3:
+          if (a.personalityDesc)
+            document.querySelector("#wizPersonalityDesc").value = a.personalityDesc;
+          if (a.appearance)
+            document.querySelector("#wizAppearance").value = a.appearance;
+          if (a.abilities)
+            document.querySelector("#wizAbilities").value = a.abilities;
+          break;
+        case 4:
+          if (a.scenario)
+            document.querySelector("#wizScenario").value = a.scenario;
+          if (a.relationship)
+            document.querySelector("#wizRelationship").value = a.relationship;
+          this._setChips("wizOpening", a.openingVibe || []);
+          if (a.notes)
+            document.querySelector("#wizNotes").value = a.notes;
+          break;
+      }
+      if (window.syncFloatLabels)
+        window.syncFloatLabels();
+    },
+    _getChips(groupId) {
+      const active = [];
+      document.querySelectorAll("#" + groupId + " .wizard-chip.active").forEach((c) => active.push(c.dataset.value));
+      return active;
+    },
+    _setChips(groupId, values) {
+      const valSet = new Set(values);
+      document.querySelectorAll("#" + groupId + " .wizard-chip").forEach((c) => {
+        c.classList.toggle("active", valSet.has(c.dataset.value));
+      });
+    },
+    _next() {
+      this._collectStep(this._step);
+      if (this._step === 1 && !this._answers.name) {
+        Ui.showToast(I18n.t("wizard.nameRequired"), "warning");
+        Anims.shakeElement(document.querySelector("#wizName"));
+        document.querySelector("#wizName").focus();
+        return;
+      }
+      if (this._step < this._totalSteps) {
+        const prevStep = this._step;
+        this._step++;
+        this._populateStep(this._step);
+        this._showStepAnimated(this._step, prevStep, "next");
+      }
+    },
+    _back() {
+      this._collectStep(this._step);
+      if (this._step > 1) {
+        const prevStep = this._step;
+        this._step--;
+        this._populateStep(this._step);
+        this._showStepAnimated(this._step, prevStep, "back");
+      }
+    },
+    _renderStepNav(step) {
+      document.querySelector("#wizBtnBack").disabled = step === 1;
+      if (step === this._totalSteps) {
+        document.querySelector("#wizBtnNext").classList.add("d-none");
+        document.querySelector("#wizStepLabel").textContent = I18n.t("wizard.ready");
+        this._renderSummary();
+        this._renderQuickTags();
+        const derivedTags = this._deriveImageTags();
+        const searchInput = document.querySelector("#wizImageTagSearch");
+        if (searchInput && !this._autoFetched) {
+          searchInput.value = derivedTags;
+          this._tagSearch = derivedTags;
+          this._renderQuickTags();
+        }
+        if (!this._autoFetched) {
+          this._autoFetched = true;
+          this._fetchImage();
+        }
+      } else {
+        document.querySelector("#wizBtnNext").classList.remove("d-none");
+        document.querySelector("#wizBtnNext").innerHTML = I18n.t("wizard.next") + ' <i class="bi bi-arrow-right ms-1"></i>';
+        document.querySelector("#wizStepLabel").textContent = I18n.t("wizard.stepLabel", { step, total: this._totalSteps });
+      }
+      this._renderStepIndicator();
+      this._updateProgressBar();
+    },
+    _showStepAnimated(step, prevStep, direction) {
+      const prevEl = document.querySelector('.wizard-step[data-step="' + prevStep + '"]');
+      const nextEl = document.querySelector('.wizard-step[data-step="' + step + '"]');
+      document.querySelectorAll(".wizard-step").forEach((el) => {
+        el.style.opacity = "";
+        el.style.transform = "";
+      });
+      this._renderStepNav(step);
+      Anims.slideStep(prevEl, nextEl, direction, () => {
+        if (step === this._totalSteps) {
+          const items = document.querySelectorAll(".wizard-summary-item");
+          Anims.staggerFadeIn(items, { stagger: 20, duration: 200 });
+        } else {
+          Anims.staggerFadeIn(nextEl.querySelectorAll(".mb-3, .mb-4"), { stagger: 25, duration: 180 });
+        }
+      });
+      setTimeout(() => {
+        if (nextEl) {
+          nextEl.classList.remove("d-none");
+          nextEl.style.opacity = "";
+          nextEl.style.transform = "";
+        }
+      }, 400);
+    },
+    _showStep(step) {
+      document.querySelectorAll(".wizard-step").forEach((el) => {
+        el.classList.add("d-none");
+        el.style.opacity = "";
+        el.style.transform = "";
+      });
+      const target = document.querySelector('.wizard-step[data-step="' + step + '"]');
+      if (target)
+        target.classList.remove("d-none");
+      this._renderStepNav(step);
+    },
+    _renderStepIndicator() {
+      const labels = [
+        I18n.t("wizard.step.basics"),
+        I18n.t("wizard.step.concept"),
+        I18n.t("wizard.step.personality"),
+        I18n.t("wizard.step.scenario"),
+        I18n.t("wizard.step.generate")
+      ];
+      const container = document.querySelector("#wizardStepsIndicator");
+      container.innerHTML = labels.map((label, i) => {
+        const stepNum = i + 1;
+        const isActive = stepNum === this._step;
+        const isDone = stepNum < this._step;
+        const isFuture = stepNum > this._step;
+        let connectorHtml = "";
+        if (i < labels.length - 1) {
+          const prevDone = i < this._step - 1 || i === this._step - 1 && !isActive;
+          connectorHtml = '<div class="wizard-connector' + (prevDone ? " done" : "") + '"></div>';
+        }
+        return '<div class="wizard-step-dot-wrap">' + '<div class="wizard-step-dot' + (isActive ? " active" : "") + (isDone ? " done" : "") + (isFuture ? " future" : "") + '">' + (isDone ? '<i class="bi bi-check-lg"></i>' : "<span>" + (stepNum === this._step ? '<i class="bi bi-chevron-right"></i>' : stepNum) + "</span>") + "</div>" + (i < labels.length - 1 ? connectorHtml : "") + '<span class="wizard-step-dot-label">' + label + "</span>" + "</div>";
+      }).join("");
+    },
+    _updateProgressBar() {
+      const pct = Math.round(this._step / this._totalSteps * 100);
+      document.querySelector("#wizardProgressBar").style.width = pct + "%";
+      Anims.progressBounce(document.querySelector("#wizardProgressBar"));
+    },
+    _renderSummary() {
+      const a = this._answers;
+      const genderLabel = a.gender === "other" ? a.genderCustom : a.gender;
+      const langLabel = a.language === "other" ? a.languageCustom : a.language;
+      function summaryItem(key, value, step, full) {
+        const stepIdx = step || -1;
+        const editBtn = stepIdx >= 0 ? '<button class="wizard-edit-btn btn btn-sm btn-link p-0 ms-1" data-step="' + stepIdx + '" title="' + I18n.t("wizard.editStep") + '" aria-label="' + I18n.t("wizard.editStep") + '"><i class="bi bi-pencil"></i></button>' : "";
+        return '<div class="wizard-summary-item' + (full ? " full" : "") + '">' + '<span class="wizard-summary-label">' + I18n.t(key) + editBtn + "</span>" + '<span class="wizard-summary-value">' + Ui.escapeHtml(value || "-") + "</span></div>";
+      }
+      let html = '<div class="wizard-summary-grid">';
+      html += summaryItem("wizard.summary.name", a.name || "-", 1, false);
+      html += summaryItem("wizard.summary.gender", genderLabel || "-", 1, false);
+      html += summaryItem("wizard.summary.type", a.type ? I18n.t("wizard.type." + a.type) : "-", 2, false);
+      html += summaryItem("wizard.summary.language", langLabel || "-", 2, false);
+      html += summaryItem("wizard.summary.tags", (a.tags || []).join(", ") || "-", 1, false);
+      html += summaryItem("wizard.summary.genres", (a.genres || []).join(", ") || "-", 2, false);
+      html += summaryItem("wizard.summary.mood", (a.moods || []).join(", ") || "-", 2, false);
+      html += summaryItem("wizard.summary.opening", (a.openingVibe || []).join(", ") || "-", 4, false);
+      if (a.personalityDesc)
+        html += summaryItem("wizard.summary.personality", a.personalityDesc, 3, true);
+      if (a.appearance)
+        html += summaryItem("wizard.summary.appearance", a.appearance, 3, true);
+      if (a.scenario)
+        html += summaryItem("wizard.summary.scenario", a.scenario, 4, true);
+      if (a.relationship)
+        html += summaryItem("wizard.summary.relationship", a.relationship, 4, true);
+      if (a.notes)
+        html += summaryItem("wizard.summary.notes", a.notes, 4, true);
+      html += "</div>";
+      document.querySelector("#wizardSummary").innerHTML = html;
+      document.querySelectorAll(".wizard-edit-btn").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const targetStep = parseInt(btn.dataset.step, 10);
+          if (targetStep >= 1 && targetStep <= 4) {
+            this._collectStep(this._step);
+            this._step = targetStep;
+            this._populateStep(targetStep);
+            this._showStepAnimated(targetStep, this._totalSteps, "back");
+          }
+        });
+      });
+    },
+    TAG_OPTIONS: [
+      "waifu",
+      "maid",
+      "uniform",
+      "selfies",
+      "dress",
+      "cat",
+      "neko",
+      "fox",
+      "witch",
+      "swimsuit",
+      "gothic",
+      "dark",
+      "fantasy",
+      "cyberpunk",
+      "military",
+      "sailor",
+      "princess",
+      "angel",
+      "devil",
+      "ninja",
+      "samurai",
+      "pirate",
+      "vampire",
+      "elf",
+      "robot"
+    ],
+    _renderQuickTags() {
+      const container = document.querySelector("#wizQuickTags");
+      if (!container)
+        return;
+      let label = container.querySelector(".wizard-quick-tags-label");
+      if (!label) {
+        label = document.createElement("span");
+        label.className = "wizard-quick-tags-label";
+        label.setAttribute("data-i18n", "wizard.quick");
+        label.textContent = I18n.t("wizard.quick");
+      }
+      container.innerHTML = "";
+      container.appendChild(label);
+      const activeTags = this._tagSearch ? new Set(this._tagSearch.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)) : new Set;
+      this.TAG_OPTIONS.forEach((tag) => {
+        const chip = document.createElement("span");
+        chip.className = "wizard-quick-tag" + (activeTags.has(tag) ? " active" : "");
+        chip.dataset.tag = tag;
+        chip.textContent = tag;
+        chip.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const input = document.querySelector("#wizImageTagSearch");
+          if (!input)
+            return;
+          const current = input.value.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+          const idx = current.indexOf(tag);
+          if (idx >= 0) {
+            current.splice(idx, 1);
+          } else {
+            current.push(tag);
+          }
+          input.value = current.join(", ");
+          this._tagSearch = input.value;
+          this._renderQuickTags();
+        });
+        container.appendChild(chip);
+      });
+    },
+    _bindImageEvents() {
+      const self = this;
+      document.querySelectorAll(".wizard-image-card").forEach((card) => {
+        card.addEventListener("click", () => {
+          const idx = parseInt(card.dataset.idx, 10);
+          if (!self._fetchedImages[idx])
+            return;
+          document.querySelectorAll(".wizard-image-card").forEach((c) => c.classList.remove("selected"));
+          card.classList.add("selected");
+          self._selectedImageIdx = idx;
+          document.querySelector("#wizBtnUseImage").classList.remove("d-none");
+          document.querySelector("#wizBtnRemoveImage").classList.remove("d-none");
+          document.querySelector("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.refetchOthers");
+        });
+      });
+    },
+    _syncTagSearch() {
+      const input = document.querySelector("#wizImageTagSearch");
+      if (input) {
+        this._tagSearch = input.value;
+        this._renderQuickTags();
+      }
+    },
+    _deriveImageTags() {
+      const a = this._answers;
+      const tagMap = {
+        fantasy: "fantasy",
+        scifi: "cyberpunk",
+        modern: "uniform",
+        horror: "dark",
+        romance: "dress",
+        "slice-of-life": "maid",
+        cyberpunk: "cyberpunk",
+        military: "military",
+        dark: "gothic",
+        supernatural: "witch"
+      };
+      const tags = new Set(["waifu"]);
+      (a.genres || []).forEach((g) => {
+        if (tagMap[g])
+          tags.add(tagMap[g]);
+      });
+      if (a.type === "vtuber")
+        tags.add("selfies");
+      if (a.type === "historical")
+        tags.add("maid");
+      if (a.type === "anime")
+        tags.add("neko");
+      const appearance = (a.appearance || "").toLowerCase();
+      if (appearance.includes("cat") || appearance.includes("feline") || appearance.includes("neko"))
+        tags.add("cat");
+      if (appearance.includes("fox") || appearance.includes("kitsune"))
+        tags.add("fox");
+      if (appearance.includes("angel"))
+        tags.add("angel");
+      if (appearance.includes("devil") || appearance.includes("demon") || appearance.includes("succubus"))
+        tags.add("devil");
+      if (appearance.includes("vampire"))
+        tags.add("vampire");
+      if (appearance.includes("elf"))
+        tags.add("elf");
+      if (appearance.includes("sword") || appearance.includes("samurai") || appearance.includes("ninja")) {
+        tags.add("samurai");
+        tags.add("ninja");
+      }
+      if (appearance.includes("pirate"))
+        tags.add("pirate");
+      if (appearance.includes("robot") || appearance.includes("cyborg") || appearance.includes("android"))
+        tags.add("robot");
+      if (appearance.includes("princess"))
+        tags.add("princess");
+      if (appearance.includes("sailor") || appearance.includes("navy") || appearance.includes("marine"))
+        tags.add("sailor");
+      return [...tags].join(", ");
+    },
+    async _fetchImage() {
+      if (this._fetching)
+        return;
+      const btn = document.querySelector("#wizBtnFetchImage");
+      if (!btn)
+        return;
+      this._fetching = true;
+      const origHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>' + I18n.t("wizard.fetching");
+      this._syncTagSearch();
+      const userTags = this._tagSearch.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+      if (!userTags.length)
+        userTags.push("waifu");
+      let labelSet = false;
+      try {
+        const slotsToFetch = [];
+        for (let i = 0;i < 3; i++) {
+          if (i === this._selectedImageIdx)
+            continue;
+          slotsToFetch.push(i);
+        }
+        if (!slotsToFetch.length) {
+          this._fetching = false;
+          btn.disabled = false;
+          btn.innerHTML = origHtml;
+          return;
+        }
+        for (const i of slotsToFetch) {
+          const card = document.querySelectorAll(".wizard-image-card")[i];
+          card.classList.remove("selected");
+          const thumb = card.querySelector(".wiz-thumb");
+          thumb.src = "";
+          thumb.hidden = true;
+          const loader = card.querySelector(".wiz-image-loader");
+          if (loader)
+            loader.classList.remove("d-none");
+          const ph = card.querySelector(".wizard-image-placeholder");
+          if (ph)
+            ph.classList.add("d-none");
+          const prev = this._fetchedImages[i];
+          if (prev && prev._objUrl)
+            URL.revokeObjectURL(prev._objUrl);
+          this._fetchedImages[i] = null;
+        }
+        await Promise.all(slotsToFetch.map(async (i) => {
+          try {
+            const slotTags = [];
+            const tagIdx1 = i * 2 % userTags.length;
+            slotTags.push(userTags[tagIdx1]);
+            if (userTags.length > 1) {
+              const tagIdx2 = (i * 2 + 1) % userTags.length;
+              if (tagIdx2 !== tagIdx1)
+                slotTags.push(userTags[tagIdx2]);
+            }
+            const page = Math.max(1, Math.floor(Math.random() * 20));
+            const resp = await fetch("https://api.waifu.im/images?" + "included_tags=" + encodeURIComponent(slotTags.join(",")) + "&is_nsfw=false&page=" + page);
+            if (!resp.ok)
+              throw new Error("API returned " + resp.status);
+            const data = await resp.json();
+            const items = data.items || [];
+            if (!items.length)
+              throw new Error("No image for tags: " + slotTags.join(", "));
+            const item = items[Math.floor(Math.random() * items.length)];
+            const imgResp = await fetch(item.url);
+            if (!imgResp.ok)
+              throw new Error("Image fetch failed: " + imgResp.status);
+            const blob = await imgResp.blob();
+            const objUrl = URL.createObjectURL(blob);
+            this._fetchedImages[i] = {
+              blob,
+              url: item.url,
+              _objUrl: objUrl,
+              tags: (item.tags || []).map((t) => t.name).join(", ")
+            };
+            const card = document.querySelectorAll(".wizard-image-card")[i];
+            const thumb = card.querySelector(".wiz-thumb");
+            thumb.src = objUrl;
+            thumb.hidden = false;
+            const loader = card.querySelector(".wiz-image-loader");
+            if (loader)
+              loader.classList.add("d-none");
+            card.querySelector(".wizard-image-placeholder").classList.add("d-none");
+          } catch (e) {
+            console.error("waifu.im slot " + i + " fetch failed", e);
+            const card = document.querySelectorAll(".wizard-image-card")[i];
+            const loader = card.querySelector(".wiz-image-loader");
+            if (loader)
+              loader.classList.add("d-none");
+            const ph = card.querySelector(".wizard-image-placeholder");
+            if (ph) {
+              ph.classList.remove("d-none");
+              ph.innerHTML = '<i class="bi bi-exclamation-triangle"></i>';
+            }
+          }
+        }));
+        const ok = slotsToFetch.some((i) => this._fetchedImages[i]);
+        if (!ok)
+          throw new Error("All requests failed");
+        if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
+          document.querySelector("#wizBtnUseImage").classList.remove("d-none");
+          document.querySelector("#wizBtnRemoveImage").classList.remove("d-none");
+          document.querySelector("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.refetchOthers");
+          labelSet = true;
+        } else {
+          document.querySelector("#wizBtnUseImage").classList.add("d-none");
+          document.querySelector("#wizBtnRemoveImage").classList.add("d-none");
+          document.querySelector("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.fetchImages");
+          labelSet = true;
+        }
+      } catch (e) {
+        console.error("waifu.im fetch failed", e);
+        Ui.showToast(I18n.t("toast.wizardFetchFailed", { error: e.message }), "danger");
+      } finally {
+        this._fetching = false;
+        btn.disabled = false;
+        if (!labelSet)
+          btn.innerHTML = origHtml;
+      }
+    },
+    async _useFetchedImage() {
+      if (this._selectedImageIdx < 0 || !this._fetchedImages[this._selectedImageIdx])
+        return;
+      const card = window.AppState.activeCard;
+      if (!card) {
+        Ui.showToast(I18n.t("toast.createCardFirst"), "warning");
+        return;
+      }
+      await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob);
+    },
+    _removeFetchedImage() {
+      const idx = this._selectedImageIdx;
+      if (idx < 0)
+        return;
+      const prev = this._fetchedImages[idx];
+      if (prev && prev._objUrl)
+        URL.revokeObjectURL(prev._objUrl);
+      this._fetchedImages[idx] = null;
+      this._selectedImageIdx = -1;
+      const cards = document.querySelectorAll(".wizard-image-card");
+      const card = cards[idx];
+      if (card) {
+        card.classList.remove("selected");
+        const thumb = card.querySelector(".wiz-thumb");
+        if (thumb) {
+          thumb.src = "";
+          thumb.hidden = true;
+        }
+        const loader = card.querySelector(".wiz-image-loader");
+        if (loader)
+          loader.classList.add("d-none");
+        const ph = card.querySelector(".wizard-image-placeholder");
+        if (ph) {
+          ph.classList.remove("d-none");
+          ph.innerHTML = '<i class="bi bi-image"></i>';
+        }
+      }
+      const anyLeft = this._fetchedImages.some((img) => !!img);
+      document.querySelector("#wizBtnUseImage").classList.add("d-none");
+      document.querySelector("#wizBtnRemoveImage").classList.add("d-none");
+      document.querySelector("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + (anyLeft ? I18n.t("wizard.refetchOthers") : I18n.t("wizard.fetchImages"));
+    },
+    async _generateBlank() {
+      this._collectStep(this._step);
+      this._clearDraft();
+      const chosenImage = this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx] ? this._fetchedImages[this._selectedImageIdx].blob : null;
+      this._modal.hide();
+      const card = CardEngine.createEmptyCard(this._answers.name || "New Character");
+      card.tags = this._answers.tags || [];
+      card.creator = this._answers.creator || "";
+      await CardStorage.upsertCard(card);
+      window.AppState.cards = CardStorage.getCards();
+      await CardManager.selectCard(card);
+      if (chosenImage) {
+        try {
+          await Editor.setAvatar(chosenImage);
+        } catch (_) {}
+      }
+      CardManager.renderCardList();
+      document.querySelector("#editName").focus();
+      Ui.showToast(I18n.t("toast.wizardCreated"), "success");
+    },
+    async _generateWithAI() {
+      this._collectStep(this._step);
+      if (!AIService.hasApiKey()) {
+        Ui.showToast(I18n.t("toast.wizardApi"), "warning");
+        return;
+      }
+      const modelSelect = document.querySelector("#aiModelSelect");
+      if (!modelSelect) {
+        Ui.showToast(I18n.t("toast.wizardModel"), "warning");
+        return;
+      }
+      const modelId = modelSelect.value;
+      if (!modelId) {
+        Ui.showToast(I18n.t("toast.wizardModel"), "warning");
+        return;
+      }
+      this._clearDraft();
+      const chosenImage = this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx] ? this._fetchedImages[this._selectedImageIdx].blob : null;
+      this._modal.hide();
+      const a = this._answers;
+      const genderText = a.gender === "other" ? a.genderCustom : a.gender || "unspecified";
+      const langMap = {
+        en: "English",
+        fr: "French",
+        de: "German",
+        ja: "Japanese",
+        it: "Italian",
+        pl: "Polish",
+        tr: "Turkish",
+        nl: "Dutch",
+        uk: "Ukrainian",
+        vi: "Vietnamese",
+        id: "Indonesian",
+        hi: "Hindi",
+        ar: "Arabic",
+        he: "Hebrew",
+        fa: "Persian"
+      };
+      const langText = langMap[a.language] || a.languageCustom || "English";
+      const typeLabels = {
+        original: "Original Character",
+        fanfic: "Fan Fiction",
+        game: "Game Character",
+        anime: "Anime / Manga",
+        book: "Book / Movie / Show",
+        historical: "Historical Figure",
+        mythological: "Mythological / Folklore",
+        vtuber: "VTuber / Streamer",
+        other: "Other"
+      };
+      let prompt = (CardStorage.getPrompt("wizard") || "Create a complete SillyTavern character card as valid JSON (chara_card_v2 spec).").trimEnd() + " ";
+      prompt += "Write everything in " + langText + ". ";
+      prompt += `Return ONLY the JSON code block, no explanation.
+
+`;
+      prompt += `## Character Details
+
+`;
+      prompt += "- **Name**: " + (a.name || "New Character") + `
+`;
+      prompt += "- **Gender**: " + genderText + `
+`;
+      prompt += "- **Type**: " + (typeLabels[a.type] || "Original Character") + `
+`;
+      prompt += "- **Tags**: " + (a.tags || []).join(", ") + `
+`;
+      if (a.genres?.length)
+        prompt += "- **Genre/World**: " + a.genres.join(", ") + `
+`;
+      if (a.moods?.length)
+        prompt += "- **Mood/Tone**: " + a.moods.join(", ") + `
+`;
+      if (a.personalityDesc)
+        prompt += "- **Personality**: " + a.personalityDesc + `
+`;
+      if (a.appearance)
+        prompt += "- **Appearance**: " + a.appearance + `
+`;
+      if (a.abilities)
+        prompt += "- **Special Traits**: " + a.abilities + `
+`;
+      if (a.scenario)
+        prompt += "- **Scenario**: " + a.scenario + `
+`;
+      if (a.relationship)
+        prompt += "- **Relationship to {{user}}**: " + a.relationship + `
+`;
+      if (a.openingVibe?.length)
+        prompt += "- **First Message Style**: " + a.openingVibe.join(", ") + `
+`;
+      if (a.notes)
+        prompt += "- **Additional Notes**: " + a.notes + `
+`;
+      prompt += `
+## Requirements
+
+`;
+      prompt += "- `name`: Character name\n";
+      prompt += "- `description`: Detailed appearance and backstory (2-4 paragraphs)\n";
+      prompt += "- `personality`: Personality traits and mannerisms\n";
+      prompt += "- `scenario`: The current setting and context\n";
+      prompt += "- `first_mes`: An engaging opening message in character, using *asterisks for actions* and dialogue in quotes. Match the requested opening vibe.\n";
+      prompt += "- `mes_example`: 2-3 example dialogues in <START> blocks showing different aspects of the character\n";
+      prompt += "- `system_prompt`: A system prompt that captures the character essence\n";
+      prompt += "- `tags`: The tags provided\n";
+      prompt += "- `creator_notes`: Brief usage notes for the card\n";
+      prompt += `- Use {{char}} for the character name and {{user}} for the user in example messages
+`;
+      prompt += `- Keep the JSON structure clean and valid
+`;
+      const card = CardEngine.createEmptyCard(a.name || "New Character");
+      card.tags = a.tags || [];
+      card.creator = a.creator || "";
+      await CardStorage.upsertCard(card);
+      window.AppState.cards = CardStorage.getCards();
+      await CardManager.selectCard(card);
+      if (chosenImage) {
+        try {
+          await Editor.setAvatar(chosenImage);
+        } catch (_) {}
+      }
+      CardManager.renderCardList();
+      AiChat._sendFullCard(prompt);
+    }
+  };
+  if (typeof window !== "undefined")
+    window.Wizard = Wizard2;
+
+  // js/waifuTab.js
+  var WaifuTab = {
+    _fetched: [],
+    _selected: -1,
+    _fetching: false,
+    _source: "snapshot",
+    _gender: "all",
+    _mode: "source",
+    _preloaded: false,
+    _lastRun: null,
+    init() {
+      const on = (sel, event, fn) => {
+        const el = document.querySelector(sel);
+        if (el)
+          el.addEventListener(event, fn);
+      };
+      on("#waifuBtnFetch", "click", () => this._fetch());
+      on("#waifuBtnRegenerate", "click", () => this._regenerate());
+      on("#waifuBtnMixed", "click", () => this._fetchMixedFromUI());
+      on("#waifuBtnUse", "click", () => this._useSelected());
+      on("#waifuBtnRemove", "click", () => this._removeCurrent());
+      on("#waifuBtnUpload", "click", () => {
+        const inp = document.querySelector("#waifuUploadInput");
+        if (inp)
+          inp.click();
+      });
+      on("#waifuUploadInput", "change", (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (f)
+          Editor.setAvatar(f);
+        e.target.value = "";
+      });
+      on("#waifuSourceSelect", "change", () => this._onSourceChange());
+      const chipsWrap = document.querySelector("#waifuGenderChips");
+      if (chipsWrap) {
+        chipsWrap.addEventListener("click", (e) => {
+          const chip = e.target.closest(".waifu-chip");
+          if (!chip || !chip.dataset.gender)
+            return;
+          this._gender = chip.dataset.gender;
+          chipsWrap.querySelectorAll(".waifu-chip").forEach((c) => {
+            c.classList.toggle("active", c === chip);
+          });
+        });
+      }
+      const search = document.querySelector("#waifuTagSearch");
+      if (search) {
+        search.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            this._fetch();
+          }
+        });
+      }
+      const tabTrigger = document.querySelector('#editorTabs .nav-link[data-bs-target="#tabWaifu"]');
+      if (tabTrigger) {
+        tabTrigger.addEventListener("shown.bs.tab", () => {
+          this._refreshPreview();
+          this._render();
+          if (!this._preloaded && !this._fetched.length && !this._fetching) {
+            this._preloaded = true;
+            this._fetchMixedFromUI();
+          }
+        });
+      }
+      this._onSourceChange();
+      this._refreshPreview();
+      this._render();
+    },
+    _onSourceChange(mode) {
+      const select = document.querySelector("#waifuSourceSelect");
+      this._source = select ? select.value : "snapshot";
+      this._mode = mode || "source";
+      const isChar = this._source === "character";
+      const genderWrap = document.querySelector("#waifuGenderWrap");
+      if (genderWrap)
+        genderWrap.style.display = isChar ? "" : "none";
+      const sub = document.querySelector("#waifuSubText");
+      const search = document.querySelector("#waifuTagSearch");
+      const label = document.querySelector("#waifuSearchLabel");
+      if (isChar) {
+        if (sub)
+          sub.textContent = I18n.t("editor.waifuCharSub");
+        if (search)
+          search.placeholder = I18n.t("editor.waifuSearchPlaceholderChar");
+        if (label)
+          label.textContent = I18n.t("editor.waifuSearchChar");
+      } else {
+        if (sub)
+          sub.textContent = I18n.t("editor.waifuSub");
+        if (search)
+          search.placeholder = I18n.t("editor.waifuSearchPlaceholder");
+        if (label)
+          label.textContent = I18n.t("editor.waifuSearch");
+      }
+      this._syncGenderChips();
+      this._discardResults();
+    },
+    _syncGenderChips() {
+      const wrap = document.querySelector("#waifuGenderChips");
+      if (!wrap)
+        return;
+      wrap.querySelectorAll(".waifu-chip").forEach((c) => {
+        c.classList.toggle("active", c.dataset.gender === this._gender);
+      });
+    },
+    _discardResults() {
+      this._fetched.forEach((f) => {
+        if (f && f.objUrl)
+          URL.revokeObjectURL(f.objUrl);
+      });
+      this._fetched = [];
+      this._selected = -1;
+      this._render();
+    },
+    _searchValue() {
+      const inp = document.querySelector("#waifuTagSearch");
+      return inp ? inp.value.trim() : "";
+    },
+    _tagsFromSearch(searchVal) {
+      const tags = (searchVal || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+      if (!tags.length)
+        tags.push("waifu");
+      return tags;
+    },
+    _slotTags(userTags, i) {
+      const idx1 = i * 2 % userTags.length;
+      const tags = [userTags[idx1]];
+      if (userTags.length > 1) {
+        const idx2 = (i * 2 + 1) % userTags.length;
+        if (idx2 !== idx1)
+          tags.push(userTags[idx2]);
+      }
+      return tags;
+    },
+    async _fetchSnapshots(searchVal) {
+      const results = [];
+      const userTags = this._tagsFromSearch(searchVal);
+      for (let i = 0;i < 3; i++) {
+        try {
+          const slotTags = this._slotTags(userTags, i);
+          const page = Math.max(1, Math.floor(Math.random() * 20));
+          const resp = await fetch("https://api.waifu.im/images?" + "included_tags=" + encodeURIComponent(slotTags.join(",")) + "&is_nsfw=false&page=" + page);
+          if (!resp.ok)
+            throw new Error("API returned " + resp.status);
+          const data = await resp.json();
+          const items = data.items || [];
+          if (!items.length)
+            throw new Error("No image for " + slotTags.join(", "));
+          const item = items[Math.floor(Math.random() * items.length)];
+          const imgResp = await fetch(item.url);
+          const blob = await imgResp.blob();
+          const objUrl = URL.createObjectURL(blob);
+          results.push({
+            blob,
+            url: item.url,
+            objUrl,
+            tags: (item.tags || []).map((t) => t.name).slice(0, 4).join(", ")
+          });
+        } catch (e) {
+          console.error("waifu tab snapshot slot " + i + " fetch failed", e);
+        }
+      }
+      return results;
+    },
+    async _graphQL(query, variables) {
+      const resp = await fetch("https://graphql.anilist.co", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ query, variables })
+      });
+      if (!resp.ok)
+        throw new Error("AniList returned " + resp.status);
+      return resp.json();
+    },
+    _characterQuery() {
+      return `
+      query ($search: String, $page: Int, $perPage: Int, $sort: [CharacterSort]) {
+        Page(page: $page, perPage: $perPage) {
+          pageInfo { hasNextPage }
+          characters(search: $search, sort: $sort) {
+            id
+            name { full }
+            gender
+            image { large }
+          }
+        }
+      }`;
+    },
+    async _queryCharacters(searchVal, genderWanted, want) {
+      const search = searchVal || null;
+      const perPage = 50;
+      const candidates = [];
+      const sort = search ? "SEARCH_MATCH" : "FAVOURITES_DESC";
+      const pages = search ? 2 : 4;
+      for (let page = 1;page <= pages; page++) {
+        try {
+          const data = await this._graphQL(this._characterQuery(), {
+            search,
+            page,
+            perPage,
+            sort: [sort]
+          });
+          const chars = data.data && data.data.Page && data.data.Page.characters || [];
+          let pool = chars;
+          if (genderWanted !== "all") {
+            pool = pool.filter((c) => c && (c.gender || "").toLowerCase() === genderWanted);
+          }
+          for (const c of pool) {
+            if (c && c.image && c.image.large)
+              candidates.push(c);
+          }
+        } catch (e) {
+          console.error("AniList character fetch failed", e);
+          break;
+        }
+        if (candidates.length >= 60)
+          break;
+      }
+      if (search) {
+        candidates.splice(want);
+      } else {
+        for (let i = candidates.length - 1;i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+        }
+      }
+      const results = [];
+      for (const c of candidates) {
+        if (results.length >= want)
+          break;
+        try {
+          const imgResp = await fetch(c.image.large);
+          if (!imgResp.ok)
+            continue;
+          const blob = await imgResp.blob();
+          const objUrl = URL.createObjectURL(blob);
+          const name = c.name && c.name.full || "";
+          const g = (c.gender || "").toLowerCase();
+          let genderLabel = "?";
+          if (g === "female")
+            genderLabel = "Female";
+          else if (g === "male")
+            genderLabel = "Male";
+          else if (genderWanted === "female")
+            genderLabel = "Female";
+          else if (genderWanted === "male")
+            genderLabel = "Male";
+          results.push({ blob, url: c.image.large, objUrl, tags: (name + " · " + genderLabel).trim() });
+        } catch (e) {}
+      }
+      return results;
+    },
+    async _fetchMixed(searchVal) {
+      const [female, male] = await Promise.all([
+        this._queryCharacters(searchVal, "female", 3),
+        this._queryCharacters(searchVal, "male", 3)
+      ]);
+      const out = [];
+      for (let i = 0;i < 3; i++) {
+        if (female[i])
+          out.push(female[i]);
+        if (male[i])
+          out.push(male[i]);
+      }
+      return out;
+    },
+    _currentIntent() {
+      return {
+        mode: this._mode,
+        source: this._source,
+        gender: this._gender,
+        search: this._searchValue()
+      };
+    },
+    async _runFetch(intent, triggerBtn) {
+      if (this._fetching)
+        return;
+      this._fetching = true;
+      const fetchBtn = document.querySelector("#waifuBtnFetch");
+      const fetchLabel = fetchBtn ? fetchBtn.querySelector("span") : null;
+      if (fetchLabel)
+        fetchLabel.textContent = I18n.t("wizard.fetching");
+      if (triggerBtn)
+        triggerBtn.disabled = true;
+      try {
+        let results;
+        if (intent.mode === "mixed") {
+          results = await this._fetchMixed(intent.search);
+        } else if (intent.source === "character") {
+          results = await this._queryCharacters(intent.search, intent.gender, 3);
+        } else {
+          results = await this._fetchSnapshots(intent.search);
+        }
+        this._fetched.forEach((f) => {
+          if (f && f.objUrl)
+            URL.revokeObjectURL(f.objUrl);
+        });
+        this._fetched = results;
+        this._selected = results.length ? 0 : -1;
+        this._render();
+        if (!results.length) {
+          Ui.showToast(I18n.t("toast.wizardFetchFailed", { error: "No results found" }), "danger");
+        }
+        this._lastRun = intent;
+      } finally {
+        this._fetching = false;
+        if (fetchLabel)
+          fetchLabel.textContent = I18n.t("editor.waifuFetch");
+        if (triggerBtn)
+          triggerBtn.disabled = false;
+      }
+    },
+    _fetch() {
+      this._mode = "source";
+      this._runFetch(this._currentIntent(), document.querySelector("#waifuBtnFetch"));
+    },
+    _regenerate() {
+      if (!this._lastRun) {
+        this._fetch();
+        return;
+      }
+      this._runFetch({ ...this._lastRun }, document.querySelector("#waifuBtnRegenerate"));
+    },
+    _fetchMixedFromUI() {
+      const src = document.querySelector("#waifuSourceSelect");
+      if (src)
+        src.value = "character";
+      this._source = "character";
+      this._gender = "all";
+      this._mode = "mixed";
+      this._onSourceChange("mixed");
+      this._syncGenderChips();
+      this._runFetch({ mode: "mixed", search: this._searchValue() }, document.querySelector("#waifuBtnMixed"));
+    },
+    _render() {
+      const wrap = document.querySelector("#waifuResults");
+      const btnUse = document.querySelector("#waifuBtnUse");
+      const isMixed = this._mode === "mixed";
+      if (!wrap)
+        return;
+      if (!this._fetched.length) {
+        wrap.innerHTML = "";
+        if (btnUse)
+          btnUse.hidden = true;
+        return;
+      }
+      wrap.innerHTML = '<div class="waifu-results-grid">' + this._fetched.map((f, i) => {
+        const tagHtml = f.tags ? '<div class="waifu-card-tags">' + Ui.escapeHtml(f.tags) + "</div>" : "";
+        return '<div class="waifu-card' + (i === this._selected ? " selected" : "") + '" data-idx="' + i + '" role="button" tabindex="0">' + '<img src="' + f.objUrl + '" alt="">' + tagHtml + "</div>";
+      }).join("") + "</div>";
+      wrap.querySelectorAll(".waifu-card").forEach((card) => {
+        card.addEventListener("click", () => {
+          this._selected = +card.dataset.idx;
+          this._render();
+        });
+      });
+      if (btnUse)
+        btnUse.hidden = this._selected < 0;
+    },
+    async _useSelected() {
+      if (this._selected < 0 || !this._fetched[this._selected])
+        return;
+      const { activeCard } = window.AppState;
+      if (!activeCard) {
+        Ui.showToast(I18n.t("toast.createCardFirst"), "warning");
+        return;
+      }
+      await Editor.setAvatar(this._fetched[this._selected].blob);
+      this._refreshPreview();
+    },
+    async _removeCurrent() {
+      const { activeCard } = window.AppState;
+      if (!activeCard) {
+        Ui.showToast(I18n.t("toast.selectCard"), "warning");
+        return;
+      }
+      if (!activeCard._hasImage && !activeCard._imageBase64) {
+        Ui.showToast(I18n.t("toast.noImage"), "warning");
+        return;
+      }
+      delete activeCard._imageBase64;
+      delete activeCard._thumbnail;
+      activeCard._hasImage = false;
+      if (activeCard._id) {
+        try {
+          await CardStorage.deleteImage(activeCard._id);
+        } catch (_) {}
+      }
+      const img = document.querySelector("#charAvatarImg");
+      if (img) {
+        img.src = "";
+        img.hidden = true;
+      }
+      const ph = document.querySelector("#avatarPlaceholder");
+      if (ph)
+        ph.style.display = "";
+      try {
+        await Editor.syncEditorToCard();
+      } catch (_) {}
+      this._refreshPreview();
+      Ui.showToast(I18n.t("toast.imageRemoved"), "success");
+    },
+    _refreshPreview() {
+      const { activeCard } = window.AppState;
+      const img = document.querySelector("#waifuCurrentImg");
+      const noImg = document.querySelector("#waifuNoImage");
+      if (!img || !noImg)
+        return;
+      if (activeCard && (activeCard._imageBase64 || activeCard._hasImage)) {
+        img.src = activeCard._imageBase64 || activeCard._thumbnail || "";
+        img.hidden = false;
+        noImg.style.display = "none";
+      } else {
+        img.src = "";
+        img.hidden = true;
+        noImg.style.display = "";
+      }
+    }
+  };
+  if (typeof window !== "undefined")
+    window.WaifuTab = WaifuTab;
 
   // js/ui.js
-  window.AppState = { cards: [], activeCard: null, models: [], chatHistory: [], isAiLoading: false, _dirty: false };
-  var Ui2 = {
+  if (typeof window !== "undefined")
+    window.AppState = { cards: [], activeCard: null, models: [], chatHistory: [], isAiLoading: false, _dirty: false };
+  var Ui = {
     $(sel) {
       return document.querySelector(sel);
     },
@@ -25110,7 +23858,7 @@ Each greeting should be an in-character opening message that could start a conve
       URL.revokeObjectURL(url);
     },
     _openDialog(cfg) {
-      const $ = Ui2.$;
+      const $ = Ui.$;
       const modal = this._dialogInstance || (this._dialogInstance = new bootstrap.Modal("#dialogModal"));
       $("#dialogTitle").textContent = cfg.title || "";
       const msg = $("#dialogMsg");
@@ -25441,7 +24189,7 @@ Each greeting should be an in-character opening message that could start a conve
     }
   };
   if (typeof window !== "undefined")
-    window.Ui = Ui2;
+    window.Ui = Ui;
   var DEBOUNCE_INPUT_MS = 800;
   var DEBOUNCE_SEARCH_MS2 = 300;
   function initFloatingLabels() {
@@ -25494,7 +24242,7 @@ Each greeting should be an in-character opening message that could start a conve
     syncFloatLabels();
   }
   async function init() {
-    const $ = Ui2.$;
+    const $ = Ui.$;
     await CardStorage._checkMigration();
     await CardStorage.migrateCardsToIndexedDB();
     await CardManager.migrateImagesToIndexedDB();
@@ -25505,7 +24253,7 @@ Each greeting should be an in-character opening message that could start a conve
     const unreadableOpenrouter = CardStorage._secretWarn.apiKey;
     const unreadableCustom = CardStorage._secretWarn.customApiKey;
     if (unreadableOpenrouter || unreadableCustom) {
-      Ui2.showToast(I18n.t ? I18n.t("settings.secretUnreadable") : "Due to security, a saved API key could not be unlocked on this address — please re-enter it in Settings.", "warning");
+      Ui.showToast(I18n.t ? I18n.t("settings.secretUnreadable") : "Due to security, a saved API key could not be unlocked on this address — please re-enter it in Settings.", "warning");
     }
     if (apiKey) {
       $("#apiKeyInput").value = apiKey;
@@ -25542,10 +24290,10 @@ Each greeting should be an in-character opening message that could start a conve
       Settings.refreshCredits();
     if (provider === "custom" || apiKey)
       Settings.refreshModelsList();
-    Ui2.updateUIState();
+    Ui.updateUIState();
     bindEvents(settingsModal);
     AiChat.updateContextBar();
-    Wizard.init();
+    Wizard2.init();
     WaifuTab.init();
     AiChat._renderFieldChips();
     initFloatingLabels();
@@ -25565,14 +24313,14 @@ Each greeting should be an in-character opening message that could start a conve
     });
     window.addEventListener("storage", handleStorageChange);
     document.addEventListener("focusout", (e) => {
-      if (!Ui2._pendingBlurCardId)
+      if (!Ui._pendingBlurCardId)
         return;
       if (!(e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable)))
         return;
-      const cardId = Ui2._pendingBlurCardId;
-      Ui2._pendingBlurCardId = null;
+      const cardId = Ui._pendingBlurCardId;
+      Ui._pendingBlurCardId = null;
       if (window.AppState.activeCard && window.AppState.activeCard._id === cardId && !window.AppState._dirty) {
-        Ui2._reloadActiveCard(cardId);
+        Ui._reloadActiveCard(cardId);
       }
     });
     if ("serviceWorker" in navigator) {
@@ -25621,7 +24369,7 @@ Each greeting should be an in-character opening message that could start a conve
       console.error("Global error:", e.error || e);
       if (!window._errorThrottled) {
         window._errorThrottled = true;
-        Ui2.showToast(I18n.t ? I18n.t("error.unexpected", { message: msg }) : "Unexpected error: " + msg, "danger");
+        Ui.showToast(I18n.t ? I18n.t("error.unexpected", { message: msg }) : "Unexpected error: " + msg, "danger");
         setTimeout(() => {
           window._errorThrottled = false;
         }, 5000);
@@ -25636,7 +24384,7 @@ Each greeting should be an in-character opening message that could start a conve
       console.error("Unhandled rejection:", e.reason);
       if (!window._errorThrottled) {
         window._errorThrottled = true;
-        Ui2.showToast(I18n.t ? I18n.t("error.requestFailed", { message: msg }) : "Request failed: " + msg, "danger");
+        Ui.showToast(I18n.t ? I18n.t("error.requestFailed", { message: msg }) : "Request failed: " + msg, "danger");
         setTimeout(() => {
           window._errorThrottled = false;
         }, 5000);
@@ -25648,8 +24396,8 @@ Each greeting should be an in-character opening message that could start a conve
     });
   }
   function bindEvents(settingsModal) {
-    const $ = Ui2.$;
-    const $$ = Ui2.$$;
+    const $ = Ui.$;
+    const $$ = Ui.$$;
     const dropZone = $("#dropZone");
     if (!dropZone)
       return;
@@ -25715,8 +24463,8 @@ Each greeting should be an in-character opening message that could start a conve
     $("#btnSaveCard").addEventListener("click", () => CardManager.saveCurrentCard());
     $("#btnSettings").addEventListener("click", () => settingsModal.show());
     $("#btnHelp").addEventListener("click", () => {
-      Ui2._shortcutsModal = Ui2._shortcutsModal || new bootstrap.Modal("#shortcutsModal");
-      Ui2._shortcutsModal.show();
+      Ui._shortcutsModal = Ui._shortcutsModal || new bootstrap.Modal("#shortcutsModal");
+      Ui._shortcutsModal.show();
     });
     $("#btnToggleApiKey").addEventListener("click", () => Settings.toggleApiKeyVisibility());
     $("#btnToggleNamedApiKey").addEventListener("click", () => Settings.toggleNamedApiKeyVisibility());
@@ -25734,7 +24482,7 @@ Each greeting should be an in-character opening message that could start a conve
     $("#languageSelect").addEventListener("change", (e) => {
       I18n.setLanguage(e.target.value);
       I18n.translateDOM();
-      Ui2.showToast(I18n.t("settings.languageChanged"), "success");
+      Ui.showToast(I18n.t("settings.languageChanged"), "success");
     });
     window.addEventListener("stce:language-changed", () => {
       CardManager.renderCardList();
@@ -25847,7 +24595,7 @@ Each greeting should be an in-character opening message that could start a conve
     $("#btnExportJson").addEventListener("click", () => ExportUtils.exportAsJSON());
     $("#btnExportPng").addEventListener("click", () => ExportUtils.exportAsPNG());
     $("#btnDeleteCard").addEventListener("click", async () => {
-      if (await Ui2.confirm({
+      if (await Ui.confirm({
         title: I18n.t ? I18n.t("batch.deleteTitle", { count: 1 }) : "Delete this card?",
         message: I18n.t ? I18n.t("batch.deleteConfirm", { count: 1 }) : "Delete this card? This cannot be undone.",
         buttonLabel: I18n.t ? I18n.t("dialog.delete") : "Delete"
@@ -25966,8 +24714,8 @@ Each greeting should be an in-character opening message that could start a conve
             Editor._lastSnapField = camelField;
           }
         });
-        el.addEventListener("input", Ui2.debounce(() => {
-          Ui2._markTouchedField(camelField);
+        el.addEventListener("input", Ui.debounce(() => {
+          Ui._markTouchedField(camelField);
           Editor.syncEditorToCard().catch(() => {});
           Editor.updateCharCounts();
           Editor.autoResizeTextareas();
@@ -25989,7 +24737,7 @@ Each greeting should be an in-character opening message that could start a conve
             return;
           if (mode === "preview") {
             textarea.style.display = "none";
-            preview.innerHTML = Ui2.renderMarkdown(textarea.value, preview);
+            preview.innerHTML = Ui.renderMarkdown(textarea.value, preview);
             preview.classList.add("visible");
           } else {
             textarea.style.display = "";
@@ -26015,7 +24763,7 @@ Each greeting should be an in-character opening message that could start a conve
     });
     $("#btnClearChat").addEventListener("click", () => AiChat.clearChat());
     $("#btnChatHistory").addEventListener("click", () => AiChat.toggleHistory());
-    $("#aiInput").addEventListener("input", Ui2.debounce(() => AiChat.updateContextBar(), 400));
+    $("#aiInput").addEventListener("input", Ui.debounce(() => AiChat.updateContextBar(), 400));
     $("#aiModelSelect").addEventListener("change", () => AiChat.updateContextBar());
     const stopBtn = $("#btnAiStop");
     if (stopBtn)
@@ -26033,7 +24781,7 @@ Each greeting should be an in-character opening message that could start a conve
     $$(".quick-action").forEach((btn) => {
       btn.addEventListener("click", () => AiChat.handleQuickAction(btn.dataset.action));
     });
-    $("#modelSearch").addEventListener("input", Ui2.debounce(() => Settings.filterModels(), DEBOUNCE_SEARCH_MS2));
+    $("#modelSearch").addEventListener("input", Ui.debounce(() => Settings.filterModels(), DEBOUNCE_SEARCH_MS2));
     $("#btnAddLoreEntry").addEventListener("click", () => Editor.addLorebookEntry());
     $("#btnAddGreeting").addEventListener("click", () => Editor.addGreeting());
     const extensionsTa = $("#editExtensions");
@@ -26047,7 +24795,7 @@ Each greeting should be an in-character opening message that could start a conve
           Editor._lastSnapField = "extensions";
         }
       });
-      extensionsTa.addEventListener("input", Ui2.debounce(() => {
+      extensionsTa.addEventListener("input", Ui.debounce(() => {
         Editor._applyExtensionsFromDom().catch(() => {});
         Editor.autoResizeTextareas();
       }, 600));
@@ -26087,7 +24835,7 @@ Each greeting should be an in-character opening message that could start a conve
     }
     const loreSearch = $("#lorebookSearchInput");
     if (loreSearch) {
-      loreSearch.addEventListener("input", Ui2.debounce(() => {
+      loreSearch.addEventListener("input", Ui.debounce(() => {
         if (window.AppState.activeCard)
           Editor.renderLorebook(window.AppState.activeCard);
       }, DEBOUNCE_SEARCH_MS2));
@@ -26168,7 +24916,7 @@ Each greeting should be an in-character opening message that could start a conve
     const toggle = (side) => setCollapsed(side, !isCollapsed(side));
     setCollapsed("left", (localStorage.getItem(storageKey("left")) || "0") === "1");
     setCollapsed("right", (localStorage.getItem(storageKey("right")) || "0") === "1");
-    const q = Ui2.$;
+    const q = Ui.$;
     const collapseLeft = q("#btnCollapseLeft");
     const collapseRight = q("#btnCollapseRight");
     const expandLeft = q("#edgeExpandLeft");
@@ -26190,8 +24938,8 @@ Each greeting should be an in-character opening message that could start a conve
         Anims.pulseIcon(focusBtn.querySelector("i"));
       });
     }
-    Ui2.togglePanelCollapse = (side) => toggle(side);
-    Ui2.setFocusMode = (on) => {
+    Ui.togglePanelCollapse = (side) => toggle(side);
+    Ui.setFocusMode = (on) => {
       setCollapsed("left", on);
       setCollapsed("right", on);
     };
@@ -26330,19 +25078,19 @@ Each greeting should be an in-character opening message that could start a conve
       e.preventDefault();
       const app = document.querySelector("#appContainer");
       const focused = app && app.classList.contains("side-left-collapsed") && app.classList.contains("side-right-collapsed");
-      if (Ui2.setFocusMode)
-        Ui2.setFocusMode(!focused);
+      if (Ui.setFocusMode)
+        Ui.setFocusMode(!focused);
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key === "\\") {
       e.preventDefault();
-      if (Ui2.togglePanelCollapse)
-        Ui2.togglePanelCollapse("right");
+      if (Ui.togglePanelCollapse)
+        Ui.togglePanelCollapse("right");
       return;
     }
     if (e.key === "?") {
-      Ui2._shortcutsModal = Ui2._shortcutsModal || new bootstrap.Modal("#shortcutsModal");
-      Ui2._shortcutsModal.show();
+      Ui._shortcutsModal = Ui._shortcutsModal || new bootstrap.Modal("#shortcutsModal");
+      Ui._shortcutsModal.show();
     }
   }
   async function handleStorageChange(e) {
@@ -26357,23 +25105,1277 @@ Each greeting should be an in-character opening message that could start a conve
     if (window.AppState.activeCard) {
       const active = document.activeElement;
       if (window.AppState._dirty) {
-        if (Ui2._pendingRemoteReload)
+        if (Ui._pendingRemoteReload)
           return;
-        Ui2._pendingRemoteReload = true;
-        Ui2._pendingRemoteCardId = window.AppState.activeCard._id;
-        Ui2._pendingRemoteTouched = new Set;
-        Ui2._pendingRemoteSnapshot = CardStorage.getCard(window.AppState.activeCard._id).catch((err) => {
+        Ui._pendingRemoteReload = true;
+        Ui._pendingRemoteCardId = window.AppState.activeCard._id;
+        Ui._pendingRemoteTouched = new Set;
+        Ui._pendingRemoteSnapshot = CardStorage.getCard(window.AppState.activeCard._id).catch((err) => {
           console.error("Failed to snapshot remote card:", err);
           return null;
         });
         return;
       }
       if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) {
-        Ui2._pendingBlurCardId = window.AppState.activeCard._id;
+        Ui._pendingBlurCardId = window.AppState.activeCard._id;
         return;
       }
-      Ui2._reloadActiveCard(window.AppState.activeCard._id);
+      Ui._reloadActiveCard(window.AppState.activeCard._id);
     }
   }
-  document.addEventListener("DOMContentLoaded", init);
+  if (typeof document !== "undefined")
+    document.addEventListener("DOMContentLoaded", init);
+
+  // js/storage.js
+  var CardStorage = {
+    PREFIX: "stce_",
+    CHAT_HISTORY_LIMIT: 100,
+    DB: {
+      dbName: "stce_data",
+      version: 1,
+      stores: { cards: "cards", images: "images" },
+      _db: null,
+      _dbPromise: null,
+      async init() {
+        if (this._db)
+          return this._db;
+        if (!this._dbPromise) {
+          this._dbPromise = new Promise((resolve, reject) => {
+            const req = indexedDB.open(this.dbName, this.version);
+            req.onupgradeneeded = (e) => {
+              const db = e.target.result;
+              if (!db.objectStoreNames.contains(this.stores.cards)) {
+                db.createObjectStore(this.stores.cards);
+              }
+              if (!db.objectStoreNames.contains(this.stores.images)) {
+                db.createObjectStore(this.stores.images);
+              }
+            };
+            req.onsuccess = () => {
+              this._db = req.result;
+              this._db.onclose = () => {
+                this._db = null;
+                this._dbPromise = null;
+              };
+              resolve(this._db);
+            };
+            req.onerror = () => {
+              this._dbPromise = null;
+              reject(req.error);
+            };
+          });
+        }
+        return this._dbPromise;
+      },
+      async get(store, id) {
+        const db = await this.init();
+        return new Promise((resolve, reject) => {
+          const req = db.transaction(store, "readonly").objectStore(store).get(id);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      },
+      async set(store, id, data) {
+        const db = await this.init();
+        return new Promise((resolve, reject) => {
+          const req = db.transaction(store, "readwrite").objectStore(store).put(data, id);
+          req.onsuccess = () => resolve();
+          req.onerror = () => reject(req.error && req.error.name === "QuotaExceededError" ? new Error(I18n.t ? I18n.t("error.storageFull") : "Storage full! Try removing some cards or exporting them.") : req.error);
+        });
+      },
+      async delete(store, id) {
+        const db = await this.init();
+        return new Promise((resolve, reject) => {
+          const req = db.transaction(store, "readwrite").objectStore(store).delete(id);
+          req.onsuccess = () => resolve();
+          req.onerror = () => reject(req.error);
+        });
+      },
+      async clear(store) {
+        const db = await this.init();
+        return new Promise((resolve, reject) => {
+          const req = db.transaction(store, "readwrite").objectStore(store).clear();
+          req.onsuccess = () => resolve();
+          req.onerror = () => reject(req.error);
+        });
+      },
+      async getAll(store) {
+        const db = await this.init();
+        return new Promise((resolve, reject) => {
+          const req = db.transaction(store, "readonly").objectStore(store).getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => reject(req.error);
+        });
+      }
+    },
+    _keys: {
+      apiKey: "apiKey",
+      defaultModel: "defaultModel",
+      cardIndex: "cardIndex",
+      activeCardId: "activeCardId",
+      aiChatHistory: "aiChatHistory",
+      maxTokens: "maxTokens",
+      injectCopyright: "injectCopyright",
+      provider: "provider",
+      customApiUrl: "customApiUrl",
+      customApiKey: "customApiKey",
+      customModelId: "customModelId",
+      providerModelIds: "providerModelIds",
+      providerApiKeys: "providerApiKeys",
+      darkAccent: "darkAccent",
+      lightAccent: "lightAccent",
+      glassDensity: "glassDensity",
+      vignette: "vignette",
+      cardRadius: "cardRadius",
+      promptAssistant: "promptAssistant",
+      promptFullCard: "promptFullCard",
+      promptWizard: "promptWizard",
+      promptEnhance: "promptEnhance",
+      promptPersonality: "promptPersonality",
+      promptFirstmes: "promptFirstmes",
+      promptScenario: "promptScenario",
+      promptShorten: "promptShorten",
+      promptTone: "promptTone",
+      promptGrammar: "promptGrammar",
+      promptGreetings: "promptGreetings",
+      promptSystemprompt: "promptSystemprompt",
+      promptTranslate: "promptTranslate",
+      promptTags: "promptTags",
+      promptTagsSystem: "promptTagsSystem",
+      promptFullCardInstr: "promptFullCardInstr",
+      promptFieldsEdit: "promptFieldsEdit",
+      promptGreetingsSystem: "promptGreetingsSystem"
+    },
+    getAccent(theme) {
+      const key = theme === "light" ? this._keys.lightAccent : this._keys.darkAccent;
+      return localStorage.getItem(this.PREFIX + key) || "";
+    },
+    setAccent(theme, color) {
+      const key = theme === "light" ? this._keys.lightAccent : this._keys.darkAccent;
+      if (color)
+        localStorage.setItem(this.PREFIX + key, color);
+      else
+        localStorage.removeItem(this.PREFIX + key);
+    },
+    getPrompt(name) {
+      if (!name || typeof name !== "string" || !name.length)
+        return "";
+      const key = this._keys["prompt" + name[0].toUpperCase() + name.slice(1)];
+      if (!key)
+        return "";
+      return localStorage.getItem(this.PREFIX + key) || "";
+    },
+    setPrompt(name, value) {
+      const key = this._keys["prompt" + name[0].toUpperCase() + name.slice(1)];
+      localStorage.setItem(this.PREFIX + key, value || "");
+    },
+    _secrets: { apiKey: "", customApiKey: "", providerKeys: {} },
+    _secretWarn: { apiKey: false, customApiKey: false },
+    _secretUnlocked: false,
+    _encSecretPrefix: "encv1:",
+    _bufToB64(buf) {
+      const bytes = new Uint8Array(buf);
+      let bin = "";
+      for (let i = 0;i < bytes.length; i++)
+        bin += String.fromCharCode(bytes[i]);
+      return btoa(bin);
+    },
+    _b64ToBuf(b64) {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0;i < bin.length; i++)
+        bytes[i] = bin.charCodeAt(i);
+      return bytes.buffer;
+    },
+    async _deriveSecretKey() {
+      const enc = new TextEncoder;
+      const base = typeof location !== "undefined" && location.origin ? location.origin : "st-card-editor";
+      const importKey = await crypto.subtle.importKey("raw", enc.encode("st-card-editor-secret:" + base), "PBKDF2", false, ["deriveKey"]);
+      return crypto.subtle.deriveKey({ name: "PBKDF2", salt: enc.encode("stce-salt:" + base), iterations: 200000, hash: "SHA-256" }, importKey, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+    },
+    async _encryptSecret(plain) {
+      const key = await this._deriveSecretKey();
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(plain));
+      return this._encSecretPrefix + JSON.stringify({
+        v: 1,
+        iv: this._bufToB64(iv),
+        ct: this._bufToB64(ct)
+      });
+    },
+    async _decryptSecret(stored) {
+      if (typeof stored !== "string" || !stored.startsWith(this._encSecretPrefix)) {
+        return null;
+      }
+      try {
+        const obj = JSON.parse(stored.slice(this._encSecretPrefix.length));
+        const key = await this._deriveSecretKey();
+        const iv = this._b64ToBuf(obj.iv);
+        const ct = this._b64ToBuf(obj.ct);
+        const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+        return new TextDecoder().decode(plain);
+      } catch (err) {
+        return null;
+      }
+    },
+    async _unlockKeys() {
+      if (this._secretUnlocked)
+        return;
+      this._secretUnlocked = true;
+      for (const name of ["apiKey", "customApiKey"]) {
+        const rawKey = this.PREFIX + this._keys[name];
+        const raw = localStorage.getItem(rawKey);
+        this._secretWarn[name] = false;
+        if (!raw) {
+          this._secrets[name] = "";
+          continue;
+        }
+        if (!raw.startsWith(this._encSecretPrefix)) {
+          try {
+            const enc = await this._encryptSecret(raw);
+            localStorage.setItem(rawKey, enc);
+            this._secrets[name] = raw;
+          } catch (_) {
+            this._secrets[name] = raw;
+          }
+          continue;
+        }
+        const plain = await this._decryptSecret(raw);
+        if (plain !== null) {
+          this._secrets[name] = plain;
+        } else {
+          this._secrets[name] = "";
+          this._secretWarn[name] = true;
+        }
+      }
+      await this._unlockProviderKeys();
+    },
+    async _unlockProviderKeys() {
+      const rawKey = this.PREFIX + this._keys.providerApiKeys;
+      const raw = localStorage.getItem(rawKey);
+      this._secrets.providerKeys = {};
+      if (!raw)
+        return;
+      let map;
+      try {
+        map = JSON.parse(raw);
+      } catch (_) {
+        localStorage.removeItem(rawKey);
+        return;
+      }
+      if (!map || typeof map !== "object")
+        return;
+      for (const provider of Object.keys(map)) {
+        const stored = map[provider];
+        if (typeof stored !== "string" || !stored.startsWith(this._encSecretPrefix)) {
+          this._secrets.providerKeys[provider] = stored;
+          continue;
+        }
+        const plain = await this._decryptSecret(stored);
+        if (plain !== null)
+          this._secrets.providerKeys[provider] = plain;
+      }
+    },
+    async _persistProviderKeys() {
+      const map = {};
+      for (const provider of Object.keys(this._secrets.providerKeys)) {
+        const plain = this._secrets.providerKeys[provider];
+        if (!plain)
+          continue;
+        try {
+          map[provider] = await this._encryptSecret(plain);
+        } catch (_) {
+          map[provider] = plain;
+        }
+      }
+      const rawKey = this.PREFIX + this._keys.providerApiKeys;
+      if (!Object.keys(map).length) {
+        localStorage.removeItem(rawKey);
+        return;
+      }
+      try {
+        localStorage.setItem(rawKey, JSON.stringify(map));
+      } catch (_) {}
+    },
+    getProviderKey(provider) {
+      return this._secrets.providerKeys[provider] || "";
+    },
+    async setProviderKey(provider, key) {
+      const clean = key || "";
+      if (clean)
+        this._secrets.providerKeys[provider] = clean;
+      else
+        delete this._secrets.providerKeys[provider];
+      await this._persistProviderKeys();
+    },
+    getApiKey() {
+      return this._secrets.apiKey;
+    },
+    async setApiKey(key) {
+      const clean = key || "";
+      this._secrets.apiKey = clean;
+      if (!clean) {
+        localStorage.removeItem(this.PREFIX + this._keys.apiKey);
+        return;
+      }
+      try {
+        localStorage.setItem(this.PREFIX + this._keys.apiKey, await this._encryptSecret(clean));
+      } catch (_) {
+        try {
+          localStorage.setItem(this.PREFIX + this._keys.apiKey, clean);
+        } catch (_2) {}
+      }
+    },
+    getDefaultModel() {
+      return localStorage.getItem(this.PREFIX + this._keys.defaultModel) || "";
+    },
+    setDefaultModel(modelId) {
+      localStorage.setItem(this.PREFIX + this._keys.defaultModel, modelId);
+    },
+    getMaxTokens() {
+      const val = localStorage.getItem(this.PREFIX + this._keys.maxTokens);
+      return val ? parseInt(val, 10) : 0;
+    },
+    setMaxTokens(tokens) {
+      localStorage.setItem(this.PREFIX + this._keys.maxTokens, String(tokens));
+    },
+    getInjectCopyright() {
+      const val = localStorage.getItem(this.PREFIX + this._keys.injectCopyright);
+      return val === null ? true : val === "true";
+    },
+    getGlassDensity() {
+      return localStorage.getItem(this.PREFIX + this._keys.glassDensity) || "default";
+    },
+    setGlassDensity(density) {
+      localStorage.setItem(this.PREFIX + this._keys.glassDensity, String(density));
+    },
+    getVignette() {
+      const val = localStorage.getItem(this.PREFIX + this._keys.vignette);
+      return val === null ? true : val === "true";
+    },
+    setVignette(on) {
+      localStorage.setItem(this.PREFIX + this._keys.vignette, String(!!on));
+    },
+    getCardRadius() {
+      return localStorage.getItem(this.PREFIX + this._keys.cardRadius) || "compact";
+    },
+    setCardRadius(radius) {
+      localStorage.setItem(this.PREFIX + this._keys.cardRadius, String(radius));
+    },
+    getSortMode() {
+      const val = localStorage.getItem(this.PREFIX + "sortMode");
+      return val || "";
+    },
+    setSortMode(mode) {
+      localStorage.setItem(this.PREFIX + "sortMode", String(mode));
+    },
+    getProvider() {
+      return localStorage.getItem(this.PREFIX + this._keys.provider) || "openrouter";
+    },
+    setProvider(provider) {
+      localStorage.setItem(this.PREFIX + this._keys.provider, provider);
+    },
+    getCustomApiUrl() {
+      return localStorage.getItem(this.PREFIX + this._keys.customApiUrl) || "";
+    },
+    setCustomApiUrl(url) {
+      localStorage.setItem(this.PREFIX + this._keys.customApiUrl, url);
+    },
+    getCustomApiKey() {
+      return this._secrets.customApiKey;
+    },
+    async setCustomApiKey(key) {
+      const clean = key || "";
+      this._secrets.customApiKey = clean;
+      if (!clean) {
+        localStorage.removeItem(this.PREFIX + this._keys.customApiKey);
+        return;
+      }
+      try {
+        localStorage.setItem(this.PREFIX + this._keys.customApiKey, await this._encryptSecret(clean));
+      } catch (_) {
+        try {
+          localStorage.setItem(this.PREFIX + this._keys.customApiKey, clean);
+        } catch (_2) {}
+      }
+    },
+    getCustomModelId() {
+      return localStorage.getItem(this.PREFIX + this._keys.customModelId) || "";
+    },
+    setCustomModelId(id) {
+      localStorage.setItem(this.PREFIX + this._keys.customModelId, id);
+    },
+    getProviderModelId(provider) {
+      if (!provider)
+        return "";
+      try {
+        const raw = localStorage.getItem(this.PREFIX + this._keys.providerModelIds);
+        const map = raw ? JSON.parse(raw) : {};
+        return map && typeof map === "object" && map[provider] || "";
+      } catch {
+        return "";
+      }
+    },
+    setProviderModelId(provider, id) {
+      if (!provider)
+        return;
+      try {
+        const raw = localStorage.getItem(this.PREFIX + this._keys.providerModelIds);
+        const map = raw ? JSON.parse(raw) : {};
+        if (map && typeof map === "object") {
+          if (id)
+            map[provider] = id;
+          else
+            delete map[provider];
+          localStorage.setItem(this.PREFIX + this._keys.providerModelIds, JSON.stringify(map));
+        }
+      } catch (_) {}
+    },
+    getAllProviderModelIds() {
+      try {
+        const raw = localStorage.getItem(this.PREFIX + this._keys.providerModelIds);
+        const map = raw ? JSON.parse(raw) : {};
+        if (!map || typeof map !== "object")
+          return {};
+        const out = {};
+        for (const [prov, id] of Object.entries(map)) {
+          if (prov && id)
+            out[prov] = id;
+        }
+        return out;
+      } catch {
+        return {};
+      }
+    },
+    setInjectCopyright(val) {
+      localStorage.setItem(this.PREFIX + this._keys.injectCopyright, String(val));
+    },
+    _migrationDone: false,
+    async _checkMigration() {
+      if (this._migrationDone)
+        return;
+      const oldRaw = localStorage.getItem(this.PREFIX + "cards");
+      if (!oldRaw) {
+        this._migrationDone = true;
+        return;
+      }
+      try {
+        const oldCards = JSON.parse(oldRaw);
+        if (!Array.isArray(oldCards)) {
+          this._migrationDone = true;
+          return;
+        }
+        const index = [];
+        for (const card of oldCards) {
+          if (!card || !card._id)
+            continue;
+          await this.DB.set(this.DB.stores.cards, card._id, card);
+          index.push(this._extractMeta(card));
+        }
+        localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
+        localStorage.removeItem(this.PREFIX + "cards");
+        this._migrationDone = true;
+      } catch (e) {
+        console.error("Migration failed (will retry on next load):", e);
+      }
+    },
+    async migrateCardsToIndexedDB() {
+      const keysToMigrate = [];
+      for (let i = 0;i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(this.PREFIX + "card_") && key !== this.PREFIX + this._keys.cardIndex) {
+          keysToMigrate.push(key);
+        }
+      }
+      if (keysToMigrate.length === 0)
+        return;
+      for (const key of keysToMigrate) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw)
+            continue;
+          const card = JSON.parse(raw);
+          if (!card || !card._id)
+            continue;
+          await this.DB.set(this.DB.stores.cards, card._id, card);
+          localStorage.removeItem(key);
+        } catch (e) {
+          console.error("Failed to migrate card to IndexedDB:", key, e);
+        }
+      }
+    },
+    _extractMeta(card) {
+      return {
+        _id: card._id,
+        name: card.name,
+        creator: card.creator,
+        tags: card.tags,
+        spec_version: card.spec_version,
+        _thumbnail: card._thumbnail,
+        _createdAt: card._createdAt || 0,
+        _fileSize: card._fileSize || 0
+      };
+    },
+    getCards() {
+      try {
+        const raw = localStorage.getItem(this.PREFIX + this._keys.cardIndex);
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    },
+    async getCard(id) {
+      try {
+        const card = await this.DB.get(this.DB.stores.cards, id);
+        if (card)
+          return card;
+        const raw = localStorage.getItem(this.PREFIX + "card_" + id);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    },
+    saveCardIndex(index) {
+      try {
+        localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
+      } catch (e) {
+        if (e.name === "QuotaExceededError") {
+          throw new Error(I18n.t ? I18n.t("error.storageFull") : "Storage full! Try removing some cards or exporting them.");
+        }
+        throw e;
+      }
+    },
+    async upsertCard(card) {
+      const toSave = { ...card };
+      delete toSave._imageBase64;
+      await this.DB.set(this.DB.stores.cards, card._id, toSave);
+      const index = this.getCards();
+      const idx = index.findIndex((c) => c._id === card._id);
+      const meta = this._extractMeta(card);
+      if (idx >= 0) {
+        index[idx] = meta;
+      } else {
+        index.unshift(meta);
+      }
+      try {
+        localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
+      } catch (e) {
+        if (e.name === "QuotaExceededError") {
+          throw new Error(I18n.t ? I18n.t("error.storageFull") : "Storage full! Try removing some cards or exporting them.");
+        }
+        throw e;
+      }
+    },
+    async deleteCard(id) {
+      await Promise.all([
+        this.deleteImage(id),
+        this.DB.delete(this.DB.stores.cards, id)
+      ]);
+      this.clearChatHistory(id);
+      const index = this.getCards().filter((c) => c._id !== id);
+      localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
+      if (this.getActiveCardId() === id) {
+        this.setActiveCardId(null);
+      }
+    },
+    getActiveCardId() {
+      return localStorage.getItem(this.PREFIX + this._keys.activeCardId) || null;
+    },
+    setActiveCardId(id) {
+      if (id) {
+        localStorage.setItem(this.PREFIX + this._keys.activeCardId, id);
+      } else {
+        localStorage.removeItem(this.PREFIX + this._keys.activeCardId);
+      }
+    },
+    async getActiveCard() {
+      const id = this.getActiveCardId();
+      if (!id)
+        return null;
+      return this.getCard(id);
+    },
+    _chatKey(cardId) {
+      return this.PREFIX + this._keys.aiChatHistory + "_" + (cardId || "global");
+    },
+    _storageFullWarnedAt: 0,
+    _notifyStorageFull(e) {
+      console.error("Chat history write failed:", e);
+      const now = Date.now();
+      if (now - this._storageFullWarnedAt < 5000)
+        return;
+      this._storageFullWarnedAt = now;
+      if (window.Ui && typeof window.Ui.showToast === "function") {
+        Ui.showToast(I18n.t ? I18n.t("error.storageFull") : "Storage full! Try removing some cards or exporting them.", "danger");
+      }
+    },
+    _sessionKey(cardId) {
+      return this.PREFIX + "chatSessions_" + (cardId || "global");
+    },
+    getChatHistory(cardId) {
+      try {
+        const raw = localStorage.getItem(this._chatKey(cardId));
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    },
+    saveChatHistory(messages, cardId) {
+      try {
+        if (messages.length > this.CHAT_HISTORY_LIMIT) {
+          console.warn("Chat history truncated to last " + this.CHAT_HISTORY_LIMIT + " messages for card " + (cardId || "global"));
+        }
+        const trimmed = messages.slice(-this.CHAT_HISTORY_LIMIT);
+        localStorage.setItem(this._chatKey(cardId), JSON.stringify(trimmed));
+      } catch (e) {
+        this._notifyStorageFull(e);
+      }
+    },
+    clearChatHistory(cardId) {
+      if (cardId) {
+        localStorage.removeItem(this._chatKey(cardId));
+        const sessions = this.getChatSessions(cardId);
+        sessions.forEach((s) => localStorage.removeItem(this._sessionMsgKey(cardId, s.id)));
+        localStorage.removeItem(this._sessionKey(cardId));
+      } else {
+        localStorage.removeItem(this._chatKey("global"));
+        const sessions = this.getChatSessions("global");
+        sessions.forEach((s) => localStorage.removeItem(this._sessionMsgKey("global", s.id)));
+        localStorage.removeItem(this._sessionKey("global"));
+      }
+    },
+    getChatSessions(cardId) {
+      try {
+        const raw = localStorage.getItem(this._sessionKey(cardId));
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    },
+    saveChatSession(cardId, session) {
+      try {
+        const sessions = this.getChatSessions(cardId);
+        const idx = sessions.findIndex((s) => s.id === session.id);
+        if (idx >= 0) {
+          sessions[idx] = session;
+        } else {
+          sessions.unshift(session);
+        }
+        localStorage.setItem(this._sessionKey(cardId), JSON.stringify(sessions));
+      } catch (e) {
+        this._notifyStorageFull(e);
+      }
+    },
+    deleteChatSession(cardId, sessionId) {
+      try {
+        const sessions = this.getChatSessions(cardId).filter((s) => s.id !== sessionId);
+        localStorage.setItem(this._sessionKey(cardId), JSON.stringify(sessions));
+        localStorage.removeItem(this._sessionMsgKey(cardId, sessionId));
+      } catch {}
+    },
+    _sessionMsgKey(cardId, sessionId) {
+      return this.PREFIX + "sessionMsgs_" + (cardId || "global") + "_" + sessionId;
+    },
+    getSessionMessages(cardId, sessionId) {
+      try {
+        const raw = localStorage.getItem(this._sessionMsgKey(cardId, sessionId));
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    },
+    saveSessionMessages(cardId, sessionId, messages) {
+      try {
+        const trimmed = messages.slice(-this.CHAT_HISTORY_LIMIT);
+        localStorage.setItem(this._sessionMsgKey(cardId, sessionId), JSON.stringify(trimmed));
+      } catch (e) {
+        this._notifyStorageFull(e);
+      }
+    },
+    deleteSessionMessages(cardId, sessionId) {
+      try {
+        localStorage.removeItem(this._sessionMsgKey(cardId, sessionId));
+      } catch {}
+    },
+    async clearAll() {
+      const keysToRemove = [];
+      for (let i = 0;i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(this.PREFIX)) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+      await Promise.all([
+        this.DB.clear(this.DB.stores.cards).catch(() => {}),
+        this.DB.clear(this.DB.stores.images).catch(() => {})
+      ]);
+      this._secrets = { apiKey: "", customApiKey: "", providerKeys: {} };
+      this._secretWarn = { apiKey: false, customApiKey: false };
+      this._secretUnlocked = false;
+      this._migrationDone = false;
+    },
+    getImage(id) {
+      return this.DB.get(this.DB.stores.images, id);
+    },
+    saveImage(id, base64) {
+      return this.DB.set(this.DB.stores.images, id, base64);
+    },
+    deleteImage(id) {
+      return this.DB.delete(this.DB.stores.images, id);
+    },
+    async getUsageEstimate() {
+      let total = 0;
+      for (let i = 0;i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(this.PREFIX)) {
+          const val = localStorage.getItem(key);
+          if (val)
+            total += val.length * 2;
+        }
+      }
+      try {
+        for (const store of Object.values(this.DB.stores)) {
+          const records = await this.DB.getAll(store);
+          for (const rec of records) {
+            if (typeof rec === "string") {
+              total += rec.length * 2;
+            } else if (rec && typeof rec === "object") {
+              total += JSON.stringify(rec).length * 2;
+            }
+          }
+        }
+      } catch (_) {}
+      return total;
+    }
+  };
+  if (typeof window !== "undefined")
+    window.CardStorage = CardStorage;
+
+  // js/aiService.js
+  var AIService = {
+    DEFAULT_TEMPERATURE: 0.7,
+    DEFAULT_MAX_TOKENS: 16384,
+    PROVIDERS: {
+      openrouter: { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", requiresKey: true },
+      nanogpt: { name: "NanoGPT", baseUrl: "https://api.nano-gpt.com/api/v1", requiresKey: true },
+      xai: { name: "xAI (Grok)", baseUrl: "https://api.x.ai/v1", requiresKey: true },
+      zai: { name: "Z.AI (GLM)", baseUrl: "https://api.z.ai/api/paas/v4", requiresKey: true },
+      chutes: { name: "Chutes", baseUrl: "https://llm.chutes.ai/v1", requiresKey: true },
+      deepseek: { name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", requiresKey: true },
+      custom: { name: "Custom", baseUrl: "", requiresKey: false }
+    },
+    FREE_MODEL_PATTERNS: [":free", "openrouter/free"],
+    _provider: "openrouter",
+    _apiKey: "",
+    _customApiUrl: "",
+    getProviderInfo(id) {
+      return this.PROVIDERS[id] || this.PROVIDERS.custom;
+    },
+    setProvider(provider, customKey) {
+      this._provider = provider || "openrouter";
+      this._apiKey = customKey || "";
+      this._customApiUrl = "";
+    },
+    _getBaseUrl() {
+      const info = this.getProviderInfo(this._provider);
+      if (this._provider === "custom") {
+        return (this._customApiUrl || CardStorage.getCustomApiUrl() || "").replace(/\/+$/, "");
+      }
+      return info.baseUrl;
+    },
+    _getApiKeyForProvider() {
+      if (this._apiKey)
+        return this._apiKey;
+      if (this._provider === "openrouter")
+        return CardStorage.getApiKey();
+      if (this._provider === "custom")
+        return CardStorage.getCustomApiKey();
+      return CardStorage.getProviderKey(this._provider);
+    },
+    _resolveModel(model) {
+      if (model)
+        return model;
+      if (this._provider === "custom")
+        return CardStorage.getCustomModelId() || "";
+      return CardStorage.getProviderModelId(this._provider) || "";
+    },
+    async setApiKey(key) {
+      this._apiKey = key;
+      if (this._provider === "openrouter")
+        await CardStorage.setApiKey(key);
+      else if (this._provider === "custom")
+        await CardStorage.setCustomApiKey(key);
+      else
+        await CardStorage.setProviderKey(this._provider, key);
+    },
+    getApiKey() {
+      return this._getApiKeyForProvider();
+    },
+    hasApiKey() {
+      const info = this.getProviderInfo(this._provider);
+      if (!info.requiresKey)
+        return true;
+      return !!this._getApiKeyForProvider();
+    },
+    _isFreeModelId(modelId, pricing) {
+      const pPrompt = pricing?.prompt;
+      const pCompletion = pricing?.completion;
+      if (parseFloat(pPrompt) === 0 && parseFloat(pCompletion) === 0)
+        return true;
+      if (modelId && this.FREE_MODEL_PATTERNS.some((p) => modelId.includes(p)))
+        return true;
+      return false;
+    },
+    _parsePrice(val) {
+      if (val === null || val === undefined)
+        return null;
+      const num = typeof val === "string" ? parseFloat(val) : val;
+      if (isNaN(num))
+        return null;
+      return num * 1e6;
+    },
+    async fetchModels() {
+      if (this._provider === "custom") {
+        return this._fetchCustomModels();
+      }
+      if (!this._getApiKeyForProvider())
+        throw new Error(I18n.t("error.apiKeyNotSet"));
+      const resp = await fetch(`${this._getBaseUrl()}/models`, {
+        headers: {
+          Authorization: `Bearer ${this._getApiKeyForProvider()}`,
+          "Content-Type": "application/json"
+        },
+        signal: AbortSignal.timeout(30000)
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error?.message || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      const models = (data.data || []).map((m) => {
+        const pricing = m.pricing || {};
+        const promptPrice = this._parsePrice(pricing.prompt);
+        const completionPrice = this._parsePrice(pricing.completion);
+        return {
+          id: m.id,
+          name: m.name || m.id,
+          description: m.description || "",
+          context_length: m.context_length || 0,
+          max_output_tokens: m.top_provider?.max_completion_tokens || m.max_completion_tokens || 0,
+          pricing: {
+            prompt: promptPrice,
+            completion: completionPrice
+          },
+          is_free: this._isFreeModelId(m.id, pricing),
+          provider: (m.id || "").split("/")[0]
+        };
+      }).sort((a, b) => {
+        if (a.is_free !== b.is_free)
+          return a.is_free ? -1 : 1;
+        const aPrice = (a.pricing.prompt || 0) + (a.pricing.completion || 0);
+        const bPrice = (b.pricing.prompt || 0) + (b.pricing.completion || 0);
+        return aPrice - bPrice;
+      });
+      return models;
+    },
+    async _fetchCustomModels() {
+      const baseUrl = this._getBaseUrl();
+      if (!baseUrl)
+        throw new Error(I18n.t ? I18n.t("error.customUrlNotSet") : "Custom API base URL is not set");
+      const apiBaseUrl = this._v1BaseUrl(baseUrl);
+      const headers = { "Content-Type": "application/json" };
+      const apiKey = this._getApiKeyForProvider();
+      if (apiKey)
+        headers["Authorization"] = "Bearer " + apiKey;
+      let resp;
+      try {
+        resp = await fetch(apiBaseUrl + "/models", {
+          headers,
+          signal: AbortSignal.timeout(15000)
+        });
+      } catch (err) {
+        throw new Error(I18n.t ? I18n.t("error.customUnreachable", { url: apiBaseUrl }) : "Cannot reach " + apiBaseUrl + ". Check the URL and that the server is running.");
+      }
+      if (resp.status === 404) {
+        const pathname = apiBaseUrl.split("?")[0].split("#")[0].replace(/\/+$/, "");
+        const alternateBase = pathname.endsWith("/v1") ? pathname.slice(0, -3) : pathname;
+        const alternateUrl = alternateBase + "/models";
+        try {
+          resp = await fetch(alternateUrl, {
+            headers,
+            signal: AbortSignal.timeout(15000)
+          });
+        } catch (err) {
+          throw new Error(I18n.t ? I18n.t("error.customUnreachable", { url: alternateUrl }) : "Cannot reach " + alternateUrl + ".");
+        }
+      }
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        if (err.error?.message)
+          throw new Error(err.error.message);
+        if (resp.status === 401 || resp.status === 403) {
+          throw new Error(I18n.t ? I18n.t("error.customAuthFailed", { status: resp.status }) : "Authentication failed (HTTP " + resp.status + "). Check the API key for this endpoint.");
+        }
+        if (resp.status === 404) {
+          throw new Error(I18n.t ? I18n.t("error.customPathNotFound") : "Endpoint not found (HTTP 404). Check that the API Base URL includes /v1.");
+        }
+        throw new Error(I18n.t ? I18n.t("error.fetchModelsFailed", { status: resp.status }) : "Failed to fetch models (HTTP " + resp.status + ")");
+      }
+      const data = await resp.json().catch(() => ({}));
+      if (data.error) {
+        const msg = (typeof data.error === "string" ? data.error : data.error.message) || "";
+        throw new Error(I18n.t ? I18n.t("error.customServerError", { detail: msg }) : "The server returned an error: " + msg);
+      }
+      const customModelId = CardStorage.getCustomModelId();
+      const returnedModels = Array.isArray(data.data) ? data.data : [];
+      if (returnedModels.length) {
+        return returnedModels.map((m) => ({
+          id: m.id,
+          name: m.name || m.id,
+          description: m.description || "",
+          context_length: m.context_length || m.max_context_length || 0,
+          max_output_tokens: m.max_output_tokens || m.max_tokens || 0,
+          pricing: { prompt: null, completion: null },
+          is_free: true,
+          provider: "custom"
+        }));
+      }
+      if (customModelId) {
+        return [{ id: customModelId, name: customModelId, description: I18n.t ? I18n.t("settings.customModelDesc") : "Custom model", context_length: 0, max_output_tokens: 0, pricing: { prompt: null, completion: null }, is_free: true, provider: "custom" }];
+      }
+      return [];
+    },
+    async fetchKeyInfo() {
+      if (this._provider !== "openrouter")
+        throw new Error(I18n.t ? I18n.t("gen.notAvailable") : "N/A");
+      if (!this._getApiKeyForProvider())
+        throw new Error(I18n.t("error.apiKeyNotSet"));
+      const resp = await fetch(`${this._getBaseUrl()}/key`, {
+        headers: {
+          Authorization: `Bearer ${this._getApiKeyForProvider()}`,
+          "Content-Type": "application/json"
+        },
+        signal: this._withTimeout(null)
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error?.message || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      const key = data.data || {};
+      return {
+        label: key.label || "Unknown",
+        limit: key.limit ?? null,
+        limit_remaining: key.limit_remaining ?? null,
+        usage: key.usage || 0,
+        is_free_tier: key.is_free_tier || false
+      };
+    },
+    _buildRequestBody(model, messages, { jsonMode = false, stream = false } = {}) {
+      const body = {
+        model,
+        messages,
+        temperature: this.DEFAULT_TEMPERATURE,
+        stream
+      };
+      const userMax = CardStorage.getMaxTokens();
+      if (userMax > 0)
+        body.max_tokens = userMax;
+      if (jsonMode)
+        body.response_format = { type: "json_object" };
+      if (stream)
+        body.stream_options = { include_usage: true };
+      return body;
+    },
+    _extractApiError(err, status) {
+      if (err && typeof err === "object") {
+        const e = err.error;
+        if (typeof e === "string")
+          return e;
+        if (e && typeof e === "object" && e.message)
+          return e.message;
+      }
+      return `HTTP ${status}`;
+    },
+    _isUnsupportedFormatError(errMsg) {
+      if (!errMsg)
+        return false;
+      const lower = errMsg.toLowerCase();
+      if (!lower.includes("response_format"))
+        return false;
+      return lower.includes("unsupported") || lower.includes("not support") || lower.includes("invalid") || lower.includes("not allowed") || lower.includes("does not support") || lower.includes("must be") || lower.includes("only supports");
+    },
+    _buildMessages(systemPrompt, prompt, history = []) {
+      const messages = [];
+      if (systemPrompt)
+        messages.push({ role: "system", content: systemPrompt });
+      for (const msg of history) {
+        if (msg.role === "user" || msg.role === "assistant") {
+          messages.push({ role: msg.role, content: msg.content || "" });
+        }
+      }
+      messages.push({ role: "user", content: prompt });
+      return messages;
+    },
+    _v1BaseUrl(baseUrl) {
+      const url = String(baseUrl || "").trim();
+      const path = url.split("?")[0].split("#")[0].replace(/\/+$/, "");
+      const lastSegment = path.split("/").pop() || "";
+      if (/^v\d/.test(lastSegment))
+        return url.replace(/\/+$/, "");
+      return url.replace(/\/+$/, "") + "/v1";
+    },
+    _withTimeout(signal) {
+      const timeout = AbortSignal.timeout(120000);
+      if (!signal)
+        return timeout;
+      if (typeof AbortSignal.any === "function")
+        return AbortSignal.any([signal, timeout]);
+      return signal;
+    },
+    _getChatBaseUrl() {
+      const baseUrl = this._getBaseUrl();
+      if (this._provider === "custom")
+        return this._v1BaseUrl(baseUrl);
+      return baseUrl;
+    },
+    async chat(prompt, systemPrompt = "", model = "", opts = {}) {
+      const safeOpts = typeof opts === "object" && opts !== null ? opts : {};
+      const { jsonMode = false, signal, history = [] } = safeOpts;
+      const apiKey = this._getApiKeyForProvider();
+      const info = this.getProviderInfo(this._provider);
+      if (!apiKey && info.requiresKey)
+        throw new Error(I18n.t("error.apiKeyNotSet"));
+      const messages = this._buildMessages(systemPrompt, prompt, history);
+      const useModel = this._resolveModel(model);
+      if (!useModel)
+        throw new Error(I18n.t("error.noModel"));
+      const baseUrl = this._getBaseUrl();
+      if (!baseUrl)
+        throw new Error(I18n.t ? I18n.t("error.customUrlNotSet") : "Custom API base URL is not set");
+      const apiBaseUrl = this._getChatBaseUrl();
+      const headers = { "Content-Type": "application/json" };
+      if (apiKey)
+        headers["Authorization"] = "Bearer " + apiKey;
+      if (this._provider === "openrouter") {
+        headers["HTTP-Referer"] = "https://github.com/st-card-editor";
+        headers["X-Title"] = "ST Card Editor";
+      }
+      const fetchChat = async (useJsonMode) => {
+        const resp = await fetch(`${apiBaseUrl}/chat/completions`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: false })),
+          signal: this._withTimeout(signal)
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          if (resp.status === 402)
+            throw new Error(I18n.t("error.insufficientCredits"));
+          throw new Error(this._extractApiError(err, resp.status));
+        }
+        return resp.json();
+      };
+      let data;
+      try {
+        data = await fetchChat(jsonMode);
+      } catch (e) {
+        if (jsonMode && this._isUnsupportedFormatError(e.message)) {
+          data = await fetchChat(false);
+        } else {
+          throw e;
+        }
+      }
+      const choice = data.choices?.[0];
+      if (!choice)
+        throw new Error(I18n.t ? I18n.t("error.noChoices") : "API returned no response choices");
+      return {
+        content: choice?.message?.content || "",
+        usage: data.usage ? {
+          prompt_tokens: data.usage.prompt_tokens || 0,
+          completion_tokens: data.usage.completion_tokens || 0,
+          total_tokens: data.usage.total_tokens || 0,
+          cost: data.usage.cost || 0
+        } : null,
+        model: data.model || useModel
+      };
+    },
+    formatPrice(perMillion) {
+      if (perMillion === null || perMillion === undefined)
+        return "—";
+      const n = Number(perMillion);
+      if (!isFinite(n))
+        return "—";
+      if (n === 0)
+        return I18n.t ? I18n.t("gen.free") : "Free";
+      if (n < 0.001)
+        return `$${n.toFixed(6)}/M`;
+      return `$${n.toFixed(3)}/M`;
+    },
+    async chatStream(prompt, systemPrompt = "", model = "", onChunk, signal, jsonMode = false, history = []) {
+      const apiKey = this._getApiKeyForProvider();
+      const info = this.getProviderInfo(this._provider);
+      if (!apiKey && info.requiresKey)
+        throw new Error(I18n.t("error.apiKeyNotSet"));
+      const messages = this._buildMessages(systemPrompt, prompt, history);
+      const useModel = this._resolveModel(model);
+      if (!useModel)
+        throw new Error(I18n.t("error.noModelSimple"));
+      const baseUrl = this._getBaseUrl();
+      if (!baseUrl)
+        throw new Error(I18n.t ? I18n.t("error.customUrlNotSet") : "Custom API base URL is not set");
+      const apiBaseUrl = this._getChatBaseUrl();
+      const headers = { "Content-Type": "application/json" };
+      if (apiKey)
+        headers["Authorization"] = "Bearer " + apiKey;
+      if (this._provider === "openrouter") {
+        headers["HTTP-Referer"] = "https://github.com/st-card-editor";
+        headers["X-Title"] = "ST Card Editor";
+      }
+      const doStream = async (useJsonMode) => {
+        const resp2 = await fetch(`${apiBaseUrl}/chat/completions`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: true })),
+          signal: this._withTimeout(signal)
+        });
+        if (!resp2.ok) {
+          const err = await resp2.json().catch(() => ({}));
+          if (resp2.status === 402)
+            throw new Error(I18n.t("error.insufficientCredits"));
+          throw new Error(this._extractApiError(err, resp2.status));
+        }
+        return resp2;
+      };
+      let resp;
+      try {
+        resp = await doStream(jsonMode);
+      } catch (e) {
+        if (jsonMode && this._isUnsupportedFormatError(e.message)) {
+          resp = await doStream(false);
+        } else {
+          throw e;
+        }
+      }
+      if (!resp.body)
+        throw new Error(I18n.t ? I18n.t("error.emptyResponse") : "Empty response from API (no body)");
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder;
+      let full = "";
+      let usage = null;
+      let eventType = "";
+      let streamDone = false;
+      const handleLine = (line) => {
+        const trimmed = line.trim();
+        if (!trimmed)
+          return false;
+        if (trimmed.startsWith("event: ")) {
+          eventType = trimmed.slice(7).trim();
+          return false;
+        }
+        if (trimmed.startsWith(":"))
+          return false;
+        if (!trimmed.startsWith("data: "))
+          return false;
+        const data = trimmed.slice(6).trim();
+        if (data === "[DONE]") {
+          eventType = "";
+          return true;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) {
+            full += delta;
+            onChunk(full, delta);
+          }
+          if (parsed.usage)
+            usage = parsed.usage;
+          if (eventType === "error") {
+            const msg = parsed.error?.message || parsed.detail || data;
+            throw new Error(msg);
+          }
+        } catch (e) {
+          if (e instanceof SyntaxError) {
+            console.warn("aiService: dropped unparseable SSE chunk:", data);
+          } else {
+            throw e;
+          }
+        }
+        return false;
+      };
+      try {
+        let bufferStr = "";
+        while (!streamDone) {
+          const { done, value } = await reader.read();
+          if (done)
+            break;
+          bufferStr += decoder.decode(value, { stream: true });
+          const lines = bufferStr.split(`
+`);
+          bufferStr = lines.pop();
+          for (const line of lines) {
+            if (handleLine(line)) {
+              streamDone = true;
+              break;
+            }
+          }
+        }
+        if (!streamDone && bufferStr) {
+          handleLine(bufferStr);
+        }
+      } finally {
+        reader.cancel().catch(() => {});
+      }
+      return {
+        content: full,
+        usage: usage ? {
+          prompt_tokens: usage.prompt_tokens || 0,
+          completion_tokens: usage.completion_tokens || 0,
+          total_tokens: usage.total_tokens || 0,
+          cost: usage.cost || 0
+        } : null,
+        model: useModel
+      };
+    },
+    async resolveMaxTokens(modelId, messages = []) {
+      const ctxLength = this._getContextLength(modelId);
+      let inputTokens = 0;
+      try {
+        if (window.Tokenizer && typeof window.Tokenizer.count === "function") {
+          const counts = await Promise.all((messages || []).map((m) => window.Tokenizer.count(m.content || "")));
+          inputTokens = counts.reduce((sum, n) => sum + (n || 0), 0);
+        }
+      } catch (_) {
+        inputTokens = 0;
+      }
+      if (!inputTokens && messages?.length) {
+        inputTokens = (messages || []).reduce((sum, m) => {
+          return sum + Tokenizer.syncCount(m.content || "");
+        }, 0);
+      }
+      const safetyMargin = Math.max(512, Math.floor(ctxLength * 0.05));
+      const available = Math.max(512, ctxLength - inputTokens - safetyMargin);
+      let maxTokens = this.DEFAULT_MAX_TOKENS;
+      if (modelId && window.AppState.models) {
+        const m = window.AppState.models.find((x) => x.id === modelId);
+        if (m && m.max_output_tokens > 0)
+          maxTokens = m.max_output_tokens;
+      }
+      return Math.min(maxTokens, available);
+    },
+    getContextLength(modelId) {
+      return this._getContextLength(modelId);
+    },
+    _getContextLength(modelId) {
+      if (modelId && window.AppState.models) {
+        const m = window.AppState.models.find((x) => x.id === modelId);
+        if (m && m.context_length > 0)
+          return m.context_length;
+      }
+      return 128000;
+    }
+  };
+  if (typeof window !== "undefined")
+    window.AIService = AIService;
 })();

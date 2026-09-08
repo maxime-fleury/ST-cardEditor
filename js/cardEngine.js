@@ -2,6 +2,9 @@
    cardEngine.js — SillyTavern Character Card Parser & Editor
    ============================================================ */
 
+// Module dependencies (ES imports — window.* exports kept for compat).
+import { I18n } from './i18n.js';
+
 const CardEngine = {
   _utf8Decoder: new TextDecoder('utf-8'),
   THUMBNAIL_MAX_SIZE: 128,

@@ -12,7 +12,7 @@
     "check:assets": "bun scripts/check-assets.mjs",
     "test": "playwright test",
     "test:headed": "playwright test --headed",
-    "test:unit": "bun test tests/unit",
+    "test:unit": "bun test --parallel tests/unit",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {},

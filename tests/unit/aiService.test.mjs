@@ -1,8 +1,7 @@
-import { test, expect } from 'bun:test';
+import { test, expect, mock } from 'bun:test';
 
-// The module references I18n / CardStorage inside method bodies only, but
-// several methods read them at call time — stub the globals before exercising.
-globalThis.I18n = { t: (key) => key };
+// aiService.js now imports its dependencies as real ES modules (passe 4);
+// mock I18n / CardStorage / Tokenizer with mock.module before importing.
 const storage = {
   customModelId: '',
   providerModelIds: {},
@@ -15,7 +14,15 @@ const storage = {
   getCustomModelId: () => storage.customModelId,
   getMaxTokens: () => 0,
 };
-globalThis.CardStorage = storage;
+
+const stubs = {
+  I18n: { t: (key) => key },
+  CardStorage: storage,
+  Tokenizer: { count: async () => 0, syncCount: () => 0 },
+};
+mock.module('../../js/i18n.js', () => ({ I18n: stubs.I18n }));
+mock.module('../../js/storage.js', () => ({ CardStorage: stubs.CardStorage }));
+mock.module('../../js/tokenizer.js', () => ({ Tokenizer: stubs.Tokenizer }));
 
 let AIService;
 test('module loads with stubbed globals', async () => {

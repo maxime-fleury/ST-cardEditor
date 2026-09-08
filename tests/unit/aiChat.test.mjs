@@ -1,19 +1,46 @@
-import { test, expect, beforeAll, beforeEach } from 'bun:test';
+import { test, expect, beforeAll, beforeEach, mock } from 'bun:test';
 
-// aiChat.js is a plain object literal (browser-glued methods run only when
-// called), so importing it is safe without DOM stubs. _prepareApply touches
-// window.AppState / Editor / CardManager / Ui / I18n at call time only.
-// The apply-queue state lives in ChatState (see chatState.js) — tests must
-// poke ChatState directly, and reset it between tests so no queue/session
-// bleeds across cases (that isolation is exactly what the store guarantees).
+// aiChat.js now imports its dependencies as real ES modules (passe 4), so
+// this suite mocks every one of them with mock.module and mutates the stub
+// objects per-test (window/document/localStorage remain free globals).
+// The apply-queue state lives in ChatState (see chatState.js) — tests poke
+// ChatState directly and reset it between tests so no queue/session bleeds
+// across cases (that isolation is exactly what the store guarantees).
 let AiChat;
 let ChatState;
 const toasts = [];
+const noop = () => {};
+
+const stubs = {
+  I18n: { t: (key) => key },
+  Ui: {
+    showToast: (msg) => toasts.push(msg),
+    escapeHtml: (s) => String(s),
+    escapeAttr: (s) => String(s),
+    debounce: (fn) => fn,
+  },
+  Editor: { populateEditor: noop, syncEditorToCard: noop, renderGreetings: noop },
+  CardManager: { renderCardList: noop },
+  CardEngine: { parseJSON: (s) => JSON.parse(s), toJSON: (c) => JSON.stringify(c) },
+  AIService: { hasApiKey: () => true, chat: async () => ({ content: '[]' }) },
+  CardStorage: {},
+  Anims: { staggerFadeIn: noop },
+  Settings: { getDefaultPrompt: () => '', refreshCredits: noop },
+  Tokenizer: { count: async () => 0, syncCount: () => 0 },
+};
+mock.module('../../js/i18n.js', () => ({ I18n: stubs.I18n }));
+mock.module('../../js/ui.js', () => ({ Ui: stubs.Ui }));
+mock.module('../../js/editor.js', () => ({ Editor: stubs.Editor }));
+mock.module('../../js/cardManager.js', () => ({ CardManager: stubs.CardManager }));
+mock.module('../../js/cardEngine.js', () => ({ CardEngine: stubs.CardEngine }));
+mock.module('../../js/aiService.js', () => ({ AIService: stubs.AIService }));
+mock.module('../../js/storage.js', () => ({ CardStorage: stubs.CardStorage }));
+mock.module('../../js/animations.js', () => ({ Anims: stubs.Anims }));
+mock.module('../../js/settings.js', () => ({ Settings: stubs.Settings }));
+mock.module('../../js/tokenizer.js', () => ({ Tokenizer: stubs.Tokenizer }));
 
 beforeAll(async () => {
   globalThis.window = globalThis;
-  globalThis.I18n = { t: (key) => key };
-  globalThis.Ui = { showToast: (msg) => toasts.push(msg), escapeHtml: (s) => String(s) };
   // Minimal DOM for the ready-bar helpers (document.createElement / all()).
   const makeStubEl = () => ({
     className: '',
@@ -29,12 +56,6 @@ beforeAll(async () => {
     createElement: () => makeStubEl(),
     querySelectorAll: () => [],
   };
-  globalThis.Editor = {
-    populateEditor: () => {},
-    syncEditorToCard: () => {},
-    renderGreetings: () => {},
-  };
-  globalThis.CardManager = { renderCardList: () => {} };
   AiChat = (await import('../../js/aiChat.js')).AiChat;
   ChatState = (await import('../../js/chatState.js')).ChatState;
 });
@@ -398,10 +419,8 @@ test('_prepareApply full-card normalizes {user} in every text field', () => {
   toasts.length = 0;
   const activeCard = baseCard();
   window.AppState = { activeCard };
-  globalThis.CardEngine = {
-    parseJSON: (s) => { const p = JSON.parse(s); return { ...(p.data || p) }; },
-    toJSON: (c) => JSON.stringify(c),
-  };
+  stubs.CardEngine.parseJSON = (s) => { const p = JSON.parse(s); return { ...(p.data || p) }; };
+  stubs.CardEngine.toJSON = (c) => JSON.stringify(c);
   const cardWithUser = JSON.stringify({
     spec: 'chara_card_v2',
     spec_version: '2.0',
@@ -439,40 +458,38 @@ test('_finalizeGroupedCard adds no ready-bar when nothing completed', () => {
 // ─── LLM intent detection (passe 3) ───────────────────────────────────────
 
 test('_classifyFields parses a JSON field list and keeps only valid ids', async () => {
-  globalThis.AIService = {
-    hasApiKey: () => true,
-    chat: async () => ({ content: '["name","description","nonsense"]' }),
-  };
+  stubs.AIService.hasApiKey = () => true;
+  stubs.AIService.chat = async () => ({ content: '["name","description","nonsense"]' });
   const out = await AiChat._classifyFields('Renomme la carte en Elodie');
   expect(out).toEqual(['name', 'description']); // invalid id filtered, FIELD_DEFS order kept
 });
 
 test('_classifyFields returns [] on garbage, empty lists and failures', async () => {
-  globalThis.AIService = { hasApiKey: () => true, chat: async () => ({ content: 'not json' }) };
+  stubs.AIService.hasApiKey = () => true;
+  stubs.AIService.chat = async () => ({ content: 'not json' });
   expect(await AiChat._classifyFields('x')).toEqual([]);
 
-  globalThis.AIService.chat = async () => ({ content: '[]' });
+  stubs.AIService.chat = async () => ({ content: '[]' });
   expect(await AiChat._classifyFields('x')).toEqual([]);
 
-  globalThis.AIService.chat = async () => ({ content: '{"field": "name"}' }); // object, not array
+  stubs.AIService.chat = async () => ({ content: '{"field": "name"}' }); // object, not array
   expect(await AiChat._classifyFields('x')).toEqual([]);
 
-  globalThis.AIService.chat = async () => { throw new Error('timeout'); };
+  stubs.AIService.chat = async () => { throw new Error('timeout'); };
   expect(await AiChat._classifyFields('x')).toEqual([]); // never throws
 });
 
 test('_resolveTargetFields prefers the LLM result over the regex fallback', async () => {
-  globalThis.AIService = {
-    hasApiKey: () => true,
-    chat: async () => ({ content: '["scenario"]' }),
-  };
+  stubs.AIService.hasApiKey = () => true;
+  stubs.AIService.chat = async () => ({ content: '["scenario"]' });
   // The regex would say name (+ description); the LLM wins when it answers.
   const out = await AiChat._resolveTargetFields('Renomme la carte en Elodie');
   expect(out).toEqual(['scenario']);
 });
 
 test('_resolveTargetFields falls back to regex when the LLM is empty or keyless', async () => {
-  globalThis.AIService = { hasApiKey: () => true, chat: async () => ({ content: '[]' }) };
+  stubs.AIService.hasApiKey = () => true;
+  stubs.AIService.chat = async () => ({ content: '[]' });
   const out = await AiChat._resolveTargetFields(
     'Renomme la carte en Elodie, elle est étudiante fauchée'
   );
@@ -481,10 +498,8 @@ test('_resolveTargetFields falls back to regex when the LLM is empty or keyless'
 
   // Keyless: the LLM is never called, regex still works offline.
   let called = false;
-  globalThis.AIService = {
-    hasApiKey: () => false,
-    chat: async () => { called = true; return { content: '["name"]' }; },
-  };
+  stubs.AIService.hasApiKey = () => false;
+  stubs.AIService.chat = async () => { called = true; return { content: '["name"]' }; };
   const out2 = await AiChat._resolveTargetFields('Renomme la carte en Elodie');
   expect(called).toBe(false);
   expect(out2).toContain('name');
@@ -492,13 +507,11 @@ test('_resolveTargetFields falls back to regex when the LLM is empty or keyless'
 
 test('_resolveTargetFields dedupes concurrent classifications', async () => {
   let calls = 0;
-  globalThis.AIService = {
-    hasApiKey: () => true,
-    chat: async () => {
-      calls++;
-      await new Promise((r) => setTimeout(r, 10));
-      return { content: '["name"]' };
-    },
+  stubs.AIService.hasApiKey = () => true;
+  stubs.AIService.chat = async () => {
+    calls++;
+    await new Promise((r) => setTimeout(r, 10));
+    return { content: '["name"]' };
   };
   const [a, b] = await Promise.all([
     AiChat._resolveTargetFields('x'),

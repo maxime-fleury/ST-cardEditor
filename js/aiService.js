@@ -2,6 +2,11 @@
    aiService.js — OpenRouter API Integration
    ============================================================ */
 
+// Module dependencies (ES imports — window.* exports kept for compat).
+import { I18n } from './i18n.js';
+import { CardStorage } from './storage.js';
+import { Tokenizer } from './tokenizer.js';
+
 const AIService = {
   DEFAULT_TEMPERATURE: 0.7,
   DEFAULT_MAX_TOKENS: 16384,

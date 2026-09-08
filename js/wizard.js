@@ -2,6 +2,17 @@
    wizard.js — Card Creation Wizard: Guided Character Builder
    ============================================================ */
 
+// Module dependencies (ES imports — window.* exports kept for compat).
+import { I18n } from './i18n.js';
+import { Ui } from './ui.js';
+import { Anims } from './animations.js';
+import { AIService } from './aiService.js';
+import { CardStorage } from './storage.js';
+import { CardEngine } from './cardEngine.js';
+import { CardManager } from './cardManager.js';
+import { Editor } from './editor.js';
+import { AiChat } from './aiChat.js';
+
 const Wizard = {
   _step: 1,
   _totalSteps: 5,

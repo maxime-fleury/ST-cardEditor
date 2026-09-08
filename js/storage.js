@@ -2,6 +2,10 @@
    storage.js — localStorage + IndexedDB Persistence
    ============================================================ */
 
+// Module dependencies (ES imports — window.* exports kept for compat).
+import { I18n } from './i18n.js';
+import { Ui } from './ui.js';
+
 const CardStorage = {
   PREFIX: 'stce_',
   CHAT_HISTORY_LIMIT: 100,
