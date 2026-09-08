@@ -66,8 +66,17 @@ jobs:
       - name: Asset / SW-shell / version drift check
         run: bun scripts/check-assets.mjs
 
+      # Runs through the same `test:unit` script as ci.yml: bun shares one
+      # module registry per process, so the mock.module stubs leak between
+      # files unless --parallel (one worker per file) is used.
       - name: Unit tests (cardEngine + tokenizer)
-        run: bun test tests/unit
+        run: bun run test:unit
+
+      - name: 'Typecheck (@ts-check files: aiChat/cardManager/editor)'
+        run: bun run typecheck
+
+      - name: Lint (ESLint flat config - style + static bugs)
+        run: bun run lint
 
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium

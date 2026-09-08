@@ -44,7 +44,7 @@ jobs:
       - name: Unit tests (8 files, incl. cardEngine/tokenizer/aiService/i18n/cardManager/editor/exportUtils/settings)
         run: bun run test:unit
 
-      - name: Typecheck (@ts-check files: aiChat/cardManager/editor)
+      - name: 'Typecheck (@ts-check files: aiChat/cardManager/editor)'
         run: bun run typecheck
 
       - name: Lint (ESLint flat config — style + static bugs)
