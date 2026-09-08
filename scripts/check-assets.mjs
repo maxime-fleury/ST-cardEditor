@@ -19,7 +19,7 @@
  * Usage:  bun scripts/check-assets.mjs
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleSourceText } from "./build.mjs";
@@ -155,6 +155,56 @@ try {
   }
 } catch (err) {
   fail(`bundle build check errored: ${err.message}`);
+}
+
+// 6. GitHub Actions workflow files must survive GitHub's strict YAML parser.
+//    A plain (unquoted) scalar cannot contain ": " — a step name like
+//    `- name: Typecheck (@ts-check files: ...)` is a syntax error for GitHub
+//    (every run fails at 0s with "invalid workflow file" — the ci.yml
+//    breakage of 2.7.1), even though some lenient parsers accept it. Bun.YAML
+//    rejects the same input, so a strict parse plus a targeted scan of
+//    unquoted step-name scalars covers the failure mode end to end.
+const workflowsDir = join(root, ".github", "workflows");
+const workflowFiles = (() => {
+  try {
+    return readdirSync(workflowsDir).filter(f => /\.ya?ml$/i.test(f)).sort();
+  } catch (_) {
+    return [];
+  }
+})();
+if (workflowFiles.length === 0) {
+  fail(".github/workflows has no *.yml/*.yaml files to validate.");
+} else {
+  let workflowIssues = 0;
+  for (const file of workflowFiles) {
+    const text = read(`.github/workflows/${file}`);
+    try {
+      const parsed = Bun.YAML.parse(text);
+      if (!parsed || typeof parsed !== "object" || !parsed.jobs) {
+        fail(`.github/workflows/${file} parses but has no top-level "jobs" key.`);
+        workflowIssues++;
+        continue;
+      }
+    } catch (e) {
+      fail(`.github/workflows/${file} is not valid YAML (GitHub would reject it): ${e.message.split("\n")[0]}`);
+      workflowIssues++;
+      continue;
+    }
+    text.split(/\r?\n/).forEach((line, i) => {
+      const nameMatch = /^\s*-\s*name:\s*(.*)$/.exec(line);
+      if (!nameMatch) return;
+      const value = nameMatch[1];
+      // Quoted scalars ('...' or "...") can safely contain ": ".
+      if (/^['"]/.test(value)) return;
+      if (/:[\t ]/.test(value)) {
+        fail(`.github/workflows/${file}:${i + 1}: step name is unquoted and contains ": " — GitHub's parser rejects it; wrap the name in quotes.`);
+        workflowIssues++;
+      }
+    });
+  }
+  if (workflowIssues === 0) {
+    ok(`${workflowFiles.length} workflow file(s) parse cleanly (strict YAML, no unquoted ": " in step names).`);
+  }
 }
 
 if (failures) {

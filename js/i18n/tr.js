@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': '{{count}} değişiklik hazır',
   'toast.fieldsDetected': 'Algılanan alanlar: {{fields}}',
   'toast.jsonCleaned': 'Hâlâ JSON içeren {{count}} alan temizlendi',
+  'toast.placeholdersFixed': '{{count}} alan: user/char yer tutucuları {{user}}/{{char}} olarak düzeltildi',
   'ai.viewFullResult': 'Tam sonucu görüntüle',
   'ai.showLess': 'Daha az göster',
   'ai.reviewApply': 'İncele ve Uygula',

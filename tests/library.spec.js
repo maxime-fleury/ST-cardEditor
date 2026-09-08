@@ -183,3 +183,23 @@ test('switching cards clears stale AI chat and never duplicates history', async 
 
   expect(errors, 'card-switch chat flow must not throw').toEqual([]);
 });
+
+test('selecting a card repairs {user}/{char} placeholders into {{user}}/{{char}}', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await importCards(page, [v2Card('Placeholders', {
+    description: 'Elle arrive chez {user}, et {CHAR} lui répond.',
+    first_mes: 'Bonjour {UsER}.',
+  })]);
+  // Opening the card runs the load-time repair and persists the cleaned card.
+  await page.locator('.card-list-item').first().click();
+  await page.waitForTimeout(300);
+  const stored = await page.evaluate(async () => {
+    const meta = CardStorage.getCards().find((c) => c.name === 'Placeholders');
+    const full = meta ? await CardStorage.getCard(meta._id) : null;
+    return full ? { description: full.description, first_mes: full.first_mes } : null;
+  });
+  expect(stored.description).toBe('Elle arrive chez {{user}}, et {{char}} lui répond.');
+  expect(stored.first_mes).toBe('Bonjour {{user}}.');
+  expect(errors, 'placeholder repair must not throw').toEqual([]);
+});

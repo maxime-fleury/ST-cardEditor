@@ -654,11 +654,18 @@ const CardManager = {
     // diffs and the editor stop re-seeing the JSON. A failed persistence (e.g.
     // quota exceeded) must NOT abort the selection: the in-memory card is
     // already repaired and the next save will persist it.
-    const repaired = AiChat._repairStoredCardJSON(fullCard);
-    if (repaired > 0) {
+    // Repair legacy damage before the card becomes active: unwrap whole-card
+    // JSON blobs stuck in a field, and normalize {user}/{char} placeholders
+    // into their canonical {{user}}/{{char}} form (any casing, one/two braces).
+    const jsonRepaired = AiChat._repairStoredCardJSON(fullCard);
+    const phRepaired = AiChat._repairStoredPlaceholders(fullCard);
+    if (jsonRepaired > 0 || phRepaired > 0) {
       try {
         await CardStorage.upsertCard(fullCard);
-        Ui.showToast(I18n.t('toast.jsonCleaned', { count: repaired }), 'info');
+        const notes = [];
+        if (jsonRepaired > 0) notes.push(I18n.t('toast.jsonCleaned', { count: jsonRepaired }));
+        if (phRepaired > 0) notes.push(I18n.t('toast.placeholdersFixed', { count: phRepaired }));
+        Ui.showToast(notes.join(' · '), 'info');
       } catch (e) {
         console.error('cardManager: failed to persist repaired card:', e);
       }

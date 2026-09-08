@@ -114,6 +114,7 @@ const baseAiChat = () => ({
   renderChatHistory: noop,
   updateContextBar: noop,
   _repairStoredCardJSON: () => 0,
+  _repairStoredPlaceholders: () => 0,
 });
 
 // ─── CARD SWITCH: session / apply-queue reset ─────────────────────────────
@@ -226,7 +227,30 @@ test('_doSelect unwraps legacy stored card JSON from fields and persists the rep
   expect(toasts).toContain('toast.jsonCleaned');
 });
 
-test('_doSelect continues the selection when persisting the repair fails', async () => {
+test('_doSelect repairs legacy {user}/{char} placeholders and persists them', async () => {
+  CardManager.renderCardList = noop;
+  const saved = [];
+  const toasts = [];
+  Object.assign(stubs.CardStorage, baseCardStorage(), {
+    getCard: async () => ({ _id: 'B', name: 'Old', description: 'Elle arrive chez {user}', tags: [] }),
+    upsertCard: async (card) => saved.push(card),
+  });
+  Object.assign(stubs.AiChat, baseAiChat(), {
+    _repairStoredPlaceholders: (card) => {
+      card.description = 'Elle arrive chez {{user}}'; // the real AiChat does this
+      return 1;
+    },
+  });
+  Object.assign(stubs.Ui, { showToast: (msg) => toasts.push(msg) });
+
+  await CardManager._doSelect({ _id: 'B' });
+
+  expect(saved).toHaveLength(1);
+  expect(saved[0].description).toBe('Elle arrive chez {{user}}');
+  expect(toasts).toContain('toast.placeholdersFixed');
+});
+
+test('_doSelect does not re-save a clean card', async () => {
   // A quota-exceeded upsert must not abort the card switch: the in-memory
   // card is already repaired and the next save persists it.
   CardManager.renderCardList = noop;

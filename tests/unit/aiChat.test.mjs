@@ -606,6 +606,40 @@ test('_repairStoredCardJSON returns 0 for clean cards and non-objects', () => {
   expect(AiChat._repairStoredCardJSON('nope')).toBe(0);
 });
 
+test('_repairStoredPlaceholders normalizes {user}/{char} variants across fields', () => {
+  const card = {
+    name: 'Elodie',
+    description: 'Elle arrive chez {user}, le bordel total.',
+    personality: 'Voit tout de {UsER} et de {CHAR}.',
+    first_mes: '« Bonjour, c\'est Elodie » — à toi de jouer, {USER}.',
+    mes_example: '{{user}}: Salut\n{{char}}: {Char} te répond.',
+    alternate_greetings: ['Salut {user} !', '{{char}} entre. {Random} reste tel quel.'],
+    character_book: {
+      entries: [
+        { content: 'Elodie remarque {user} partout.', comment: 'Note pour {UsER}' },
+        { content: 'propre' },
+      ],
+    },
+  };
+  const repaired = AiChat._repairStoredPlaceholders(card);
+  expect(repaired).toBe(7); // description, personality, first_mes, mes_example, 2 greetings, lore content, lore comment => count distinct fields fixed
+  expect(card.description).toBe('Elle arrive chez {{user}}, le bordel total.');
+  expect(card.personality).toBe('Voit tout de {{user}} et de {{char}}.');
+  expect(card.first_mes).toBe('« Bonjour, c\'est Elodie » — à toi de jouer, {{user}}.');
+  expect(card.mes_example).toBe('{{user}}: Salut\n{{char}}: {{char}} te répond.');
+  expect(card.alternate_greetings[0]).toBe('Salut {{user}} !');
+  expect(card.alternate_greetings[1]).toBe('{{char}} entre. {Random} reste tel quel.'); // other macros untouched
+  expect(card.character_book.entries[0].content).toBe('Elodie remarque {{user}} partout.');
+  expect(card.character_book.entries[0].comment).toBe('Note pour {{user}}');
+  expect(card.character_book.entries[1].content).toBe('propre'); // untouched
+});
+
+test('_repairStoredPlaceholders returns 0 for clean cards and non-objects', () => {
+  expect(AiChat._repairStoredPlaceholders({ name: 'X', description: '{{user}} et {{char}} propres' })).toBe(0);
+  expect(AiChat._repairStoredPlaceholders(null)).toBe(0);
+  expect(AiChat._repairStoredPlaceholders('nope')).toBe(0);
+});
+
 test('_prepareApply shows the unwrapped stored JSON as the diff oldVal', () => {
   const activeCard = baseCard();
   activeCard.description = elodieCard; // legacy damage already in the card

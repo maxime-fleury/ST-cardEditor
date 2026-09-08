@@ -1055,6 +1055,36 @@ const AiChat = {
     return repaired;
   },
 
+  // Sweep a stored card and normalize any {user}/{char} placeholder (one or
+  // two braces, any casing) into its canonical {{user}}/{{char}} form, in the
+  // main text fields, alternate greetings and lorebook entries. Mutates the
+  // card in place and returns the number of fields repaired (0 = card clean).
+  _repairStoredPlaceholders(card) {
+    if (!card || typeof card !== 'object') return 0;
+    let repaired = 0;
+    const fix = (value) => {
+      const norm = this._normalizePlaceholders(value);
+      if (norm !== value) { repaired++; return norm; }
+      return value;
+    };
+    ['name', 'description', 'personality', 'first_mes', 'scenario', 'mes_example',
+      'system_prompt', 'post_history_instructions', 'creator_notes'].forEach(f => {
+      if (typeof card[f] === 'string') card[f] = fix(card[f]);
+    });
+    if (Array.isArray(card.alternate_greetings)) {
+      card.alternate_greetings = card.alternate_greetings.map(g => (typeof g === 'string' ? fix(g) : g));
+    }
+    const entries = card.character_book && Array.isArray(card.character_book.entries)
+      ? card.character_book.entries
+      : [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      if (typeof entry.content === 'string') entry.content = fix(entry.content);
+      if (typeof entry.comment === 'string') entry.comment = fix(entry.comment);
+    }
+    return repaired;
+  },
+
   // Infer which card fields a natural-language request is about. Used when the
   // user sends a message without picking field chips: "Renomme la carte en X,
   // elle est … elle dit « … »" → name + description + first_mes + scenario.

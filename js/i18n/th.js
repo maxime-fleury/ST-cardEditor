@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': 'การเปลี่ยนแปลง {{count}} รายการพร้อม',
   'toast.fieldsDetected': 'ฟิลด์ที่ตรวจพบ: {{fields}}',
   'toast.jsonCleaned': 'ทำความสะอาดฟิลด์ {{count}} รายการที่ยังมี JSON อยู่',
+  'toast.placeholdersFixed': 'แก้ไข {{count}} ฟิลด์: ตัวยึด user/char เป็น {{user}}/{{char}}',
   'ai.viewFullResult': 'ดูผลลัพธ์ทั้งหมด',
   'ai.showLess': 'แสดงน้อยลง',
   'ai.reviewApply': 'ตรวจสอบและใช้',

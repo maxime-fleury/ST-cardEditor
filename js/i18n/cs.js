@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': 'Připraveno změn: {{count}}',
   'toast.fieldsDetected': 'Zjištěná pole: {{fields}}',
   'toast.jsonCleaned': 'Vyčištěno {{count}} polí, která stále obsahovala JSON',
+  'toast.placeholdersFixed': 'Opraveno {{count}} polí: placeholdery user/char na {{user}}/{{char}}',
   'ai.viewFullResult': 'Zobrazit celý výsledek',
   'ai.showLess': 'Zobrazit méně',
   'ai.reviewApply': 'Zkontrolovat a použít',

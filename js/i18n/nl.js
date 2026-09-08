@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': '{{count}} wijzigingen klaar',
   'toast.fieldsDetected': 'Gedetecteerde velden: {{fields}}',
   'toast.jsonCleaned': '{{count}} veld(en) bevatten nog JSON — opgeschoond',
+  'toast.placeholdersFixed': '{{count}} veld(en): user/char-placeholders gecorrigeerd naar {{user}}/{{char}}',
   'ai.viewFullResult': 'Volledig resultaat bekijken',
   'ai.showLess': 'Minder tonen',
   'ai.reviewApply': 'Controleren en toepassen',

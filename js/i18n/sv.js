@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': '{{count}} ändringar redo',
   'toast.fieldsDetected': 'Identifierade fält: {{fields}}',
   'toast.jsonCleaned': '{{count}} fält innehöll fortfarande JSON — rensade',
+  'toast.placeholdersFixed': '{{count}} fält: user/char-platshållare korrigerade till {{user}}/{{char}}',
   'ai.viewFullResult': 'Visa hela resultatet',
   'ai.showLess': 'Visa mindre',
   'ai.reviewApply': 'Granska och tillämpa',

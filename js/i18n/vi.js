@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': '{{count}} thay đổi đã sẵn sàng',
   'toast.fieldsDetected': 'Các trường được phát hiện: {{fields}}',
   'toast.jsonCleaned': 'Đã dọn {{count}} trường vẫn còn chứa JSON',
+  'toast.placeholdersFixed': 'Đã sửa {{count}} trường: placeholder user/char thành {{user}}/{{char}}',
   'ai.viewFullResult': 'Xem kết quả đầy đủ',
   'ai.showLess': 'Hiển thị ít hơn',
   'ai.reviewApply': 'Xem lại và áp dụng',

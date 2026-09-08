@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': '{{count}} perubahan siap',
   'toast.fieldsDetected': 'Bidang terdeteksi: {{fields}}',
   'toast.jsonCleaned': '{{count}} kolom yang masih berisi JSON dibersihkan',
+  'toast.placeholdersFixed': '{{count}} kolom diperbaiki: placeholder user/char menjadi {{user}}/{{char}}',
   'ai.viewFullResult': 'Lihat hasil lengkap',
   'ai.showLess': 'Tampilkan lebih sedikit',
   'ai.reviewApply': 'Tinjau & Terapkan',

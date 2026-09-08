@@ -466,6 +466,7 @@ export default {
   'ai.changesReady': 'Готово изменений: {{count}}',
   'toast.fieldsDetected': 'Обнаруженные поля: {{fields}}',
   'toast.jsonCleaned': 'Очищено {{count}} поле(й), всё ещё содержавших JSON',
+  'toast.placeholdersFixed': 'Исправлено {{count}} поле(й): плейсхолдеры user/char приведены к {{user}}/{{char}}',
   'ai.viewFullResult': 'Посмотреть полный результат',
   'ai.showLess': 'Показать меньше',
   'ai.reviewApply': 'Просмотр и применение',

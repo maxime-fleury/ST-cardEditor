@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': 'Змін готово: {{count}}',
   'toast.fieldsDetected': 'Виявлені поля: {{fields}}',
   'toast.jsonCleaned': 'Очищено {{count}} поле(й), що ще містили JSON',
+  'toast.placeholdersFixed': 'Виправлено {{count}} полів: плейсхолдери user/char приведено до {{user}}/{{char}}',
   'ai.viewFullResult': 'Переглянути повний результат',
   'ai.showLess': 'Показати менше',
   'ai.reviewApply': 'Переглянути та застосувати',

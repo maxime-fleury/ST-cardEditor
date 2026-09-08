@@ -237,6 +237,7 @@
     "ai.changesReady": "{{count}} changes ready",
     "toast.fieldsDetected": "Detected fields: {{fields}}",
     "toast.jsonCleaned": "Cleaned {{count}} field(s) that still contained JSON",
+    "toast.placeholdersFixed": "Fixed {{count}} field(s): user/char placeholders normalized to {{user}}/{{char}}",
     "ai.viewFullResult": "View full result",
     "ai.showLess": "Show less",
     "ai.reviewApply": "Review & Apply",
@@ -1166,6 +1167,7 @@
     "ai.changesReady": "{{count}} modifications prêtes",
     "toast.fieldsDetected": "Champs détectés : {{fields}}",
     "toast.jsonCleaned": "{{count}} champ(s) contenaient encore du JSON — nettoyés",
+    "toast.placeholdersFixed": "{{count}} champ(s) : placeholders user/char corrigés en {{user}}/{{char}}",
     "ai.viewFullResult": "Voir le résultat complet",
     "ai.showLess": "Afficher moins",
     "ai.reviewApply": "Examiner et appliquer",
@@ -1809,6 +1811,7 @@
     "ai.changesReady": "{{count}} cambios listos",
     "toast.fieldsDetected": "Campos detectados: {{fields}}",
     "toast.jsonCleaned": "{{count}} campo(s) aún contenían JSON — limpiados",
+    "toast.placeholdersFixed": "{{count}} campo(s): marcadores user/char corregidos a {{user}}/{{char}}",
     "ai.viewFullResult": "Ver resultado completo",
     "ai.showLess": "Mostrar menos",
     "ai.reviewApply": "Revisar y aplicar",
@@ -2451,6 +2454,7 @@
     "ai.changesReady": "{{count}} Änderungen bereit",
     "toast.fieldsDetected": "Erkannte Felder: {{fields}}",
     "toast.jsonCleaned": "{{count}} Felder enthielten noch JSON — bereinigt",
+    "toast.placeholdersFixed": "{{count}} Feld(er): user/char-Platzhalter zu {{user}}/{{char}} korrigiert",
     "ai.viewFullResult": "Vollständiges Ergebnis anzeigen",
     "ai.showLess": "Weniger anzeigen",
     "ai.reviewApply": "Prüfen übernehmen",
@@ -3093,6 +3097,7 @@
     "ai.changesReady": "{{count}} alterações prontas",
     "toast.fieldsDetected": "Campos detectados: {{fields}}",
     "toast.jsonCleaned": "{{count}} campo(s) ainda continham JSON — limpos",
+    "toast.placeholdersFixed": "{{count}} campo(s): placeholders user/char corrigidos para {{user}}/{{char}}",
     "ai.viewFullResult": "Ver resultado completo",
     "ai.showLess": "Mostrar menos",
     "ai.reviewApply": "Revisar e aplicar",
@@ -3735,6 +3740,7 @@
     "ai.changesReady": "{{count}}件の変更が準備できました",
     "toast.fieldsDetected": "検出されたフィールド: {{fields}}",
     "toast.jsonCleaned": "まだJSONが含まれていた{{count}}個のフィールドを修復しました",
+    "toast.placeholdersFixed": "{{count}} フィールド: user/char プレースホルダーを {{user}}/{{char}} に修正",
     "ai.viewFullResult": "結果を全部表示",
     "ai.showLess": "簡略表示",
     "ai.reviewApply": "確認して適用",
@@ -4377,6 +4383,7 @@
     "ai.changesReady": "{{count}}项更改已就绪",
     "toast.fieldsDetected": "检测到的字段：{{fields}}",
     "toast.jsonCleaned": "已清理仍包含 JSON 的 {{count}} 个字段",
+    "toast.placeholdersFixed": "已修正 {{count}} 个字段：user/char 占位符已规范为 {{user}}/{{char}}",
     "ai.viewFullResult": "查看完整结果",
     "ai.showLess": "显示较少",
     "ai.reviewApply": "审查并应用",
@@ -5019,6 +5026,7 @@
     "ai.changesReady": "변경 {{count}}개 준비됨",
     "toast.fieldsDetected": "감지된 필드: {{fields}}",
     "toast.jsonCleaned": "여전히 JSON이 포함된 {{count}}개 필드를 정리했습니다",
+    "toast.placeholdersFixed": "{{count}}개 필드: user/char 플레이스홀더를 {{user}}/{{char}}(으)로 수정",
     "ai.viewFullResult": "전체 결과 보기",
     "ai.showLess": "간략히 보기",
     "ai.reviewApply": "검토 및 적용",
@@ -5661,6 +5669,7 @@
     "ai.changesReady": "{{count}} αλλαγές έτοιμες",
     "toast.fieldsDetected": "Πεδία που εντοπίστηκαν: {{fields}}",
     "toast.jsonCleaned": "Καθαρίστηκαν {{count}} πεδία που περιείχαν ακόμη JSON",
+    "toast.placeholdersFixed": "Διορθώθηκαν {{count}} πεδίο(α): τα placeholders user/char σε {{user}}/{{char}}",
     "ai.viewFullResult": "Προβολή πλήρους αποτελέσματος",
     "ai.showLess": "Εμφάνιση λιγότερων",
     "ai.reviewApply": "Ανασκόπηση & Εφαρμογή",
@@ -6303,6 +6312,7 @@
     "ai.changesReady": "Готово изменений: {{count}}",
     "toast.fieldsDetected": "Обнаруженные поля: {{fields}}",
     "toast.jsonCleaned": "Очищено {{count}} поле(й), всё ещё содержавших JSON",
+    "toast.placeholdersFixed": "Исправлено {{count}} поле(й): плейсхолдеры user/char приведены к {{user}}/{{char}}",
     "ai.viewFullResult": "Посмотреть полный результат",
     "ai.showLess": "Показать меньше",
     "ai.reviewApply": "Просмотр и применение",
@@ -6657,6 +6667,7 @@
     "ai.changesReady": "{{count}} modifiche pronte",
     "toast.fieldsDetected": "Campi rilevati: {{fields}}",
     "toast.jsonCleaned": "{{count}} campi contenevano ancora JSON — ripuliti",
+    "toast.placeholdersFixed": "{{count}} campo(i): segnaposto user/char corretti in {{user}}/{{char}}",
     "ai.viewFullResult": "Visualizza risultato completo",
     "ai.showLess": "Mostra meno",
     "ai.reviewApply": "Rivedi e applica",
@@ -7299,6 +7310,7 @@
     "ai.changesReady": "Gotowych zmian: {{count}}",
     "toast.fieldsDetected": "Wykryte pola: {{fields}}",
     "toast.jsonCleaned": "Wyczyszczono {{count}} pola, które nadal zawierały JSON",
+    "toast.placeholdersFixed": "{{count}} pole: placeholdery user/char poprawione na {{user}}/{{char}}",
     "ai.viewFullResult": "Zobacz pełny wynik",
     "ai.showLess": "Pokaż mniej",
     "ai.reviewApply": "Przejrzyj i zastosuj",
@@ -7941,6 +7953,7 @@
     "ai.changesReady": "{{count}} değişiklik hazır",
     "toast.fieldsDetected": "Algılanan alanlar: {{fields}}",
     "toast.jsonCleaned": "Hâlâ JSON içeren {{count}} alan temizlendi",
+    "toast.placeholdersFixed": "{{count}} alan: user/char yer tutucuları {{user}}/{{char}} olarak düzeltildi",
     "ai.viewFullResult": "Tam sonucu görüntüle",
     "ai.showLess": "Daha az göster",
     "ai.reviewApply": "İncele ve Uygula",
@@ -8583,6 +8596,7 @@
     "ai.changesReady": "{{count}} wijzigingen klaar",
     "toast.fieldsDetected": "Gedetecteerde velden: {{fields}}",
     "toast.jsonCleaned": "{{count}} veld(en) bevatten nog JSON — opgeschoond",
+    "toast.placeholdersFixed": "{{count}} veld(en): user/char-placeholders gecorrigeerd naar {{user}}/{{char}}",
     "ai.viewFullResult": "Volledig resultaat bekijken",
     "ai.showLess": "Minder tonen",
     "ai.reviewApply": "Controleren en toepassen",
@@ -9225,6 +9239,7 @@
     "ai.changesReady": "Змін готово: {{count}}",
     "toast.fieldsDetected": "Виявлені поля: {{fields}}",
     "toast.jsonCleaned": "Очищено {{count}} поле(й), що ще містили JSON",
+    "toast.placeholdersFixed": "Виправлено {{count}} полів: плейсхолдери user/char приведено до {{user}}/{{char}}",
     "ai.viewFullResult": "Переглянути повний результат",
     "ai.showLess": "Показати менше",
     "ai.reviewApply": "Переглянути та застосувати",
@@ -9867,6 +9882,7 @@
     "ai.changesReady": "{{count}} thay đổi đã sẵn sàng",
     "toast.fieldsDetected": "Các trường được phát hiện: {{fields}}",
     "toast.jsonCleaned": "Đã dọn {{count}} trường vẫn còn chứa JSON",
+    "toast.placeholdersFixed": "Đã sửa {{count}} trường: placeholder user/char thành {{user}}/{{char}}",
     "ai.viewFullResult": "Xem kết quả đầy đủ",
     "ai.showLess": "Hiển thị ít hơn",
     "ai.reviewApply": "Xem lại và áp dụng",
@@ -10509,6 +10525,7 @@
     "ai.changesReady": "{{count}} perubahan siap",
     "toast.fieldsDetected": "Bidang terdeteksi: {{fields}}",
     "toast.jsonCleaned": "{{count}} kolom yang masih berisi JSON dibersihkan",
+    "toast.placeholdersFixed": "{{count}} kolom diperbaiki: placeholder user/char menjadi {{user}}/{{char}}",
     "ai.viewFullResult": "Lihat hasil lengkap",
     "ai.showLess": "Tampilkan lebih sedikit",
     "ai.reviewApply": "Tinjau & Terapkan",
@@ -11151,6 +11168,7 @@
     "ai.changesReady": "{{count}} परिवर्तन तैयार",
     "toast.fieldsDetected": "पहचाने गए फ़ील्ड: {{fields}}",
     "toast.jsonCleaned": "अभी भी JSON वाले {{count}} फ़ील्ड साफ़ किए गए",
+    "toast.placeholdersFixed": "{{count}} फ़ील्ड ठीक किए गए: user/char प्लेसहोल्डर को {{user}}/{{char}} में बदला गया",
     "ai.viewFullResult": "पूरा परिणाम देखें",
     "ai.showLess": "कम दिखाएं",
     "ai.reviewApply": "समीक्षा करें और लागू करें",
@@ -11793,6 +11811,7 @@
     "ai.changesReady": "{{count}} تغييرات جاهزة",
     "toast.fieldsDetected": "الحقول المكتشفة: {{fields}}",
     "toast.jsonCleaned": "تم تنظيف {{count}} حقول كانت لا تزال تحتوي على JSON",
+    "toast.placeholdersFixed": "تم تصحيح {{count}} حقل: عناصر user/char إلى {{user}}/{{char}}",
     "ai.viewFullResult": "عرض النتيجة الكاملة",
     "ai.showLess": "عرض أقل",
     "ai.reviewApply": "مراجعة وتطبيق",
@@ -12435,6 +12454,7 @@
     "ai.changesReady": "{{count}} שינויים מוכנים",
     "toast.fieldsDetected": "שדות שזוהו: {{fields}}",
     "toast.jsonCleaned": "נוקו {{count}} שדות שעדיין הכילו JSON",
+    "toast.placeholdersFixed": "{{count}} שדות תוקנו: מצייני user/char ל-{{user}}/{{char}}",
     "ai.viewFullResult": "הצגת התוצאה המלאה",
     "ai.showLess": "הצגה פחותה",
     "ai.reviewApply": "סקירה והחלה",
@@ -13077,6 +13097,7 @@
     "ai.changesReady": "{{count}} تغییر آماده است",
     "toast.fieldsDetected": "فیلدهای شناساییشده: {{fields}}",
     "toast.jsonCleaned": "{{count}} فیلد که هنوز JSON داشتند پاکسازی شدند",
+    "toast.placeholdersFixed": "{{count}} فیلد اصلاح شد: جایگاههای user/char به {{user}}/{{char}} تبدیل شدند",
     "ai.viewFullResult": "مشاهده نتیجه کامل",
     "ai.showLess": "نمایش کمتر",
     "ai.reviewApply": "بررسی و اعمال",
@@ -13719,6 +13740,7 @@
     "ai.changesReady": "{{count}} modificări gata",
     "toast.fieldsDetected": "Câmpuri detectate: {{fields}}",
     "toast.jsonCleaned": "Au fost curățate {{count}} câmpuri care mai conțineau JSON",
+    "toast.placeholdersFixed": "Corectate {{count}} câmp(uri): placeholder-ele user/char în {{user}}/{{char}}",
     "ai.viewFullResult": "Vezi rezultatul complet",
     "ai.showLess": "Afișează mai puțin",
     "ai.reviewApply": "Revizuiește și aplică",
@@ -14361,6 +14383,7 @@
     "ai.changesReady": "Připraveno změn: {{count}}",
     "toast.fieldsDetected": "Zjištěná pole: {{fields}}",
     "toast.jsonCleaned": "Vyčištěno {{count}} polí, která stále obsahovala JSON",
+    "toast.placeholdersFixed": "Opraveno {{count}} polí: placeholdery user/char na {{user}}/{{char}}",
     "ai.viewFullResult": "Zobrazit celý výsledek",
     "ai.showLess": "Zobrazit méně",
     "ai.reviewApply": "Zkontrolovat a použít",
@@ -15003,6 +15026,7 @@
     "ai.changesReady": "{{count}} ändringar redo",
     "toast.fieldsDetected": "Identifierade fält: {{fields}}",
     "toast.jsonCleaned": "{{count}} fält innehöll fortfarande JSON — rensade",
+    "toast.placeholdersFixed": "{{count}} fält: user/char-platshållare korrigerade till {{user}}/{{char}}",
     "ai.viewFullResult": "Visa hela resultatet",
     "ai.showLess": "Visa mindre",
     "ai.reviewApply": "Granska och tillämpa",
@@ -15645,6 +15669,7 @@
     "ai.changesReady": "การเปลี่ยนแปลง {{count}} รายการพร้อม",
     "toast.fieldsDetected": "ฟิลด์ที่ตรวจพบ: {{fields}}",
     "toast.jsonCleaned": "ทำความสะอาดฟิลด์ {{count}} รายการที่ยังมี JSON อยู่",
+    "toast.placeholdersFixed": "แก้ไข {{count}} ฟิลด์: ตัวยึด user/char เป็น {{user}}/{{char}}",
     "ai.viewFullResult": "ดูผลลัพธ์ทั้งหมด",
     "ai.showLess": "แสดงน้อยลง",
     "ai.reviewApply": "ตรวจสอบและใช้",
@@ -16287,6 +16312,7 @@
     "ai.changesReady": "{{count}} alterações prontas",
     "toast.fieldsDetected": "Campos detetados: {{fields}}",
     "toast.jsonCleaned": "{{count}} campo(s) ainda continham JSON — limpos",
+    "toast.placeholdersFixed": "{{count}} campo(s): marcadores user/char corrigidos para {{user}}/{{char}}",
     "ai.viewFullResult": "Ver resultado completo",
     "ai.showLess": "Mostrar menos",
     "ai.reviewApply": "Rever e aplicar",
@@ -16929,6 +16955,7 @@
     "ai.changesReady": "{{count}} pagbabago handa na",
     "toast.fieldsDetected": "Mga field na natukoy: {{fields}}",
     "toast.jsonCleaned": "Nilinis ang {{count}} field na mayroon pang JSON",
+    "toast.placeholdersFixed": "Inayos ang {{count}} field: naging {{user}}/{{char}} ang mga placeholder ng user/char",
     "ai.viewFullResult": "Tingnan ang buong resulta",
     "ai.showLess": "Ipakita ang mas kaunti",
     "ai.reviewApply": "Suriin at I-apply",
@@ -20759,6 +20786,46 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       });
       return repaired;
     },
+    _repairStoredPlaceholders(card) {
+      if (!card || typeof card !== "object")
+        return 0;
+      let repaired = 0;
+      const fix = (value) => {
+        const norm = this._normalizePlaceholders(value);
+        if (norm !== value) {
+          repaired++;
+          return norm;
+        }
+        return value;
+      };
+      [
+        "name",
+        "description",
+        "personality",
+        "first_mes",
+        "scenario",
+        "mes_example",
+        "system_prompt",
+        "post_history_instructions",
+        "creator_notes"
+      ].forEach((f) => {
+        if (typeof card[f] === "string")
+          card[f] = fix(card[f]);
+      });
+      if (Array.isArray(card.alternate_greetings)) {
+        card.alternate_greetings = card.alternate_greetings.map((g) => typeof g === "string" ? fix(g) : g);
+      }
+      const entries = card.character_book && Array.isArray(card.character_book.entries) ? card.character_book.entries : [];
+      for (const entry of entries) {
+        if (!entry || typeof entry !== "object")
+          continue;
+        if (typeof entry.content === "string")
+          entry.content = fix(entry.content);
+        if (typeof entry.comment === "string")
+          entry.comment = fix(entry.comment);
+      }
+      return repaired;
+    },
     async _resolveTargetFields(prompt, modelId) {
       if (AIService.hasApiKey && AIService.hasApiKey()) {
         if (!this._classifyInFlight) {
@@ -23163,11 +23230,17 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`
       const fullCard = await CardStorage.getCard(cardMeta._id);
       if (!fullCard)
         return;
-      const repaired = AiChat._repairStoredCardJSON(fullCard);
-      if (repaired > 0) {
+      const jsonRepaired = AiChat._repairStoredCardJSON(fullCard);
+      const phRepaired = AiChat._repairStoredPlaceholders(fullCard);
+      if (jsonRepaired > 0 || phRepaired > 0) {
         try {
           await CardStorage.upsertCard(fullCard);
-          Ui.showToast(I18n.t("toast.jsonCleaned", { count: repaired }), "info");
+          const notes = [];
+          if (jsonRepaired > 0)
+            notes.push(I18n.t("toast.jsonCleaned", { count: jsonRepaired }));
+          if (phRepaired > 0)
+            notes.push(I18n.t("toast.placeholdersFixed", { count: phRepaired }));
+          Ui.showToast(notes.join(" · "), "info");
         } catch (e) {
           console.error("cardManager: failed to persist repaired card:", e);
         }

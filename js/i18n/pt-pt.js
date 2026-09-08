@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': '{{count}} alterações prontas',
   'toast.fieldsDetected': 'Campos detetados: {{fields}}',
   'toast.jsonCleaned': '{{count}} campo(s) ainda continham JSON — limpos',
+  'toast.placeholdersFixed': '{{count}} campo(s): marcadores user/char corrigidos para {{user}}/{{char}}',
   'ai.viewFullResult': 'Ver resultado completo',
   'ai.showLess': 'Mostrar menos',
   'ai.reviewApply': 'Rever e aplicar',

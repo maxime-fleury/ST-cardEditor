@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': '{{count}} تغییر آماده است',
   'toast.fieldsDetected': 'فیلدهای شناساییشده: {{fields}}',
   'toast.jsonCleaned': '{{count}} فیلد که هنوز JSON داشتند پاکسازی شدند',
+  'toast.placeholdersFixed': '{{count}} فیلد اصلاح شد: جایگاههای user/char به {{user}}/{{char}} تبدیل شدند',
   'ai.viewFullResult': 'مشاهده نتیجه کامل',
   'ai.showLess': 'نمایش کمتر',
   'ai.reviewApply': 'بررسی و اعمال',

@@ -466,6 +466,7 @@ export default {
   'ai.changesReady': '{{count}}项更改已就绪',
   'toast.fieldsDetected': '检测到的字段：{{fields}}',
   'toast.jsonCleaned': '已清理仍包含 JSON 的 {{count}} 个字段',
+  'toast.placeholdersFixed': '已修正 {{count}} 个字段：user/char 占位符已规范为 {{user}}/{{char}}',
   'ai.viewFullResult': '查看完整结果',
   'ai.showLess': '显示较少',
   'ai.reviewApply': '审查并应用',

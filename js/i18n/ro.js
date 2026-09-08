@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': '{{count}} modificări gata',
   'toast.fieldsDetected': 'Câmpuri detectate: {{fields}}',
   'toast.jsonCleaned': 'Au fost curățate {{count}} câmpuri care mai conțineau JSON',
+  'toast.placeholdersFixed': 'Corectate {{count}} câmp(uri): placeholder-ele user/char în {{user}}/{{char}}',
   'ai.viewFullResult': 'Vezi rezultatul complet',
   'ai.showLess': 'Afișează mai puțin',
   'ai.reviewApply': 'Revizuiește și aplică',

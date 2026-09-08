@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': '{{count}} تغييرات جاهزة',
   'toast.fieldsDetected': 'الحقول المكتشفة: {{fields}}',
   'toast.jsonCleaned': 'تم تنظيف {{count}} حقول كانت لا تزال تحتوي على JSON',
+  'toast.placeholdersFixed': 'تم تصحيح {{count}} حقل: عناصر user/char إلى {{user}}/{{char}}',
   'ai.viewFullResult': 'عرض النتيجة الكاملة',
   'ai.showLess': 'عرض أقل',
   'ai.reviewApply': 'مراجعة وتطبيق',

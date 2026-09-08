@@ -466,6 +466,7 @@ export default {
   'ai.changesReady': '{{count}} αλλαγές έτοιμες',
   'toast.fieldsDetected': 'Πεδία που εντοπίστηκαν: {{fields}}',
   'toast.jsonCleaned': 'Καθαρίστηκαν {{count}} πεδία που περιείχαν ακόμη JSON',
+  'toast.placeholdersFixed': 'Διορθώθηκαν {{count}} πεδίο(α): τα placeholders user/char σε {{user}}/{{char}}',
   'ai.viewFullResult': 'Προβολή πλήρους αποτελέσματος',
   'ai.showLess': 'Εμφάνιση λιγότερων',
   'ai.reviewApply': 'Ανασκόπηση & Εφαρμογή',

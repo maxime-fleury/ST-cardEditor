@@ -466,6 +466,7 @@ export default {
   'ai.changesReady': '변경 {{count}}개 준비됨',
   'toast.fieldsDetected': '감지된 필드: {{fields}}',
   'toast.jsonCleaned': '여전히 JSON이 포함된 {{count}}개 필드를 정리했습니다',
+  'toast.placeholdersFixed': '{{count}}개 필드: user/char 플레이스홀더를 {{user}}/{{char}}(으)로 수정',
   'ai.viewFullResult': '전체 결과 보기',
   'ai.showLess': '간략히 보기',
   'ai.reviewApply': '검토 및 적용',

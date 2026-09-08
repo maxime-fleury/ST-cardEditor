@@ -177,6 +177,7 @@ export default {
   'ai.changesReady': 'Gotowych zmian: {{count}}',
   'toast.fieldsDetected': 'Wykryte pola: {{fields}}',
   'toast.jsonCleaned': 'Wyczyszczono {{count}} pola, które nadal zawierały JSON',
+  'toast.placeholdersFixed': '{{count}} pole: placeholdery user/char poprawione na {{user}}/{{char}}',
   'ai.viewFullResult': 'Zobacz pełny wynik',
   'ai.showLess': 'Pokaż mniej',
   'ai.reviewApply': 'Przejrzyj i zastosuj',

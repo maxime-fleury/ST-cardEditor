@@ -291,6 +291,7 @@ declare const AiChat: {
   _renderFieldChips(): void;
   _inferFields(text: string): string[];
   _normalizePlaceholders(text: string): string;
+  _repairStoredPlaceholders(card: CardShape): number;
   [k: string]: any;
 };
 
