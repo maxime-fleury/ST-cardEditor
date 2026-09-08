@@ -53,7 +53,7 @@ const CardEngine = {
     filename = filename || 'untitled.json';
     let raw;
     try { raw = JSON.parse(jsonStr); }
-    catch (e) { throw new Error((I18n.t ? I18n.t('error.invalidJson', { message: e.message || 'parse error' }) : 'Invalid JSON: ' + (e.message || 'parse error'))); }
+    catch (e) { throw new Error((I18n.t ? I18n.t('error.invalidJson', { message: e.message || 'parse error' }) : 'Invalid JSON: ' + (e.message || 'parse error')), { cause: e }); }
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
       throw new Error((I18n.t ? I18n.t('error.unknownFormat') : 'Unknown card format — not a SillyTavern character card'));
     }
@@ -99,7 +99,7 @@ const CardEngine = {
         const nullIdx = chunkData.indexOf(0);
         if (nullIdx >= 0) {
           const keyword = this._utf8Decoder.decode(chunkData.slice(0, nullIdx)).toLowerCase();
-          let valueBytes = null;
+          let valueBytes;
           if (type === 'iTXt') {
             let p = nullIdx + 1;
             const compressionFlag = chunkData[p]; p += 1;
@@ -155,7 +155,7 @@ const CardEngine = {
       let ds;
       try {
         ds = new DecompressionStream('zlib');
-      } catch (e) {
+      } catch (_) {
         // Not every runtime accepts the 'zlib' format (Bun rejects it; some
         // Safari versions too). zTXt/iTXt data is standard zlib-wrapped
         // deflate: strip the 2-byte header and 4-byte adler32 trailer and

@@ -271,7 +271,7 @@ const WaifuTab = {
         else if (genderWanted === 'female') genderLabel = 'Female';
         else if (genderWanted === 'male') genderLabel = 'Male';
         results.push({ blob, url: c.image.large, objUrl, tags: (name + ' · ' + genderLabel).trim() });
-      } catch (e) {
+      } catch (_) {
         // skip individual image-fetch failures
       }
     }
@@ -367,7 +367,6 @@ const WaifuTab = {
   _render() {
     const wrap = document.querySelector('#waifuResults');
     const btnUse = document.querySelector('#waifuBtnUse');
-    const isMixed = this._mode === 'mixed';
     if (!wrap) return;
 
     if (!this._fetched.length) {

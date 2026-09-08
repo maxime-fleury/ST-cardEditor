@@ -741,7 +741,7 @@ const CardManager = {
   },
 
   async deleteActiveCard() {
-    const { activeCard, cards } = window.AppState;
+    const { activeCard } = window.AppState;
     if (!activeCard) return;
     await Editor.syncEditorToCard();
     const snapshot = { ...activeCard };
@@ -751,8 +751,6 @@ const CardManager = {
         if (b64) snapshot._imageBase64 = b64;
       } catch (_) {}
     }
-    const snapshotIndex = cards.findIndex(c => c._id === activeCard._id);
-
     try {
       await CardStorage.deleteCard(activeCard._id);
     } catch (e) {
@@ -923,7 +921,7 @@ const CardManager = {
         offset += 12 + len;
       }
       return false;
-    } catch (e) {
+    } catch (_) {
       return false;
     }
   },

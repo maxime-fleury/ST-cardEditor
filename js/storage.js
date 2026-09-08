@@ -216,7 +216,7 @@ const CardStorage = {
       const ct = this._b64ToBuf(obj.ct);
       const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
       return new TextDecoder().decode(plain);
-    } catch (err) {
+    } catch (_) {
       // Key changed (different origin/port) or data corrupted — treat as unrecoverable.
       return null;
     }
@@ -593,7 +593,7 @@ const CardStorage = {
       localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
     } catch (e) {
       if (e.name === 'QuotaExceededError') {
-        throw new Error((I18n.t ? I18n.t('error.storageFull') : 'Storage full! Try removing some cards or exporting them.'));
+        throw new Error((I18n.t ? I18n.t('error.storageFull') : 'Storage full! Try removing some cards or exporting them.'), { cause: e });
       }
       throw e;
     }
@@ -624,7 +624,7 @@ const CardStorage = {
       localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
     } catch (e) {
       if (e.name === 'QuotaExceededError') {
-        throw new Error((I18n.t ? I18n.t('error.storageFull') : 'Storage full! Try removing some cards or exporting them.'));
+        throw new Error((I18n.t ? I18n.t('error.storageFull') : 'Storage full! Try removing some cards or exporting them.'), { cause: e });
       }
       throw e;
     }

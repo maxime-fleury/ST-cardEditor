@@ -11,6 +11,7 @@ import { AIService } from './aiService.js';
 import { CardStorage } from './storage.js';
 import { CardEngine } from './cardEngine.js';
 import { CardManager } from './cardManager.js';
+import { Wizard } from './wizard.js';
 import { Editor } from './editor.js';
 import { Settings } from './settings.js';
 import { Tokenizer } from './tokenizer.js';
@@ -1129,7 +1130,7 @@ const AiChat = {
   tryApplyAIResponse(content, targetField, sourceEl) {
     const { activeCard } = window.AppState;
     if (!activeCard || !content) return;
-    let item = null;
+    let item;
     if (sourceEl) {
       item = ChatState.applyElMap.get(sourceEl);
       if (item) { item.field = targetField; item.content = content; }
@@ -1243,18 +1244,16 @@ const AiChat = {
   _applyAllPending(modal) {
     const queue = ChatState.applyQueue;
     let applied = 0;
-    let failed = 0;
     for (const item of queue) {
       if (item.applied) continue;
       const prep = this._prepareApply(item.field, item.content, { silent: true });
-      if (!prep) { failed++; continue; }
+      if (!prep) continue;
       try {
         this._markApplied(item);
         prep.applyFn();
         applied++;
       } catch (e) {
         console.error('aiChat: failed to apply change:', e);
-        failed++;
       }
     }
     if (modal && typeof modal.hide === 'function') modal.hide();

@@ -68,7 +68,7 @@ async function serveStatic(filePath, fallbackPath) {
   return new Response("Not Found", { status: 404 });
 }
 
-const server = Bun.serve({
+Bun.serve({
   port: PORT,
   async fetch(req) {
     const url = new URL(req.url);

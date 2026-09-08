@@ -5,7 +5,6 @@ import { test, expect, beforeAll, mock } from 'bun:test';
 // Ui / CardStorage / Editor are mocked with mock.module.
 let CardEngine;
 let ExportUtils;
-const noop = () => {};
 
 const stubs = {
   I18n: { t: (key) => key },

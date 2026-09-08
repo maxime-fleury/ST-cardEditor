@@ -20,7 +20,7 @@
  *   bun scripts/release.mjs 2.6.0 --dry-run  # show what would change
  */
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,7 +43,6 @@ if (!sem) {
 }
 const [, newMajor, newMinor, newPatch] = sem.map(Number);
 const newVersion = `${newMajor}.${newMinor}.${newPatch}`;
-const shortVersion = `${newMajor}.${newMinor}`;
 const buster = `${newMajor * 100 + newMinor * 10 + newPatch}`;
 
 const pkg = JSON.parse(read("package.json"));

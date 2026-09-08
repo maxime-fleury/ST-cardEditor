@@ -143,7 +143,7 @@ const ExportUtils = {
             const out = new Uint8Array(bin.length);
             for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
             settle(out);
-          } catch (e) {
+          } catch (_) {
             settle(new Uint8Array(0));
           }
           return;

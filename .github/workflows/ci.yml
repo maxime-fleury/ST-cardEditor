@@ -47,5 +47,8 @@ jobs:
       - name: Typecheck (@ts-check files: aiChat/cardManager/editor)
         run: bun run typecheck
 
+      - name: Lint (ESLint flat config — style + static bugs)
+        run: bun run lint
+
       - name: Asset / SW-shell / version drift + bundle freshness check
         run: bun scripts/check-assets.mjs

@@ -91,7 +91,6 @@ const Settings = {
       $('#aiModelSelect').value = defaultModel;
     } else {
       const isCustom = provider === 'custom';
-      const info = AIService.getProviderInfo(provider);
       // Only the Custom provider owns the custom base URL + key slot. Named
       // providers must NOT overwrite them (that would destroy a user-configured
       // LM Studio/Ollama endpoint just by saving while DeepSeek was selected).
@@ -590,7 +589,7 @@ const Settings = {
             ? CardStorage.getCustomModelId()
             : CardStorage.getProviderModelId(cur);
           Ui.showToast(I18n.t('toast.settingsImported'), 'success');
-        } catch (err) {
+        } catch (_) {
           Ui.showToast(I18n.t('toast.invalidFile'), 'danger');
         }
       };
@@ -641,7 +640,7 @@ const Settings = {
             if (field) field.value = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
           });
           Ui.showToast(I18n.t ? I18n.t('settings.promptsImported', { count }) : ('Imported ' + count + ' prompts'), 'success');
-        } catch (err) {
+        } catch (_) {
           Ui.showToast(I18n.t('toast.invalidFile'), 'danger');
         }
       };
@@ -652,7 +651,6 @@ const Settings = {
   },
 
   async exportWorkspace() {
-    const $ = Ui.$;
     const cards = CardStorage.getCards();
     const fullCards = [];
     for (const meta of cards) {

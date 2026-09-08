@@ -11,7 +11,6 @@ const storage = {
   getCustomApiUrl: () => '',
   getProviderKey: () => '',
   getApiKey: () => '',
-  getCustomModelId: () => storage.customModelId,
   getMaxTokens: () => 0,
 };
 

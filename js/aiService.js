@@ -190,7 +190,7 @@ const AIService = {
       });
     } catch (err) {
       // Network/CSP failure: guide the user instead of a bare "Failed to fetch".
-      throw new Error(I18n.t ? I18n.t('error.customUnreachable', { url: apiBaseUrl }) : 'Cannot reach ' + apiBaseUrl + '. Check the URL and that the server is running.');
+      throw new Error(I18n.t ? I18n.t('error.customUnreachable', { url: apiBaseUrl }) : 'Cannot reach ' + apiBaseUrl + '. Check the URL and that the server is running.', { cause: err });
     }
     // A few local servers expose /v1/models only when the user entered the
     // host root, while others expose /models from an already versioned URL.
@@ -207,7 +207,7 @@ const AIService = {
           signal: AbortSignal.timeout(15000),
         });
       } catch (err) {
-        throw new Error(I18n.t ? I18n.t('error.customUnreachable', { url: alternateUrl }) : 'Cannot reach ' + alternateUrl + '.');
+        throw new Error(I18n.t ? I18n.t('error.customUnreachable', { url: alternateUrl }) : 'Cannot reach ' + alternateUrl + '.', { cause: err });
       }
     }
     if (!resp.ok) {

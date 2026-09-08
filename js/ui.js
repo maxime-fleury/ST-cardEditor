@@ -7,7 +7,6 @@ import { I18n } from './i18n.js';
 import { Anims } from './animations.js';
 import { AIService } from './aiService.js';
 import { CardStorage } from './storage.js';
-import { CardEngine } from './cardEngine.js';
 import { CardManager } from './cardManager.js';
 import { Editor } from './editor.js';
 import { ExportUtils } from './exportUtils.js';
@@ -249,7 +248,7 @@ const Ui = {
     // The remote snapshot may still be in flight when the local save settles.
     // Wait for it instead of giving up: discarding it would lose the other
     // tab's change (race where getCard() resolves after setDirty(false)).
-    let snapshot = null;
+    let snapshot;
     if (snapshotPromise) {
       try { snapshot = await snapshotPromise; } catch (_) { snapshot = null; }
       if (!snapshot) return; // snapshot failed; nothing to merge
@@ -574,7 +573,7 @@ Wizard.init();
         Editor.autoResizeTextareas();
       });
     });
-  window.addEventListener('beforeunload', (e) => {
+  window.addEventListener('beforeunload', (_) => {
     if (window.AppState.activeCard) {
       // Data is already persisted on every debounced keystroke (_doSync writes
       // to IndexedDB then sets _dirty), so this is just a best-effort flush.
