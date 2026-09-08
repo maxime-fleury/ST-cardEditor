@@ -1,3 +1,4 @@
+// @ts-check
 /* ============================================================
    editor.js — Editor Population, Sync, Greetings, Lorebook
    ============================================================ */
@@ -62,9 +63,10 @@ const Editor = {
     if (!activeCard) return;
     const prop = this._SUB_MAP[kind];
     if (!prop) return;
-    let def = [];
+    let def;
     if (prop === 'character_book') def = { entries: [] };
     else if (prop === 'extensions') def = {};
+    else def = [];
     this._undoStack.push({
       field: kind,
       prop,

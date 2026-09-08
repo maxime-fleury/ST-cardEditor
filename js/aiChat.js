@@ -1,3 +1,4 @@
+// @ts-check
 /* ============================================================
    aiChat.js — AI Chat UI, Multi-Field Parallel Requests
    ============================================================ */
@@ -356,12 +357,12 @@ const AiChat = {
     if (contentEl && display.length > 300) {
       contentEl.classList.add('collapsed');
       // Click on collapsed content toggles expand inline
-      contentEl.addEventListener('click', function onClickExpand() {
-        this.classList.toggle('collapsed');
+      contentEl.addEventListener('click', () => {
+        contentEl.classList.toggle('collapsed');
         // Update the expand button icon/text to reflect state
         const viewBtn = section.querySelector('.multi-field-expand-btn');
         if (viewBtn) {
-          const isCollapsed = this.classList.contains('collapsed');
+          const isCollapsed = contentEl.classList.contains('collapsed');
           viewBtn.innerHTML = isCollapsed
             ? '<i class="bi bi-arrows-expand"></i> ' + (I18n.t ? I18n.t('ai.viewFullResult') : 'View full result')
             : '<i class="bi bi-arrows-collapse"></i> ' + (I18n.t ? I18n.t('ai.showLess') : 'Show less');

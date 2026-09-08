@@ -2162,11 +2162,13 @@ ${value}`).join(`
       const prop = this._SUB_MAP[kind];
       if (!prop)
         return;
-      let def = [];
+      let def;
       if (prop === "character_book")
         def = { entries: [] };
       else if (prop === "extensions")
         def = {};
+      else
+        def = [];
       this._undoStack.push({
         field: kind,
         prop,
@@ -4069,11 +4071,11 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
       }
       if (contentEl && display.length > 300) {
         contentEl.classList.add("collapsed");
-        contentEl.addEventListener("click", function onClickExpand() {
-          this.classList.toggle("collapsed");
+        contentEl.addEventListener("click", () => {
+          contentEl.classList.toggle("collapsed");
           const viewBtn = section.querySelector(".multi-field-expand-btn");
           if (viewBtn) {
-            const isCollapsed = this.classList.contains("collapsed");
+            const isCollapsed = contentEl.classList.contains("collapsed");
             viewBtn.innerHTML = isCollapsed ? '<i class="bi bi-arrows-expand"></i> ' + (I18n.t ? I18n.t("ai.viewFullResult") : "View full result") : '<i class="bi bi-arrows-collapse"></i> ' + (I18n.t ? I18n.t("ai.showLess") : "Show less");
           }
         });

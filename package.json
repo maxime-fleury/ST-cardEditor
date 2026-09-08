@@ -12,10 +12,12 @@
     "check:assets": "bun scripts/check-assets.mjs",
     "test": "playwright test",
     "test:headed": "playwright test --headed",
-    "test:unit": "bun test tests/unit"
+    "test:unit": "bun test tests/unit",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {},
   "devDependencies": {
-    "@playwright/test": "^1.62.1"
+    "@playwright/test": "^1.62.1",
+    "typescript": "^7.0.2"
   }
 }

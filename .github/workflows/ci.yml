@@ -44,5 +44,8 @@ jobs:
       - name: Unit tests (8 files, incl. cardEngine/tokenizer/aiService/i18n/cardManager/editor/exportUtils/settings)
         run: bun run test:unit
 
+      - name: Typecheck (@ts-check files: aiChat/cardManager/editor)
+        run: bun run typecheck
+
       - name: Asset / SW-shell / version drift + bundle freshness check
         run: bun scripts/check-assets.mjs

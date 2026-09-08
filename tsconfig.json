@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "noImplicitThis": true,
+    "strictNullChecks": false,
+    "useUnknownInCatchVariables": false,
+    // Incremental typing of legacy JS: strictNullChecks is OFF for now.
+    // The pre-existing code relies on elements/cards existing after init, so
+    // null-tracking produces ~70 lines of noise per file without catching new
+    // bugs. Type mismatches on data (unknown flows, wrong shapes, property
+    // typos) are still fully reported. Re-enable once the DOM access is
+    // extracted (Passe 4).
+    "alwaysStrict": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["js/**/*.js", "js/**/*.d.ts"],
+  "exclude": ["node_modules"]
+}
