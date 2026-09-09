@@ -8,18 +8,21 @@ comfortably in CI on every push/PR (`ci.yml`) and locally before committing.
 
 | Gate | Command | What it checks |
 | --- | --- | --- |
-| Typecheck | `bun run typecheck` | `tsc --noEmit` on the `// @ts-check` modules (`aiChat.js`, `cardManager.js`, `editor.js`, plus `js/globals.d.ts`). Types only — see below. |
+| Typecheck | `bun run typecheck` | `tsc --noEmit` on the `// @ts-check` modules (`aiChat.js`, `cardManager.js`, `editor.js`, `cardEngine.js`, plus `js/globals.d.ts`). Types only — see below. |
 | Lint | `bun run lint` | ESLint (flat config, `eslint.config.js`). Style + static bugs: unused vars, dead code, undeclared globals, complexity… |
-| Unit tests | `bun run test:unit` | 123 Bun tests across `tests/unit/` (cardEngine, tokenizer, aiService, i18n, cardManager, editor, exportUtils, settings, aiChat, chatState). Runs with `--parallel` (see the module-isolation note). |
+| Unit tests | `bun run test:unit` | 136 Bun tests across `tests/unit/` (cardEngine, tokenizer, aiService, i18n, cardManager, editor, exportUtils, settings, aiChat, chatState, intentLearner). Runs with `--parallel` (see the module-isolation note). |
 | Bundle freshness | `bun scripts/check-assets.mjs` | `js/app.js` (committed build artifact) matches a fresh `bun run build`; also checks SW shell, version cache-busters and the `CACHE_PREFIX`. |
 | i18n parity | `bun run i18n:check` | All 27 `js/i18n/*.js` files stay in sync with `en.js` (same keys, no single-brace placeholders, ≥ 75 % coverage). |
-| e2e | `bunx playwright test` | Playwright suite in `tests/*.spec.js`. Needs a free port: on this Windows machine the default 8182 is inside an OS-reserved range, so use e.g. `PORT=8300` and a matching `baseURL` in the config. |
+| e2e | `bunx playwright test` | Playwright suite in `tests/*.spec.js`. The config picks a free port automatically (8300 on Windows where 8182 is OS-reserved, 8182 elsewhere) and starts a scripted OpenAI-compatible mock server for the live-model suite — no ports to juggle by hand. |
 
-> **Note on the typecheck scope.** Only three hot modules carry `// @ts-check`;
-> the rest of `js/` is legacy JS without type annotations. `strictNullChecks`
-> stays off project-wide because the legacy code assumes DOM elements and cards
-> always exist — the resulting null-noise reports nothing. Type coverage grows
-> module by module as code is migrated.
+> **Note on the typecheck scope.** The hot modules carry `// @ts-check`
+> (`aiChat.js`, `cardManager.js`, `editor.js`, `cardEngine.js`) and
+> `strictNullChecks` is **on** for them — the null-noise of the legacy era was
+> cleaned up (Passe 5: DOM lookups guarded, `activeCard` treated as nullable
+> where the flow allows it, `_imageBase64` typed `string | undefined` instead
+> of the old literal `null`). The rest of `js/` is legacy JS without type
+> annotations and is not checked; type coverage grows module by module as code
+> is migrated.
 
 ### Module isolation for unit tests
 
@@ -88,3 +91,43 @@ rule with hundreds of hits just teaches everyone to ignore lint output.
 - Releases: `bun scripts/release.mjs X.Y.Z` bumps `package.json`, the SW cache
   prefix, the `?v=NNN` cache-busters and inserts the `CHANGELOG.md` entry.
   Then tag + GitHub release as documented in the changelog workflow.
+
+### Bundle size & future splitting (evaluated, deferred)
+
+The whole app ships as one ~1.26 MB artifact (`js/app.js`). Splitting it into
+lazy chunks was evaluated and **deliberately deferred** — it is a dedicated
+pass, not a quick win, because of three interacting contracts:
+
+1. **Service-worker shell** — `public/sw.js` precaches exactly one bundle and
+   the CDN libs. Introducing lazy chunks means teaching the SW to fetch them
+   on demand (or accept a second network round-trip), changing the offline
+   guarantee that `shell.spec.js` asserts.
+2. **check-assets freshness** — the gate rebuilds from `scripts/app.entry.js`
+   and diffs `js/app.js`. Code-splitting (multiple outputs) requires the gate
+   to verify *every* artifact, not just the entry.
+3. **Window-global wiring** — modules still hand off through `window.*`
+   idempotent assignments. A lazy chunk that touches `window.Ui` or
+   `window.AppState` at *evaluation* time (not call time) would break if the
+   main bundle evaluates after it. Only call-time-touching modules are
+   candidates.
+
+Current module weight (source, pre-bundle), so the candidates are visible:
+
+| Module | Bytes | Lazy-load candidate? |
+| --- | --- | --- |
+| `ui.js` | 66 KB | No — everything depends on it. |
+| `aiChat.js` | 92 KB | No — core chat flow. |
+| `cardManager.js` | 45 KB | No — core card flow. |
+| `settings.js` | 43 KB | Partially — provider/model lists could lazy-fill. |
+| `editor.js` | 42 KB | Partially — the greetings/lorebook editors load with the tab. |
+| `wizard.js` | 36 KB | **Yes** — only used by the "New card" wizard modal. |
+| `storage.js` | 31 KB | No — everything persists through it. |
+| `aiService.js` | 25 KB | No — chat needs it immediately. |
+| `cardEngine.js` | 18 KB | No — import/parse is first interaction. |
+| `waifuTab.js` | 17 KB | **Yes** — tab content, could import on first open. |
+
+The realistic win is `wizard.js` + `waifuTab.js` (~53 KB pre-min, less after
+minification) via dynamic `import()` when the tab/modal first opens. The
+loader work is small; the SW + check-assets contract changes are not. When
+splitting lands, do it as one PR that updates `sw.js`, `check-assets.mjs` and
+`shell.spec.js` together.

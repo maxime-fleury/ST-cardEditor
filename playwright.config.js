@@ -33,13 +33,24 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
     trace: 'retain-on-failure',
   },
-  webServer: {
-    command: 'bun run server.js',
-    url: BASE,
-    // The ambient shell can export PORT=0 (random port); force the port the
-    // suite expects so the server is findable at all.
-    env: { ...process.env, PORT },
-    reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
-  },
+  webServer: [
+    {
+      command: 'bun run server.js',
+      url: BASE,
+      // The ambient shell can export PORT=0 (random port); force the port the
+      // suite expects so the server is findable at all.
+      env: { ...process.env, PORT },
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+    },
+    {
+      // Scripted OpenAI-compatible endpoint so the live-model suite runs
+      // hermetically (real streaming + JSON-array parsing, zero API keys).
+      // Point MOCK_AI_PORT elsewhere if 9900 is taken.
+      command: 'bun tests/mock-ai-server.mjs',
+      url: `http://localhost:${process.env.MOCK_AI_PORT || '9900'}/v1/models`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 15_000,
+    },
+  ],
 });
