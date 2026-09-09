@@ -25194,9 +25194,10 @@ Each greeting should be an in-character opening message that could start a conve
   populateModelSelects() {
     const $ = Ui.$;
     const d = this._currentModelId($("#providerSelect") ? $("#providerSelect").value : null);
-    const sorted = [...window.AppState.models].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: "base" }));
+    const models = window.AppState.models || [];
+    const sorted = [...models].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: "base" }));
     let h = sorted.map((m) => '<option value="' + Ui.escapeAttr(m.id) + '"' + (m.id === d ? " selected" : "") + ">" + Ui.escapeHtml(m.name) + (m.is_free ? " [" + I18n.t("gen.free") + "]" : "") + "</option>").join("");
-    if (d && !window.AppState.models.some((m) => m.id === d)) {
+    if (d && !models.some((m) => m.id === d)) {
       h += '<option value="' + Ui.escapeAttr(d) + '" selected>' + Ui.escapeHtml(d) + "</option>";
     }
     $("#defaultModelSelect").innerHTML = '<option value="">' + (I18n.t ? I18n.t("settings.modelAuto") : "Auto") + "</option>" + h;
@@ -25210,11 +25211,11 @@ Each greeting should be an in-character opening message that could start a conve
     if (resetPage)
       this._modelPage = 1;
     const container = $("#modelList");
-    const filtered = window.AppState.models.filter((m) => {
-      const name = m.name || m.id || "";
-      const id = m.id || "";
-      const prov = m.provider || "";
-      const desc = m.description || "";
+    const filtered = (window.AppState.models || []).filter((m) => {
+      const name = String(m.name || m.id || "");
+      const id = String(m.id || "");
+      const prov = String(m.provider || "");
+      const desc = String(m.description || "");
       return !filter || name.toLowerCase().includes(filter) || id.toLowerCase().includes(filter) || prov.toLowerCase().includes(filter) || desc.toLowerCase().includes(filter);
     });
     if (!filtered.length) {
@@ -25306,8 +25307,11 @@ Each greeting should be an in-character opening message that could start a conve
   importSettings() {
     const $ = Ui.$;
     const input = document.querySelector("#settingsFileInput");
+    if (!input)
+      return;
     input.onchange = (e) => {
-      const file = e.target.files[0];
+      const target = e.target;
+      const file = target.files?.[0];
       if (!file)
         return;
       const reader = new FileReader;
@@ -25354,7 +25358,7 @@ Each greeting should be an in-character opening message that could start a conve
         }
       };
       reader.readAsText(file);
-      e.target.value = "";
+      target.value = "";
     };
     input.click();
   },
@@ -25369,8 +25373,11 @@ Each greeting should be an in-character opening message that could start a conve
   importPrompts() {
     const $ = Ui.$;
     const input = document.querySelector("#promptFileInput");
+    if (!input)
+      return;
     input.onchange = (e) => {
-      const file = e.target.files[0];
+      const target = e.target;
+      const file = target.files?.[0];
       if (!file)
         return;
       const reader = new FileReader;
@@ -25401,7 +25408,7 @@ Each greeting should be an in-character opening message that could start a conve
         }
       };
       reader.readAsText(file);
-      e.target.value = "";
+      target.value = "";
     };
     input.click();
   },
@@ -25453,7 +25460,7 @@ Each greeting should be an in-character opening message that could start a conve
     input.onabort = cleanup;
     input.oncancel = cleanup;
     input.onchange = async (e) => {
-      const file = e.target.files[0];
+      const file = e.target.files?.[0];
       if (!file) {
         cleanup();
         return;

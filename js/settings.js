@@ -1,3 +1,4 @@
+// @ts-check
 /* ============================================================
    settings.js — Settings Modal, Model List, Credits
    ============================================================ */
@@ -418,12 +419,14 @@ const Settings = {
     const d = this._currentModelId($('#providerSelect') ? $('#providerSelect').value : null);
     // Alphabetical for the plain <select>s (the settings browser keeps its
     // own price/context ordering); hundreds of OpenRouter models are much
-    // easier to scan sorted by name.
-    const sorted = [...window.AppState.models].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: 'base' }));
+    // easier to scan sorted by name. The model list may not be fetched yet
+    // (models is optional) — fall back to an empty list.
+    const models = window.AppState.models || [];
+    const sorted = [...models].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: 'base' }));
     let h = sorted.map(m => '<option value="' + Ui.escapeAttr(m.id) + '"' + (m.id === d ? ' selected' : '') + '>' + Ui.escapeHtml(m.name) + (m.is_free ? ' [' + I18n.t('gen.free') + ']' : '') + '</option>').join('');
     // Always surface the saved default model, even when the fetch failed or
     // the list hasn't loaded yet, so the navbar dropdown stays usable.
-    if (d && !window.AppState.models.some(m => m.id === d)) {
+    if (d && !models.some(m => m.id === d)) {
       h += '<option value="' + Ui.escapeAttr(d) + '" selected>' + Ui.escapeHtml(d) + '</option>';
     }
     $('#defaultModelSelect').innerHTML = '<option value="">' + (I18n.t ? I18n.t('settings.modelAuto') : 'Auto') + '</option>' + h;
@@ -438,10 +441,10 @@ const Settings = {
     filter = (filter || '').toLowerCase();
     if (resetPage) this._modelPage = 1;
     const container = $('#modelList');
-    const filtered = window.AppState.models.filter(m => {
+    const filtered = (window.AppState.models || []).filter(m => {
       // A compatible third-party endpoint may omit name/id/provider; normalize
       // before .toLowerCase() so one blank field can't blank the whole browser (#86).
-      const name = (m.name || m.id || ''); const id = (m.id || ''); const prov = (m.provider || ''); const desc = (m.description || '');
+      const name = String(m.name || m.id || ''); const id = String(m.id || ''); const prov = String(m.provider || ''); const desc = String(m.description || '');
       return !filter || name.toLowerCase().includes(filter) || id.toLowerCase().includes(filter) || prov.toLowerCase().includes(filter) || desc.toLowerCase().includes(filter);
     });
     if (!filtered.length) { container.innerHTML = '<div class="text-center text-muted py-4">' + I18n.t('settings.noModels') + '</div>'; return; }
@@ -456,7 +459,8 @@ const Settings = {
       + (m.max_output_tokens ? ' · ' + Math.floor(m.max_output_tokens/1000) + 'k out' : '')
       + (m.is_free ? ' · <span class="text-success">' + I18n.t('gen.free') + '</span>' : '') + '</div></div>'
       + '<div class="model-item-pricing">' + (m.is_free ? '<span class="price-highlight">' + I18n.t('gen.free') + '</span>'
-        : '<div>in: ' + AIService.formatPrice(m.pricing ? m.pricing.prompt : null) + '</div><div>out: ' + AIService.formatPrice(m.pricing ? m.pricing.completion : null) + '</div>') + '</div></div>'
+        // pricing is an untyped third-party field — widen to any for the read
+        : '<div>in: ' + AIService.formatPrice(m.pricing ? /** @type {any} */ (m.pricing).prompt : null) + '</div><div>out: ' + AIService.formatPrice(m.pricing ? /** @type {any} */ (m.pricing).completion : null) + '</div>') + '</div></div>'
     ).join('')
     + (hasMore ? '<div class="text-center py-2"><button class="btn btn-outline-accent btn-sm" id="btnLoadMoreModels">' + I18n.t('settings.loadMore', { count: (filtered.length - end) }) + '</button></div>' : '')
     + '<div class="text-center text-muted" style="font-size:0.7rem;">' + I18n.t('settings.showingModels', { shown: Math.min(end, filtered.length), total: filtered.length }) + '</div>';
@@ -553,14 +557,16 @@ const Settings = {
 
   importSettings() {
     const $ = Ui.$;
-    const input = document.querySelector('#settingsFileInput');
+    const input = /** @type {HTMLInputElement | null} */ (document.querySelector('#settingsFileInput'));
+    if (!input) return;
     input.onchange = (e) => {
-      const file = e.target.files[0];
+      const target = /** @type {HTMLInputElement} */ (e.target);
+      const file = target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = async () => {
         try {
-          const settings = JSON.parse(reader.result);
+          const settings = JSON.parse(/** @type {string} */ (reader.result));
           if (settings.provider) { CardStorage.setProvider(settings.provider); $('#providerSelect').value = settings.provider; this.toggleProvider(); }
           // Presence-based (not truthy) so explicitly-empty values in an
           // imported file actually clear previously stored ones.
@@ -595,7 +601,7 @@ const Settings = {
         }
       };
       reader.readAsText(file);
-      e.target.value = '';
+      target.value = '';
     };
     input.click();
   },
@@ -614,14 +620,16 @@ const Settings = {
 
   importPrompts() {
     const $ = Ui.$;
-    const input = document.querySelector('#promptFileInput');
+    const input = /** @type {HTMLInputElement | null} */ (document.querySelector('#promptFileInput'));
+    if (!input) return;
     input.onchange = (e) => {
-      const file = e.target.files[0];
+      const target = /** @type {HTMLInputElement} */ (e.target);
+      const file = target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = async () => {
         try {
-          const data = JSON.parse(reader.result);
+          const data = JSON.parse(/** @type {string} */ (reader.result));
           const map = (data && data.prompts) || {};
           if (typeof map !== 'object' || Array.isArray(map)) throw new Error('bad');
           let count = 0;
@@ -646,7 +654,7 @@ const Settings = {
         }
       };
       reader.readAsText(file);
-      e.target.value = '';
+      target.value = '';
     };
     input.click();
   },
@@ -699,7 +707,7 @@ const Settings = {
     input.onabort = cleanup;
     input.oncancel = cleanup;
     input.onchange = async (e) => {
-      const file = e.target.files[0];
+      const file = (/** @type {HTMLInputElement} */ (e.target)).files?.[0];
       if (!file) { cleanup(); return; }
       try {
         const text = await file.text();

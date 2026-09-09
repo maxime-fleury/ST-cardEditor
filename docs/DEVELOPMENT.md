@@ -16,13 +16,17 @@ comfortably in CI on every push/PR (`ci.yml`) and locally before committing.
 | e2e | `bunx playwright test` | Playwright suite in `tests/*.spec.js`. The config picks a free port automatically (8300 on Windows where 8182 is OS-reserved, 8182 elsewhere) and starts a scripted OpenAI-compatible mock server for the live-model suite — no ports to juggle by hand. |
 
 > **Note on the typecheck scope.** The hot modules carry `// @ts-check`
-> (`aiChat.js`, `cardManager.js`, `editor.js`, `cardEngine.js`) and
-> `strictNullChecks` is **on** for them — the null-noise of the legacy era was
-> cleaned up (Passe 5: DOM lookups guarded, `activeCard` treated as nullable
-> where the flow allows it, `_imageBase64` typed `string | undefined` instead
-> of the old literal `null`). The rest of `js/` is legacy JS without type
-> annotations and is not checked; type coverage grows module by module as code
-> is migrated.
+> (`aiChat.js`, `cardManager.js`, `editor.js`, `cardEngine.js`, `settings.js`,
+> `wizard.js`, plus the typed stores) and `strictNullChecks` is **on** for
+> them — the null-noise of the legacy era was cleaned up (Passe 5: DOM lookups
+> guarded, `activeCard` treated as nullable where the flow allows it,
+> `_imageBase64` typed `string | undefined` instead of the old literal `null`;
+> Passe 6: `settings.js` and `wizard.js` hardened the same way — `wizard.js`
+> gained a non-null `qs()` helper for its static modal elements and typed its
+> `_modal` / `_fetchedImages` fields, `settings.js` guards the optional model
+> list and typed file-input handlers). The rest of `js/` is legacy JS without
+> type annotations and is not checked; type coverage grows module by module as
+> code is migrated.
 
 ### Module isolation for unit tests
 

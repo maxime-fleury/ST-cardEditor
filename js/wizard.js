@@ -1,3 +1,4 @@
+// @ts-check
 /* ============================================================
    wizard.js — Card Creation Wizard: Guided Character Builder
    ============================================================ */
@@ -14,11 +15,26 @@ import { Editor } from './editor.js';
 import { AiChat } from './aiChat.js';
 import { CardState } from './cardState.js';
 
+/**
+ * Non-null querySelector for the wizard modal's static elements. The modal is
+ * part of index.html, so a missing element here is a template bug — throw a
+ * clear error instead of a confusing TypeError deep inside a method.
+ * @param {string} sel
+ * @returns {Element}
+ */
+const qs = (sel) => {
+  const el = document.querySelector(sel);
+  if (!el) throw new Error(`wizard: missing element ${sel}`);
+  return el;
+};
+
 const Wizard = {
   _step: 1,
   _totalSteps: 5,
   _answers: {},
+  /** @type {{ show(): void; hide(): void } | null} */
   _modal: null,
+  /** @type {Array<{ blob: Blob; url: string; _objUrl: string; tags: string } | null>} */
   _fetchedImages: [],
   _selectedImageIdx: -1,
   _tagSearch: '',
@@ -31,7 +47,7 @@ const Wizard = {
     this._modal = new bootstrap.Modal('#wizardModal');
     this._bindEvents();
     // Clean up object URLs when modal is dismissed
-    document.querySelector('#wizardModal').addEventListener('hidden.bs.modal', () => this._onModalClose());
+    qs('#wizardModal').addEventListener('hidden.bs.modal', () => this._onModalClose());
   },
 
   show() {
@@ -49,7 +65,7 @@ const Wizard = {
     this._resetImageUI();
     this._renderStepIndicator();
     this._showStep(1);
-    this._modal.show();
+    this._modal?.show();
     // Restore draft from sessionStorage if available (after step 1 is shown)
     if (this._restoreDraft()) {
       this._populateStep(1);
@@ -113,7 +129,7 @@ const Wizard = {
     body.querySelectorAll('.wizard-chip.active').forEach(c => c.classList.remove('active'));
     const gc = document.querySelector('#wizGenderCustom'); if (gc) { gc.value = ''; gc.classList.add('d-none'); }
     const lc = document.querySelector('#wizLanguageCustom'); if (lc) { lc.value = ''; lc.classList.add('d-none'); }
-    if (window.syncFloatLabels) window.syncFloatLabels();
+    if (typeof window.syncFloatLabels === 'function') window.syncFloatLabels();
   },
 
   _resetImageUI() {
@@ -121,7 +137,7 @@ const Wizard = {
     if (btnFetch) btnFetch.innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.fetchImages');
     document.querySelectorAll('.wizard-image-card').forEach(c => {
       c.classList.remove('selected');
-      const thumb = c.querySelector('.wiz-thumb');
+      const thumb = /** @type {HTMLImageElement | null} */ (c.querySelector('.wiz-thumb'));
       if (thumb) { thumb.src = ''; thumb.hidden = true; }
       const loader = c.querySelector('.wiz-image-loader');
       if (loader) loader.classList.add('d-none');
@@ -147,18 +163,19 @@ const Wizard = {
     on('#wizBtnBack', 'click', () => self._back());
 
     on('#wizardModal', 'keydown', (e) => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && self._step === self._totalSteps) {
-        e.preventDefault();
+      const ke = /** @type {KeyboardEvent} */ (e);
+      if (ke.key === 'Enter' && (ke.ctrlKey || ke.metaKey) && self._step === self._totalSteps) {
+        ke.preventDefault();
         self._generateWithAI();
       }
     });
 
     on('#wizGender', 'change', (e) => {
-      document.querySelector('#wizGenderCustom')?.classList.toggle('d-none', e.target.value !== 'other');
+      document.querySelector('#wizGenderCustom')?.classList.toggle('d-none', (/** @type {HTMLSelectElement} */ (e.target)).value !== 'other');
     });
 
     on('#wizLanguage', 'change', (e) => {
-      document.querySelector('#wizLanguageCustom')?.classList.toggle('d-none', e.target.value !== 'other');
+      document.querySelector('#wizLanguageCustom')?.classList.toggle('d-none', (/** @type {HTMLSelectElement} */ (e.target)).value !== 'other');
     });
 
     document.querySelectorAll('.wizard-chip-group').forEach(group => {
@@ -181,8 +198,9 @@ const Wizard = {
     const searchBtn = document.querySelector('#wizBtnSearchImages');
     if (searchInput) {
       searchInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
+        const ke = /** @type {KeyboardEvent} */ (e);
+        if (ke.key === 'Enter') {
+          ke.preventDefault();
           self._syncTagSearch();
           self._fetchImage();
         }
@@ -212,29 +230,29 @@ const Wizard = {
     const a = this._answers;
     switch (step) {
       case 1:
-        a.name = document.querySelector('#wizName').value.trim();
-        a.gender = document.querySelector('#wizGender').value;
-        a.genderCustom = document.querySelector('#wizGenderCustom').value.trim();
-        a.tags = document.querySelector('#wizTags').value.split(',').map(s => s.trim()).filter(Boolean);
-        a.creator = document.querySelector('#wizCreator').value.trim();
+        a.name = qs('#wizName').value.trim();
+        a.gender = qs('#wizGender').value;
+        a.genderCustom = qs('#wizGenderCustom').value.trim();
+        a.tags = qs('#wizTags').value.split(',').map(s => s.trim()).filter(Boolean);
+        a.creator = qs('#wizCreator').value.trim();
         break;
       case 2:
-        a.type = document.querySelector('#wizType').value;
-        a.language = document.querySelector('#wizLanguage').value;
-        a.languageCustom = document.querySelector('#wizLanguageCustom').value.trim();
+        a.type = qs('#wizType').value;
+        a.language = qs('#wizLanguage').value;
+        a.languageCustom = qs('#wizLanguageCustom').value.trim();
         a.genres = this._getChips('wizGenre');
         a.moods = this._getChips('wizMood');
         break;
       case 3:
-        a.personalityDesc = document.querySelector('#wizPersonalityDesc').value.trim();
-        a.appearance = document.querySelector('#wizAppearance').value.trim();
-        a.abilities = document.querySelector('#wizAbilities').value.trim();
+        a.personalityDesc = qs('#wizPersonalityDesc').value.trim();
+        a.appearance = qs('#wizAppearance').value.trim();
+        a.abilities = qs('#wizAbilities').value.trim();
         break;
       case 4:
-        a.scenario = document.querySelector('#wizScenario').value.trim();
-        a.relationship = document.querySelector('#wizRelationship').value.trim();
+        a.scenario = qs('#wizScenario').value.trim();
+        a.relationship = qs('#wizRelationship').value.trim();
         a.openingVibe = this._getChips('wizOpening');
-        a.notes = document.querySelector('#wizNotes').value.trim();
+        a.notes = qs('#wizNotes').value.trim();
         break;
     }
   },
@@ -243,33 +261,33 @@ const Wizard = {
     const a = this._answers;
     switch (step) {
       case 1:
-        if (a.name) document.querySelector('#wizName').value = a.name;
-        if (a.gender) document.querySelector('#wizGender').value = a.gender;
-        if (a.genderCustom) { document.querySelector('#wizGenderCustom').value = a.genderCustom; document.querySelector('#wizGenderCustom').classList.remove('d-none'); }
-        if (a.tags?.length) document.querySelector('#wizTags').value = a.tags.join(', ');
-        if (a.creator) document.querySelector('#wizCreator').value = a.creator;
+        if (a.name) qs('#wizName').value = a.name;
+        if (a.gender) qs('#wizGender').value = a.gender;
+        if (a.genderCustom) { qs('#wizGenderCustom').value = a.genderCustom; qs('#wizGenderCustom').classList.remove('d-none'); }
+        if (a.tags?.length) qs('#wizTags').value = a.tags.join(', ');
+        if (a.creator) qs('#wizCreator').value = a.creator;
         break;
       case 2:
-        if (a.type) document.querySelector('#wizType').value = a.type;
-        if (a.language) document.querySelector('#wizLanguage').value = a.language;
-        if (a.languageCustom) { document.querySelector('#wizLanguageCustom').value = a.languageCustom; document.querySelector('#wizLanguageCustom').classList.remove('d-none'); }
+        if (a.type) qs('#wizType').value = a.type;
+        if (a.language) qs('#wizLanguage').value = a.language;
+        if (a.languageCustom) { qs('#wizLanguageCustom').value = a.languageCustom; qs('#wizLanguageCustom').classList.remove('d-none'); }
         this._setChips('wizGenre', a.genres || []);
         this._setChips('wizMood', a.moods || []);
         break;
       case 3:
-        if (a.personalityDesc) document.querySelector('#wizPersonalityDesc').value = a.personalityDesc;
-        if (a.appearance) document.querySelector('#wizAppearance').value = a.appearance;
-        if (a.abilities) document.querySelector('#wizAbilities').value = a.abilities;
+        if (a.personalityDesc) qs('#wizPersonalityDesc').value = a.personalityDesc;
+        if (a.appearance) qs('#wizAppearance').value = a.appearance;
+        if (a.abilities) qs('#wizAbilities').value = a.abilities;
         break;
       case 4:
-        if (a.scenario) document.querySelector('#wizScenario').value = a.scenario;
-        if (a.relationship) document.querySelector('#wizRelationship').value = a.relationship;
+        if (a.scenario) qs('#wizScenario').value = a.scenario;
+        if (a.relationship) qs('#wizRelationship').value = a.relationship;
         this._setChips('wizOpening', a.openingVibe || []);
-        if (a.notes) document.querySelector('#wizNotes').value = a.notes;
+        if (a.notes) qs('#wizNotes').value = a.notes;
         break;
     }
     // Re-sync floating labels so restored/prefilled values show their floated labels
-    if (window.syncFloatLabels) window.syncFloatLabels();
+    if (typeof window.syncFloatLabels === 'function') window.syncFloatLabels();
   },
 
   _getChips(groupId) {
@@ -289,8 +307,8 @@ const Wizard = {
     this._collectStep(this._step);
     if (this._step === 1 && !this._answers.name) {
       Ui.showToast(I18n.t('wizard.nameRequired'), 'warning');
-      Anims.shakeElement(document.querySelector('#wizName'));
-      document.querySelector('#wizName').focus();
+      Anims.shakeElement(qs('#wizName'));
+      qs('#wizName').focus();
       return;
     }
     if (this._step < this._totalSteps) {
@@ -312,11 +330,11 @@ const Wizard = {
   },
 
   _renderStepNav(step) {
-    document.querySelector('#wizBtnBack').disabled = step === 1;
+    qs('#wizBtnBack').disabled = step === 1;
 
     if (step === this._totalSteps) {
-      document.querySelector('#wizBtnNext').classList.add('d-none');
-      document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.ready');
+      qs('#wizBtnNext').classList.add('d-none');
+      qs('#wizStepLabel').textContent = I18n.t('wizard.ready');
       this._renderSummary();
       this._renderQuickTags();
       const derivedTags = this._deriveImageTags();
@@ -331,9 +349,9 @@ const Wizard = {
         this._fetchImage();
       }
     } else {
-      document.querySelector('#wizBtnNext').classList.remove('d-none');
-      document.querySelector('#wizBtnNext').innerHTML = I18n.t('wizard.next') + ' <i class="bi bi-arrow-right ms-1"></i>';
-      document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.stepLabel', { step: step, total: this._totalSteps });
+      qs('#wizBtnNext').classList.remove('d-none');
+      qs('#wizBtnNext').innerHTML = I18n.t('wizard.next') + ' <i class="bi bi-arrow-right ms-1"></i>';
+      qs('#wizStepLabel').textContent = I18n.t('wizard.stepLabel', { step: step, total: this._totalSteps });
     }
 
     this._renderStepIndicator();
@@ -355,7 +373,7 @@ const Wizard = {
       if (step === this._totalSteps) {
         const items = document.querySelectorAll('.wizard-summary-item');
         Anims.staggerFadeIn(items, { stagger: 20, duration: 200 });
-      } else {
+      } else if (nextEl) {
         Anims.staggerFadeIn(nextEl.querySelectorAll('.mb-3, .mb-4'), { stagger: 25, duration: 180 });
       }
     });
@@ -390,7 +408,7 @@ const Wizard = {
       I18n.t('wizard.step.scenario'),
       I18n.t('wizard.step.generate')
     ];
-    const container = document.querySelector('#wizardStepsIndicator');
+    const container = qs('#wizardStepsIndicator');
     container.innerHTML = labels.map((label, i) => {
       const stepNum = i + 1;
       const isActive = stepNum === this._step;
@@ -413,8 +431,8 @@ const Wizard = {
 
   _updateProgressBar() {
     const pct = Math.round((this._step / this._totalSteps) * 100);
-    document.querySelector('#wizardProgressBar').style.width = pct + '%';
-    Anims.progressBounce(document.querySelector('#wizardProgressBar'));
+    qs('#wizardProgressBar').style.width = pct + '%';
+    Anims.progressBounce(qs('#wizardProgressBar'));
   },
 
   _renderSummary() {
@@ -448,13 +466,13 @@ const Wizard = {
     if (a.notes) html += summaryItem('wizard.summary.notes', a.notes, 4, true);
     html += '</div>';
 
-    document.querySelector('#wizardSummary').innerHTML = html;
+    qs('#wizardSummary').innerHTML = html;
 
     // Bind edit buttons
     document.querySelectorAll('.wizard-edit-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const targetStep = parseInt(btn.dataset.step, 10);
+        const targetStep = parseInt(btn.dataset.step || '', 10);
         if (targetStep >= 1 && targetStep <= 4) {
           this._collectStep(this._step);
           this._step = targetStep;
@@ -525,14 +543,14 @@ const Wizard = {
     const self = this;
     document.querySelectorAll('.wizard-image-card').forEach(card => {
       card.addEventListener('click', () => {
-        const idx = parseInt(card.dataset.idx, 10);
+        const idx = parseInt(card.dataset.idx || '', 10);
         if (!self._fetchedImages[idx]) return;
         document.querySelectorAll('.wizard-image-card').forEach(c => c.classList.remove('selected'));
         card.classList.add('selected');
         self._selectedImageIdx = idx;
-        document.querySelector('#wizBtnUseImage').classList.remove('d-none');
-        document.querySelector('#wizBtnRemoveImage').classList.remove('d-none');
-        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.refetchOthers');
+        qs('#wizBtnUseImage').classList.remove('d-none');
+        qs('#wizBtnRemoveImage').classList.remove('d-none');
+        qs('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.refetchOthers');
       });
     });
   },
@@ -618,9 +636,8 @@ const Wizard = {
       for (const i of slotsToFetch) {
         const card = document.querySelectorAll('.wizard-image-card')[i];
         card.classList.remove('selected');
-        const thumb = card.querySelector('.wiz-thumb');
-        thumb.src = '';
-        thumb.hidden = true;
+        const thumb = /** @type {HTMLImageElement | null} */ (card.querySelector('.wiz-thumb'));
+        if (thumb) { thumb.src = ''; thumb.hidden = true; }
         const loader = card.querySelector('.wiz-image-loader');
         if (loader) loader.classList.remove('d-none');
         const ph = card.querySelector('.wizard-image-placeholder');
@@ -662,12 +679,11 @@ const Wizard = {
             tags: (item.tags || []).map(t => t.name).join(', '),
           };
           const card = document.querySelectorAll('.wizard-image-card')[i];
-          const thumb = card.querySelector('.wiz-thumb');
-          thumb.src = objUrl;
-          thumb.hidden = false;
+          const thumb = /** @type {HTMLImageElement | null} */ (card.querySelector('.wiz-thumb'));
+          if (thumb) { thumb.src = objUrl; thumb.hidden = false; }
           const loader = card.querySelector('.wiz-image-loader');
           if (loader) loader.classList.add('d-none');
-          card.querySelector('.wizard-image-placeholder').classList.add('d-none');
+          card.querySelector('.wizard-image-placeholder')?.classList.add('d-none');
         } catch (e) {
           console.error('waifu.im slot ' + i + ' fetch failed', e);
           // Show error state in the card
@@ -686,14 +702,14 @@ const Wizard = {
       if (!ok) throw new Error('All requests failed');
 
       if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
-        document.querySelector('#wizBtnUseImage').classList.remove('d-none');
-        document.querySelector('#wizBtnRemoveImage').classList.remove('d-none');
-        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.refetchOthers');
+        qs('#wizBtnUseImage').classList.remove('d-none');
+        qs('#wizBtnRemoveImage').classList.remove('d-none');
+        qs('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.refetchOthers');
         labelSet = true;
       } else {
-        document.querySelector('#wizBtnUseImage').classList.add('d-none');
-        document.querySelector('#wizBtnRemoveImage').classList.add('d-none');
-        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.fetchImages');
+        qs('#wizBtnUseImage').classList.add('d-none');
+        qs('#wizBtnRemoveImage').classList.add('d-none');
+        qs('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.fetchImages');
         labelSet = true;
       }
     } catch (e) {
@@ -707,13 +723,14 @@ const Wizard = {
   },
 
   async _useFetchedImage() {
-    if (this._selectedImageIdx < 0 || !this._fetchedImages[this._selectedImageIdx]) return;
+    const chosen = this._fetchedImages[this._selectedImageIdx];
+    if (this._selectedImageIdx < 0 || !chosen) return;
     const card = CardState.activeCard;
     if (!card) {
       Ui.showToast(I18n.t('toast.createCardFirst'), 'warning');
       return;
     }
-    await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob);
+    await Editor.setAvatar(chosen.blob);
   },
 
   _removeFetchedImage() {
@@ -730,7 +747,7 @@ const Wizard = {
     const card = cards[idx];
     if (card) {
       card.classList.remove('selected');
-      const thumb = card.querySelector('.wiz-thumb');
+      const thumb = /** @type {HTMLImageElement | null} */ (card.querySelector('.wiz-thumb'));
       if (thumb) { thumb.src = ''; thumb.hidden = true; }
       const loader = card.querySelector('.wiz-image-loader');
       if (loader) loader.classList.add('d-none');
@@ -743,9 +760,9 @@ const Wizard = {
     // If any other slot still holds an image, offer to re-fetch the rest;
     // otherwise restore the plain "Fetch images" label.
     const anyLeft = this._fetchedImages.some(img => !!img);
-    document.querySelector('#wizBtnUseImage').classList.add('d-none');
-    document.querySelector('#wizBtnRemoveImage').classList.add('d-none');
-    document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>'
+    qs('#wizBtnUseImage').classList.add('d-none');
+    qs('#wizBtnRemoveImage').classList.add('d-none');
+    qs('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>'
       + (anyLeft ? I18n.t('wizard.refetchOthers') : I18n.t('wizard.fetchImages'));
   },
 
@@ -757,10 +774,9 @@ const Wizard = {
     // _onModalClose() after the fade, which revokes the object URLs and wipes
     // _selectedImageIdx / _fetchedImages. Capturing first makes generation
     // immune to that race.
-    const chosenImage = (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx])
-      ? this._fetchedImages[this._selectedImageIdx].blob
-      : null;
-    this._modal.hide();
+    const sel = this._fetchedImages[this._selectedImageIdx];
+    const chosenImage = (this._selectedImageIdx >= 0 && sel) ? sel.blob : null;
+    this._modal?.hide();
 
     const card = CardEngine.createEmptyCard(this._answers.name || 'New Character');
     card.tags = this._answers.tags || [];
@@ -773,7 +789,7 @@ const Wizard = {
       try { await Editor.setAvatar(chosenImage); } catch (_) {}
     }
     CardManager.renderCardList();
-    document.querySelector('#editName').focus();
+    qs('#editName').focus();
     Ui.showToast(I18n.t('toast.wizardCreated'), 'success');
   },
 
@@ -795,10 +811,9 @@ const Wizard = {
     }
     this._clearDraft();
     // Capture the chosen blob before hide() (see _generateBlank for why).
-    const chosenImage = (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx])
-      ? this._fetchedImages[this._selectedImageIdx].blob
-      : null;
-    this._modal.hide();
+    const sel = this._fetchedImages[this._selectedImageIdx];
+    const chosenImage = (this._selectedImageIdx >= 0 && sel) ? sel.blob : null;
+    this._modal?.hide();
     const a = this._answers;
 
     const prompt = this._buildWizardPrompt(a);

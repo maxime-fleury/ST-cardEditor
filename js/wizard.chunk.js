@@ -12,6 +12,12 @@ import {
 } from "./app.chunk.js";
 
 // js/wizard.js
+var qs = (sel) => {
+  const el = document.querySelector(sel);
+  if (!el)
+    throw new Error(`wizard: missing element ${sel}`);
+  return el;
+};
 var Wizard = {
   _step: 1,
   _totalSteps: 5,
@@ -27,7 +33,7 @@ var Wizard = {
   init() {
     this._modal = new bootstrap.Modal("#wizardModal");
     this._bindEvents();
-    document.querySelector("#wizardModal").addEventListener("hidden.bs.modal", () => this._onModalClose());
+    qs("#wizardModal").addEventListener("hidden.bs.modal", () => this._onModalClose());
   },
   show() {
     if (!this._modal)
@@ -43,7 +49,7 @@ var Wizard = {
     this._resetImageUI();
     this._renderStepIndicator();
     this._showStep(1);
-    this._modal.show();
+    this._modal?.show();
     if (this._restoreDraft()) {
       this._populateStep(1);
     }
@@ -118,7 +124,7 @@ var Wizard = {
       lc.value = "";
       lc.classList.add("d-none");
     }
-    if (window.syncFloatLabels)
+    if (typeof window.syncFloatLabels === "function")
       window.syncFloatLabels();
   },
   _resetImageUI() {
@@ -156,8 +162,9 @@ var Wizard = {
     on("#wizBtnNext", "click", () => self._next());
     on("#wizBtnBack", "click", () => self._back());
     on("#wizardModal", "keydown", (e) => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && self._step === self._totalSteps) {
-        e.preventDefault();
+      const ke = e;
+      if (ke.key === "Enter" && (ke.ctrlKey || ke.metaKey) && self._step === self._totalSteps) {
+        ke.preventDefault();
         self._generateWithAI();
       }
     });
@@ -184,8 +191,9 @@ var Wizard = {
     const searchBtn = document.querySelector("#wizBtnSearchImages");
     if (searchInput) {
       searchInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
+        const ke = e;
+        if (ke.key === "Enter") {
+          ke.preventDefault();
           self._syncTagSearch();
           self._fetchImage();
         }
@@ -210,29 +218,29 @@ var Wizard = {
     const a = this._answers;
     switch (step) {
       case 1:
-        a.name = document.querySelector("#wizName").value.trim();
-        a.gender = document.querySelector("#wizGender").value;
-        a.genderCustom = document.querySelector("#wizGenderCustom").value.trim();
-        a.tags = document.querySelector("#wizTags").value.split(",").map((s) => s.trim()).filter(Boolean);
-        a.creator = document.querySelector("#wizCreator").value.trim();
+        a.name = qs("#wizName").value.trim();
+        a.gender = qs("#wizGender").value;
+        a.genderCustom = qs("#wizGenderCustom").value.trim();
+        a.tags = qs("#wizTags").value.split(",").map((s) => s.trim()).filter(Boolean);
+        a.creator = qs("#wizCreator").value.trim();
         break;
       case 2:
-        a.type = document.querySelector("#wizType").value;
-        a.language = document.querySelector("#wizLanguage").value;
-        a.languageCustom = document.querySelector("#wizLanguageCustom").value.trim();
+        a.type = qs("#wizType").value;
+        a.language = qs("#wizLanguage").value;
+        a.languageCustom = qs("#wizLanguageCustom").value.trim();
         a.genres = this._getChips("wizGenre");
         a.moods = this._getChips("wizMood");
         break;
       case 3:
-        a.personalityDesc = document.querySelector("#wizPersonalityDesc").value.trim();
-        a.appearance = document.querySelector("#wizAppearance").value.trim();
-        a.abilities = document.querySelector("#wizAbilities").value.trim();
+        a.personalityDesc = qs("#wizPersonalityDesc").value.trim();
+        a.appearance = qs("#wizAppearance").value.trim();
+        a.abilities = qs("#wizAbilities").value.trim();
         break;
       case 4:
-        a.scenario = document.querySelector("#wizScenario").value.trim();
-        a.relationship = document.querySelector("#wizRelationship").value.trim();
+        a.scenario = qs("#wizScenario").value.trim();
+        a.relationship = qs("#wizRelationship").value.trim();
         a.openingVibe = this._getChips("wizOpening");
-        a.notes = document.querySelector("#wizNotes").value.trim();
+        a.notes = qs("#wizNotes").value.trim();
         break;
     }
   },
@@ -241,49 +249,49 @@ var Wizard = {
     switch (step) {
       case 1:
         if (a.name)
-          document.querySelector("#wizName").value = a.name;
+          qs("#wizName").value = a.name;
         if (a.gender)
-          document.querySelector("#wizGender").value = a.gender;
+          qs("#wizGender").value = a.gender;
         if (a.genderCustom) {
-          document.querySelector("#wizGenderCustom").value = a.genderCustom;
-          document.querySelector("#wizGenderCustom").classList.remove("d-none");
+          qs("#wizGenderCustom").value = a.genderCustom;
+          qs("#wizGenderCustom").classList.remove("d-none");
         }
         if (a.tags?.length)
-          document.querySelector("#wizTags").value = a.tags.join(", ");
+          qs("#wizTags").value = a.tags.join(", ");
         if (a.creator)
-          document.querySelector("#wizCreator").value = a.creator;
+          qs("#wizCreator").value = a.creator;
         break;
       case 2:
         if (a.type)
-          document.querySelector("#wizType").value = a.type;
+          qs("#wizType").value = a.type;
         if (a.language)
-          document.querySelector("#wizLanguage").value = a.language;
+          qs("#wizLanguage").value = a.language;
         if (a.languageCustom) {
-          document.querySelector("#wizLanguageCustom").value = a.languageCustom;
-          document.querySelector("#wizLanguageCustom").classList.remove("d-none");
+          qs("#wizLanguageCustom").value = a.languageCustom;
+          qs("#wizLanguageCustom").classList.remove("d-none");
         }
         this._setChips("wizGenre", a.genres || []);
         this._setChips("wizMood", a.moods || []);
         break;
       case 3:
         if (a.personalityDesc)
-          document.querySelector("#wizPersonalityDesc").value = a.personalityDesc;
+          qs("#wizPersonalityDesc").value = a.personalityDesc;
         if (a.appearance)
-          document.querySelector("#wizAppearance").value = a.appearance;
+          qs("#wizAppearance").value = a.appearance;
         if (a.abilities)
-          document.querySelector("#wizAbilities").value = a.abilities;
+          qs("#wizAbilities").value = a.abilities;
         break;
       case 4:
         if (a.scenario)
-          document.querySelector("#wizScenario").value = a.scenario;
+          qs("#wizScenario").value = a.scenario;
         if (a.relationship)
-          document.querySelector("#wizRelationship").value = a.relationship;
+          qs("#wizRelationship").value = a.relationship;
         this._setChips("wizOpening", a.openingVibe || []);
         if (a.notes)
-          document.querySelector("#wizNotes").value = a.notes;
+          qs("#wizNotes").value = a.notes;
         break;
     }
-    if (window.syncFloatLabels)
+    if (typeof window.syncFloatLabels === "function")
       window.syncFloatLabels();
   },
   _getChips(groupId) {
@@ -301,8 +309,8 @@ var Wizard = {
     this._collectStep(this._step);
     if (this._step === 1 && !this._answers.name) {
       Ui.showToast(I18n.t("wizard.nameRequired"), "warning");
-      Anims.shakeElement(document.querySelector("#wizName"));
-      document.querySelector("#wizName").focus();
+      Anims.shakeElement(qs("#wizName"));
+      qs("#wizName").focus();
       return;
     }
     if (this._step < this._totalSteps) {
@@ -322,10 +330,10 @@ var Wizard = {
     }
   },
   _renderStepNav(step) {
-    document.querySelector("#wizBtnBack").disabled = step === 1;
+    qs("#wizBtnBack").disabled = step === 1;
     if (step === this._totalSteps) {
-      document.querySelector("#wizBtnNext").classList.add("d-none");
-      document.querySelector("#wizStepLabel").textContent = I18n.t("wizard.ready");
+      qs("#wizBtnNext").classList.add("d-none");
+      qs("#wizStepLabel").textContent = I18n.t("wizard.ready");
       this._renderSummary();
       this._renderQuickTags();
       const derivedTags = this._deriveImageTags();
@@ -340,9 +348,9 @@ var Wizard = {
         this._fetchImage();
       }
     } else {
-      document.querySelector("#wizBtnNext").classList.remove("d-none");
-      document.querySelector("#wizBtnNext").innerHTML = I18n.t("wizard.next") + ' <i class="bi bi-arrow-right ms-1"></i>';
-      document.querySelector("#wizStepLabel").textContent = I18n.t("wizard.stepLabel", { step, total: this._totalSteps });
+      qs("#wizBtnNext").classList.remove("d-none");
+      qs("#wizBtnNext").innerHTML = I18n.t("wizard.next") + ' <i class="bi bi-arrow-right ms-1"></i>';
+      qs("#wizStepLabel").textContent = I18n.t("wizard.stepLabel", { step, total: this._totalSteps });
     }
     this._renderStepIndicator();
     this._updateProgressBar();
@@ -359,7 +367,7 @@ var Wizard = {
       if (step === this._totalSteps) {
         const items = document.querySelectorAll(".wizard-summary-item");
         Anims.staggerFadeIn(items, { stagger: 20, duration: 200 });
-      } else {
+      } else if (nextEl) {
         Anims.staggerFadeIn(nextEl.querySelectorAll(".mb-3, .mb-4"), { stagger: 25, duration: 180 });
       }
     });
@@ -390,7 +398,7 @@ var Wizard = {
       I18n.t("wizard.step.scenario"),
       I18n.t("wizard.step.generate")
     ];
-    const container = document.querySelector("#wizardStepsIndicator");
+    const container = qs("#wizardStepsIndicator");
     container.innerHTML = labels.map((label, i) => {
       const stepNum = i + 1;
       const isActive = stepNum === this._step;
@@ -406,8 +414,8 @@ var Wizard = {
   },
   _updateProgressBar() {
     const pct = Math.round(this._step / this._totalSteps * 100);
-    document.querySelector("#wizardProgressBar").style.width = pct + "%";
-    Anims.progressBounce(document.querySelector("#wizardProgressBar"));
+    qs("#wizardProgressBar").style.width = pct + "%";
+    Anims.progressBounce(qs("#wizardProgressBar"));
   },
   _renderSummary() {
     const a = this._answers;
@@ -438,11 +446,11 @@ var Wizard = {
     if (a.notes)
       html += summaryItem("wizard.summary.notes", a.notes, 4, true);
     html += "</div>";
-    document.querySelector("#wizardSummary").innerHTML = html;
+    qs("#wizardSummary").innerHTML = html;
     document.querySelectorAll(".wizard-edit-btn").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        const targetStep = parseInt(btn.dataset.step, 10);
+        const targetStep = parseInt(btn.dataset.step || "", 10);
         if (targetStep >= 1 && targetStep <= 4) {
           this._collectStep(this._step);
           this._step = targetStep;
@@ -521,15 +529,15 @@ var Wizard = {
     const self = this;
     document.querySelectorAll(".wizard-image-card").forEach((card) => {
       card.addEventListener("click", () => {
-        const idx = parseInt(card.dataset.idx, 10);
+        const idx = parseInt(card.dataset.idx || "", 10);
         if (!self._fetchedImages[idx])
           return;
         document.querySelectorAll(".wizard-image-card").forEach((c) => c.classList.remove("selected"));
         card.classList.add("selected");
         self._selectedImageIdx = idx;
-        document.querySelector("#wizBtnUseImage").classList.remove("d-none");
-        document.querySelector("#wizBtnRemoveImage").classList.remove("d-none");
-        document.querySelector("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.refetchOthers");
+        qs("#wizBtnUseImage").classList.remove("d-none");
+        qs("#wizBtnRemoveImage").classList.remove("d-none");
+        qs("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.refetchOthers");
       });
     });
   },
@@ -624,8 +632,10 @@ var Wizard = {
         const card = document.querySelectorAll(".wizard-image-card")[i];
         card.classList.remove("selected");
         const thumb = card.querySelector(".wiz-thumb");
-        thumb.src = "";
-        thumb.hidden = true;
+        if (thumb) {
+          thumb.src = "";
+          thumb.hidden = true;
+        }
         const loader = card.querySelector(".wiz-image-loader");
         if (loader)
           loader.classList.remove("d-none");
@@ -669,12 +679,14 @@ var Wizard = {
           };
           const card = document.querySelectorAll(".wizard-image-card")[i];
           const thumb = card.querySelector(".wiz-thumb");
-          thumb.src = objUrl;
-          thumb.hidden = false;
+          if (thumb) {
+            thumb.src = objUrl;
+            thumb.hidden = false;
+          }
           const loader = card.querySelector(".wiz-image-loader");
           if (loader)
             loader.classList.add("d-none");
-          card.querySelector(".wizard-image-placeholder").classList.add("d-none");
+          card.querySelector(".wizard-image-placeholder")?.classList.add("d-none");
         } catch (e) {
           console.error("waifu.im slot " + i + " fetch failed", e);
           const card = document.querySelectorAll(".wizard-image-card")[i];
@@ -692,14 +704,14 @@ var Wizard = {
       if (!ok)
         throw new Error("All requests failed");
       if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
-        document.querySelector("#wizBtnUseImage").classList.remove("d-none");
-        document.querySelector("#wizBtnRemoveImage").classList.remove("d-none");
-        document.querySelector("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.refetchOthers");
+        qs("#wizBtnUseImage").classList.remove("d-none");
+        qs("#wizBtnRemoveImage").classList.remove("d-none");
+        qs("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.refetchOthers");
         labelSet = true;
       } else {
-        document.querySelector("#wizBtnUseImage").classList.add("d-none");
-        document.querySelector("#wizBtnRemoveImage").classList.add("d-none");
-        document.querySelector("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.fetchImages");
+        qs("#wizBtnUseImage").classList.add("d-none");
+        qs("#wizBtnRemoveImage").classList.add("d-none");
+        qs("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t("wizard.fetchImages");
         labelSet = true;
       }
     } catch (e) {
@@ -713,14 +725,15 @@ var Wizard = {
     }
   },
   async _useFetchedImage() {
-    if (this._selectedImageIdx < 0 || !this._fetchedImages[this._selectedImageIdx])
+    const chosen = this._fetchedImages[this._selectedImageIdx];
+    if (this._selectedImageIdx < 0 || !chosen)
       return;
     const card = CardState.activeCard;
     if (!card) {
       Ui.showToast(I18n.t("toast.createCardFirst"), "warning");
       return;
     }
-    await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob);
+    await Editor.setAvatar(chosen.blob);
   },
   _removeFetchedImage() {
     const idx = this._selectedImageIdx;
@@ -750,15 +763,16 @@ var Wizard = {
       }
     }
     const anyLeft = this._fetchedImages.some((img) => !!img);
-    document.querySelector("#wizBtnUseImage").classList.add("d-none");
-    document.querySelector("#wizBtnRemoveImage").classList.add("d-none");
-    document.querySelector("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + (anyLeft ? I18n.t("wizard.refetchOthers") : I18n.t("wizard.fetchImages"));
+    qs("#wizBtnUseImage").classList.add("d-none");
+    qs("#wizBtnRemoveImage").classList.add("d-none");
+    qs("#wizBtnFetchImage").innerHTML = '<i class="bi bi-shuffle me-1"></i>' + (anyLeft ? I18n.t("wizard.refetchOthers") : I18n.t("wizard.fetchImages"));
   },
   async _generateBlank() {
     this._collectStep(this._step);
     this._clearDraft();
-    const chosenImage = this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx] ? this._fetchedImages[this._selectedImageIdx].blob : null;
-    this._modal.hide();
+    const sel = this._fetchedImages[this._selectedImageIdx];
+    const chosenImage = this._selectedImageIdx >= 0 && sel ? sel.blob : null;
+    this._modal?.hide();
     const card = CardEngine.createEmptyCard(this._answers.name || "New Character");
     card.tags = this._answers.tags || [];
     card.creator = this._answers.creator || "";
@@ -771,7 +785,7 @@ var Wizard = {
       } catch (_) {}
     }
     CardManager.renderCardList();
-    document.querySelector("#editName").focus();
+    qs("#editName").focus();
     Ui.showToast(I18n.t("toast.wizardCreated"), "success");
   },
   async _generateWithAI() {
@@ -791,8 +805,9 @@ var Wizard = {
       return;
     }
     this._clearDraft();
-    const chosenImage = this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx] ? this._fetchedImages[this._selectedImageIdx].blob : null;
-    this._modal.hide();
+    const sel = this._fetchedImages[this._selectedImageIdx];
+    const chosenImage = this._selectedImageIdx >= 0 && sel ? sel.blob : null;
+    this._modal?.hide();
     const a = this._answers;
     const prompt = this._buildWizardPrompt(a);
     const card = CardEngine.createEmptyCard(a.name || "New Character");
