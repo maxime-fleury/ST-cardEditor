@@ -362,8 +362,8 @@ st-card-editor/
 │   └── smoke.spec.js       # Playwright end-to-end smoke suite
 ├── playwright.config.js    # Playwright config (server boot, Chrome channel)
 ├── scripts/
-│   ├── build.mjs           # Bundles all js/*.js into js/app.js (single entry module)
-│   ├── app.entry.js        # Bundle entry — imports every app module once
+│   ├── build.mjs           # Bundles js/*.js into a code-split ESM bundle (entry + shared + lazy chunks)
+│   ├── app.js              # Bundle entry — imports every app module once
 │   ├── check-assets.mjs    # Asset / SW-shell / version / bundle-freshness guard
 │   └── check-i18n.mjs      # i18n key-parity guard
 ├── server.js               # Bun static file server with OpenRouter API proxy + CSP headers

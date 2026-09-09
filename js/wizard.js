@@ -35,6 +35,9 @@ const Wizard = {
   },
 
   show() {
+    // Lazy-loaded chunk: the modal bindings only exist once init() ran (first
+    // show), so self-initialize here rather than requiring a startup init.
+    if (!this._modal) this.init();
     this._step = 1;
     this._answers = {};
     this._fetchedImages = [];
@@ -196,7 +199,8 @@ const Wizard = {
       });
     }
 
-    on('#btnWizardNav', 'click', () => self.show());
+    // NOTE: the navbar #btnWizardNav is bound lazily by ui.js (which owns the
+    // dynamic import); only the in-modal #btnWizard re-opens from inside.
     const centerBtn = document.querySelector('#btnWizard');
     if (centerBtn) centerBtn.addEventListener('click', () => self.show());
 

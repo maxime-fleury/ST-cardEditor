@@ -1,15 +1,19 @@
 // Production bundle entry — imports every app module so Bun bundles the whole
-// graph into ONE artifact (js/app.js). This replaces the 13 separate
-// <script type="module"> tags in public/index.html, removing:
+// graph into ONE shared artifact (js/app.chunk.js) plus a tiny ESM entry
+// (js/app.js). The wizard and waifu tab are split into their own lazy chunks
+// (js/wizard.chunk.js, js/waifuTab.chunk.js), loaded only when first opened.
+// This replaces the 13 separate <script type="module"> tags in
+// public/index.html, removing:
 //   - the load-order coupling (each file used to depend on window globals set
 //     by the previous <script>)
-//   - the need to bump ?v= busters per-file (one buster on the single bundle)
+//   - the need to bump ?v= busters per-file (one buster on the single entry;
+//     the chunks are precached by the service worker instead)
 //   - the per-module entries in the service-worker shell list
 //
 // Import order mirrors the former <script> order in index.html for safety. The
 // modules still wire together through their window.* globals (idempotent
-// assignments inside a single evaluated bundle), so this is byte-for-byte the
-// same app — just one file and one versioned cache key.
+// assignments inside a single evaluated chunk), so this is byte-for-byte the
+// same app — just one shared file, one entry, and two lazy chunks.
 import "../js/tokenizer.js";
 import "../js/cardEngine.js";
 import "../js/animations.js";
@@ -22,8 +26,6 @@ import "../js/cardManager.js";
 import "../js/chatState.js";
 import "../js/intentLearner.js";
 import "../js/aiChat.js";
-import "../js/wizard.js";
-import "../js/waifuTab.js";
 import "../js/settings.js";
 import "../js/i18n.js";
 import "../js/ui.js";

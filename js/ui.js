@@ -12,8 +12,6 @@ import { Editor } from './editor.js';
 import { ExportUtils } from './exportUtils.js';
 import { Settings } from './settings.js';
 import { AiChat } from './aiChat.js';
-import { Wizard } from './wizard.js';
-import { WaifuTab } from './waifuTab.js';
 import { CardState } from './cardState.js';
 
 // ─── Shared State ───────────────────────────────────────
@@ -572,8 +570,28 @@ async function init() {
   Ui.updateUIState();
   bindEvents(settingsModal);
   AiChat.updateContextBar();
-Wizard.init();
-  WaifuTab.init();
+
+  // The wizard and the Waifu Image tab are lazy chunks (split by the bundler):
+  // they only load — and bind their DOM listeners — when the user first opens
+  // them, so the ~53 KB of wizard/tab code never parses at startup.
+  const wizardBtn = document.querySelector('#btnWizardNav');
+  if (wizardBtn) {
+    wizardBtn.addEventListener('click', async () => {
+      const { Wizard } = await import('./wizard.js');
+      Wizard.show();
+    });
+  }
+  const waifuTrigger = document.querySelector('#editorTabs .nav-link[data-bs-target="#tabWaifu"]');
+  if (waifuTrigger) {
+    // shown.bs.tab fires only on a real open (tabCore is the default), so this
+    // loads the chunk exactly once, before the preload/refresh handler that
+    // WaifuTab.init() registers for subsequent shows.
+    waifuTrigger.addEventListener('shown.bs.tab', async () => {
+      const { WaifuTab } = await import('./waifuTab.js');
+      WaifuTab.init();
+    }, { once: true });
+  }
+
     AiChat._renderFieldChips();
     initFloatingLabels();
     // Re-run textarea autosize when switching editor tabs: fields in an

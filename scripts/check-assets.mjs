@@ -22,7 +22,7 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { bundleSourceText } from "./build.mjs";
+import { bundleArtifacts } from "./build.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -135,26 +135,59 @@ if (!cacheMatch) {
   ok(`sw.js CACHE_PREFIX ${cacheMatch[1]} tracks version ${fullVersion}.`);
 }
 
-// 5. The committed js/app.js bundle is fresh — i.e. built from the current
-//    sources. index.html and the SW shell both ship the single artifact, so a
-//    stale bundle would silently ship old logic. Bun.build is byte-deterministic
-//    for unchanged inputs, so a content diff is a reliable staleness signal.
-//    (Runs on the exact build config shared with `bun run build`.)
-const commitPath = "js/app.js";
+// 5. The committed bundle artifacts are fresh — i.e. built from the current
+//    sources. The build is code-split (see scripts/build.mjs): a tiny ESM
+//    entry, one shared chunk and one lazy chunk per deferred module. index.html
+//    and the SW shell ship these artifacts, so a stale one would silently ship
+//    old logic. Bun.build is byte-deterministic for unchanged inputs, so a
+//    content diff is a reliable staleness signal. (Runs on the exact build
+//    config shared with `bun run build`.)
+let freshArtifacts = null;
 try {
-  const fresh = await bundleSourceText();
-  const committed = existsSync(join(root, commitPath))
-    ? readFileSync(join(root, commitPath), "utf8")
-    : null;
-  if (!committed) {
-    fail(`bundle ${commitPath} is missing — run \`bun run build\` and commit the artifact.`);
-  } else if (fresh !== committed) {
-    fail(`bundle ${commitPath} is stale — run \`bun run build\` and commit the regenerated artifact.`);
-  } else {
-    ok(`bundle ${commitPath} is fresh (built from current sources).`);
+  freshArtifacts = await bundleArtifacts();
+  let stale = 0;
+  for (const art of freshArtifacts) {
+    const committed = existsSync(join(root, art.relPath))
+      ? readFileSync(join(root, art.relPath), "utf8")
+      : null;
+    if (committed === null) {
+      fail(`bundle artifact ${art.relPath} is missing — run \`bun run build\` and commit it.`);
+      stale++;
+    } else if (committed !== art.text) {
+      fail(`bundle artifact ${art.relPath} is stale — run \`bun run build\` and commit the regenerated file.`);
+      stale++;
+    }
+  }
+  // A leftover chunk (module removed from the split) would ship dead code that
+  // the service worker still precaches — flag it instead of silently keeping it.
+  const freshPaths = new Set(freshArtifacts.map((a) => a.relPath));
+  for (const file of readdirSync(join(root, "js"))) {
+    if (!/\.chunk\.js$/.test(file)) continue;
+    if (!freshPaths.has(`js/${file}`)) {
+      fail(`stale bundle chunk js/${file} is committed but the current build does not produce it — delete it.`);
+      stale++;
+    }
+  }
+  if (stale === 0) {
+    ok(`${freshArtifacts.length} bundle artifact(s) fresh (built from current sources).`);
   }
 } catch (err) {
   fail(`bundle build check errored: ${err.message}`);
+}
+
+// 5b. Every bundle artifact is precached by the service worker, so the lazy
+//     chunks keep working offline. (Entry + shared chunk are the offline app
+//     shell; the lazy chunks are small and precached eagerly because a first
+//     open while offline must still work.)
+if (freshArtifacts) {
+  const artifactShellMisses = freshArtifacts
+    .filter((a) => !swJs.includes(`'${a.relPath}'`) && !swJs.includes(`"${a.relPath}"`))
+    .map((a) => a.relPath);
+  if (artifactShellMisses.length) {
+    fail(`bundle artifacts missing from public/sw.js SHELL_FILES: ${artifactShellMisses.join(", ")}`);
+  } else {
+    ok(`all ${freshArtifacts.length} bundle artifacts are present in the service-worker shell.`);
+  }
 }
 
 // 6. GitHub Actions workflow files must survive GitHub's strict YAML parser.
@@ -212,7 +245,9 @@ if (workflowFiles.length === 0) {
 //    stale global copy outlives the import (editor.js called window.Ui while
 //    importing Ui; aiChat.js read window.Tokenizer while importing Tokenizer).
 //    The module's own export line (`window.X = X`) is expected and excluded.
-const jsModules = readdirSync(join(root, "js")).filter(f => f.endsWith(".js") && f !== "app.js");
+// Source modules only: app.js (entry artifact) and *.chunk.js (built artifacts)
+// are bundler output, not hand-written modules.
+const jsModules = readdirSync(join(root, "js")).filter(f => f.endsWith(".js") && f !== "app.js" && !f.endsWith(".chunk.js"));
 let couplingIssues = 0;
 for (const file of jsModules) {
   const src = read(`js/${file}`);

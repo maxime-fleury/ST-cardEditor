@@ -11,7 +11,6 @@ import { AIService } from './aiService.js';
 import { CardStorage } from './storage.js';
 import { CardEngine } from './cardEngine.js';
 import { CardManager } from './cardManager.js';
-import { Wizard } from './wizard.js';
 import { Editor } from './editor.js';
 import { Settings } from './settings.js';
 import { Tokenizer } from './tokenizer.js';
@@ -1420,6 +1419,8 @@ const AiChat = {
     const $ = Ui.$;
     const { activeCard } = CardState;
     if (action === 'newcard') {
+      // The wizard is a lazy chunk: load it on demand, then open the modal.
+      const { Wizard } = await import('./wizard.js');
       Wizard.show();
       return;
     }

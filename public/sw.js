@@ -28,9 +28,15 @@ const SHELL_FILES = [
   'css/wizard.css',
   'css/components.css',
   'css/responsive.css',
-  // App JS is a single built bundle (bun run build) — js/app.js. Source modules
-  // under js/*.js are bundled into it, so the shell only needs the artifact.
+  // App JS is built by `bun run build` into a code-split ESM bundle: a tiny
+  // entry (js/app.js), one shared chunk (js/app.chunk.js), and one lazy chunk
+  // per deferred module (js/wizard.chunk.js, js/waifuTab.chunk.js). All four
+  // are precached so the app — and the wizard/waifu tab on first open — work
+  // offline. check-assets verifies this list matches the build output.
   'js/app.js',
+  'js/app.chunk.js',
+  'js/wizard.chunk.js',
+  'js/waifuTab.chunk.js',
 ];
 
 const shellUrl = (file) => new URL(file || './', self.location.href).toString();

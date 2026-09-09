@@ -227,3 +227,27 @@ test('service worker serves the app shell offline with cached CDN', async ({ pag
   // No JS errors; ignore cosmetic resource-load logs from uncached extras.
   expect(errors.filter((e) => !/Failed to load resource|ERR_|favicon/i.test(e))).toEqual([]);
 });
+
+test('lazy wizard chunk is precached and opens offline', async ({ page, context }) => {
+  // Regression guard for the code-split bundle: wizard.js is a lazy chunk, so
+  // it must be precached by the SW shell (not only fetched on demand) — a
+  // first open while offline must still work.
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await page.evaluate(() =>
+    navigator.serviceWorker.ready.then(() =>
+      navigator.serviceWorker.controller
+        ? true
+        : new Promise((res) => { navigator.serviceWorker.addEventListener('controllerchange', () => res(true), { once: true }); })
+    ));
+  await page.waitForTimeout(1500);
+
+  // The chunk must NOT be loaded before the wizard is opened.
+  const loadedBefore = await page.evaluate(() => !!window.Wizard);
+  expect(loadedBefore).toBe(false);
+
+  await context.setOffline(true);
+  await page.locator('#btnWizardNav').click();
+  await expect(page.locator('#wizardModal.show')).toBeVisible({ timeout: 15_000 });
+  expect(errors, 'lazy wizard open must not throw').toEqual([]);
+});

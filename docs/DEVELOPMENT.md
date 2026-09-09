@@ -92,42 +92,38 @@ rule with hundreds of hits just teaches everyone to ignore lint output.
   prefix, the `?v=NNN` cache-busters and inserts the `CHANGELOG.md` entry.
   Then tag + GitHub release as documented in the changelog workflow.
 
-### Bundle size & future splitting (evaluated, deferred)
+### Bundle layout & code splitting (implemented)
 
-The whole app ships as one ~1.26 MB artifact (`js/app.js`). Splitting it into
-lazy chunks was evaluated and **deliberately deferred** — it is a dedicated
-pass, not a quick win, because of three interacting contracts:
+The app is built as a **code-split ESM bundle** (`bun run build`, see
+`scripts/build.mjs`):
 
-1. **Service-worker shell** — `public/sw.js` precaches exactly one bundle and
-   the CDN libs. Introducing lazy chunks means teaching the SW to fetch them
-   on demand (or accept a second network round-trip), changing the offline
-   guarantee that `shell.spec.js` asserts.
-2. **check-assets freshness** — the gate rebuilds from `scripts/app.entry.js`
-   and diffs `js/app.js`. Code-splitting (multiple outputs) requires the gate
-   to verify *every* artifact, not just the entry.
-3. **Window-global wiring** — modules still hand off through `window.*`
-   idempotent assignments. A lazy chunk that touches `window.Ui` or
-   `window.AppState` at *evaluation* time (not call time) would break if the
-   main bundle evaluates after it. Only call-time-touching modules are
-   candidates.
-
-Current module weight (source, pre-bundle), so the candidates are visible:
-
-| Module | Bytes | Lazy-load candidate? |
+| Artifact | Size | Role |
 | --- | --- | --- |
-| `ui.js` | 66 KB | No — everything depends on it. |
-| `aiChat.js` | 92 KB | No — core chat flow. |
-| `cardManager.js` | 45 KB | No — core card flow. |
-| `settings.js` | 43 KB | Partially — provider/model lists could lazy-fill. |
-| `editor.js` | 42 KB | Partially — the greetings/lorebook editors load with the tab. |
-| `wizard.js` | 36 KB | **Yes** — only used by the "New card" wizard modal. |
-| `storage.js` | 31 KB | No — everything persists through it. |
-| `aiService.js` | 25 KB | No — chat needs it immediately. |
-| `cardEngine.js` | 18 KB | No — import/parse is first interaction. |
-| `waifuTab.js` | 17 KB | **Yes** — tab content, could import on first open. |
+| `js/app.js` | ~24 B | ESM entry — imports the shared chunk. |
+| `js/app.chunk.js` | ~1.17 MB | Shared code — every module except the two lazy ones. |
+| `js/wizard.chunk.js` | ~33 KB | Card-creation wizard — `import()`ed on first open. |
+| `js/waifuTab.chunk.js` | ~14 KB | Waifu Image tab — `import()`ed on first open. |
 
-The realistic win is `wizard.js` + `waifuTab.js` (~53 KB pre-min, less after
-minification) via dynamic `import()` when the tab/modal first opens. The
-loader work is small; the SW + check-assets contract changes are not. When
-splitting lands, do it as one PR that updates `sw.js`, `check-assets.mjs` and
-`shell.spec.js` together.
+Names are **deterministic** (no content hashes), so the committed artifacts
+are diffable against a fresh build and the service worker precaches the exact
+list. The split is wired end to end:
+
+- `js/ui.js` owns the two lazy entry points: a click on `#btnWizardNav`
+  `import()`s `wizard.js` and calls `show()`; the first `shown.bs.tab` of the
+  Waifu pane imports `waifuTab.js` and inits it. `wizard.js` self-initializes
+  in `show()` (`if (!this._modal) this.init()`), so the AI quick action
+  (`aiChat.js` `newcard`) loads the chunk on demand too. The old circular
+  import `aiChat ↔ wizard` is gone — wizard → aiChat is one-way now.
+- `public/sw.js` precaches all four artifacts, so opening the wizard or waifu
+  tab **offline** works on first try (`shell.spec.js` covers exactly that).
+- `scripts/check-assets.mjs` rebuilds fresh and diffs **every** artifact
+  (entry + chunks), flags leftover `.chunk.js` files that the build no longer
+  produces, and verifies all artifacts are in `SHELL_FILES`.
+
+Why only these two? The modules still hand off through `window.*` idempotent
+assignments at evaluation time; a lazy chunk that *reads* `window.Ui` or
+`window.AppState` at eval time (not call time) would break if it loads before
+the shared chunk. Only call-time-touching modules are safe candidates, and
+`wizard.js` + `waifuTab.js` (~47 KB bundled) are the only ones that qualify
+without rework. `settings.js` / `editor.js` would need a larger refactor
+(their eval-time global reads) for a smaller gain.
