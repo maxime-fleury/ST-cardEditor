@@ -630,6 +630,8 @@ var Wizard = {
       }
       for (const i of slotsToFetch) {
         const card = document.querySelectorAll(".wizard-image-card")[i];
+        if (!card)
+          continue;
         card.classList.remove("selected");
         const thumb = card.querySelector(".wiz-thumb");
         if (thumb) {
@@ -678,6 +680,8 @@ var Wizard = {
             tags: (item.tags || []).map((t) => t.name).join(", ")
           };
           const card = document.querySelectorAll(".wizard-image-card")[i];
+          if (!card)
+            return;
           const thumb = card.querySelector(".wiz-thumb");
           if (thumb) {
             thumb.src = objUrl;
@@ -690,6 +694,8 @@ var Wizard = {
         } catch (e) {
           console.error("waifu.im slot " + i + " fetch failed", e);
           const card = document.querySelectorAll(".wizard-image-card")[i];
+          if (!card)
+            return;
           const loader = card.querySelector(".wiz-image-loader");
           if (loader)
             loader.classList.add("d-none");
