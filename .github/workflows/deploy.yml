@@ -53,10 +53,13 @@ jobs:
       - name: Compile check (bundle entry + every JS entry must build)
         run: |
           set -euo pipefail
-          # The production bundle entry imports all js/*.js; building it in
-          # isolation catches bundler-level breakage the per-file loop can miss.
-          bun build --target browser --format iife --outfile /dev/null scripts/app.entry.js > /dev/null
-          for f in js/*.js public/sw.js server.js; do
+          # The production bundle entry imports all js/*.js; building it with
+          # the exact production config (ESM + code splitting) catches
+          # bundler-level breakage the per-file loop can miss.
+          bun build --target browser --format esm --splitting --outdir /tmp/ci-bundle scripts/app.js > /dev/null
+          # Source modules only: the built js/*.chunk.js artifacts are covered
+          # by the entry build above, and js/app.js is its tiny ESM entry.
+          for f in js/tokenizer.js js/cardEngine.js js/animations.js js/aiService.js js/storage.js js/exportUtils.js js/cardState.js js/editor.js js/cardManager.js js/chatState.js js/intentLearner.js js/aiChat.js js/wizard.js js/waifuTab.js js/settings.js js/i18n.js js/ui.js public/sw.js server.js; do
             bun build --target browser --outfile /dev/null "$f" > /dev/null
           done
 
