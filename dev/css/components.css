@@ -1,0 +1,202 @@
+﻿/* ============================================================
+   TOASTS
+   ============================================================ */
+.toast {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  animation: slideInUp 0.3s ease, toastSlide 0.35s ease-out;
+}
+@keyframes toastSlide {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.toast .toast-header {
+  background: transparent;
+  border-bottom: 1px solid var(--surface-border);
+  color: var(--text-primary);
+}
+.toast .toast-body {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+.toast-timer {
+  color: var(--text-secondary) !important;
+}
+
+/* ============================================================
+   LOREBOOK â€” Accordion
+   ============================================================ */
+.lorebook-search {
+  margin-bottom: 0.75rem;
+}
+
+.lorebook-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.lorebook-accordion-item {
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  transition: all var(--transition-fast);
+  overflow: hidden;
+  animation: slideInUp 0.2s ease;
+}
+.lorebook-accordion-item:hover {
+  border-color: var(--border-default);
+}
+
+.lorebook-accordion-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+.lorebook-accordion-header:hover {
+  background: var(--bg-surface-hover);
+}
+
+.lorebook-chevron {
+  transition: transform 250ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+.lorebook-accordion-item.open .lorebook-chevron {
+  transform: rotate(90deg);
+}
+
+.lorebook-entry-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lorebook-key-tags {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.lorebook-key-tag {
+  font-size: 0.6rem;
+  padding: 0.1em 0.4em;
+  border-radius: 100px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.lorebook-key-tag.primary {
+  background: rgba(145, 71, 255, 0.15);
+  color: var(--purple-400);
+  border: 1px solid rgba(145, 71, 255, 0.3);
+}
+.lorebook-key-tag.secondary {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--info);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.lorebook-delete-btn {
+  flex-shrink: 0;
+}
+
+.lorebook-accordion-body {
+  display: none;
+  padding: 0 0.65rem 0.65rem;
+  border-top: 1px solid var(--surface-border);
+}
+.lorebook-accordion-item.open .lorebook-accordion-body {
+  display: block;
+  animation: fadeIn 0.2s ease;
+}
+
+.lorebook-accordion-body .form-check {
+  font-size: 0.78rem;
+}
+
+/* ============================================================
+   GREETINGS LIST
+   ============================================================ */
+.greeting-count {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-left: 0.3rem;
+}
+.greetings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.greeting-item {
+  display: flex;
+  gap: 0.35rem;
+  align-items: flex-start;
+  background: var(--bg-surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem;
+  transition: all var(--transition-fast);
+}
+.greeting-item:hover {
+  border-color: var(--border-default);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  transform: translateY(-1px);
+}
+.greeting-item.default-greeting {
+  border-color: var(--purple-600);
+  box-shadow: 0 0 6px var(--purple-glow);
+}
+.greeting-item.default-greeting:hover {
+  box-shadow: 0 0 12px var(--purple-glow), 0 4px 12px rgba(0,0,0,0.25);
+}
+.greeting-item textarea {
+  flex: 1;
+  background: transparent !important;
+  border: none !important;
+  color: var(--text-primary) !important;
+  font-size: 0.82rem !important;
+  resize: vertical;
+  min-height: 60px;
+  max-height: 250px;
+  padding: 0.25rem 0.35rem !important;
+  font-family: var(--font-body);
+}
+.greeting-item textarea:focus-visible { box-shadow: none !important; outline: 2px solid var(--purple-400); outline-offset: -2px; }
+.greeting-item textarea::placeholder { color: var(--text-placeholder); opacity: 1; }
+.greeting-item-badge {
+  font-size: 0.62rem;
+  padding: 0.15em 0.45em;
+  border-radius: 100px;
+  white-space: nowrap;
+  margin-top: 0.25rem;
+}
+.greeting-item-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+.greeting-item-actions button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  border-radius: 4px;
+}
