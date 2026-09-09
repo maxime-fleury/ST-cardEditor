@@ -126,7 +126,7 @@ const Settings = {
     if (vignetteToggle) CardStorage.setVignette(vignetteToggle.checked);
     this.applyAppearance();
     this.PROMPTS.forEach(name => {
-      const input = document.querySelector('#prompt' + name[0].toUpperCase() + name.slice(1) + 'Input');
+      const input = document.querySelector('#prompt' + name.charAt(0).toUpperCase() + name.slice(1) + 'Input');
       const value = input ? input.value : '';
       // Store empty when unchanged from the default so future default updates are picked up.
       CardStorage.setPrompt(name, value === this.getDefaultPrompt(name) ? '' : value);
@@ -334,7 +334,7 @@ const Settings = {
     this.syncAccentControls();
     this.syncAppearanceControls();
     this.PROMPTS.forEach(name => {
-      const input = $('#prompt' + name[0].toUpperCase() + name.slice(1) + 'Input');
+      const input = $('#prompt' + name.charAt(0).toUpperCase() + name.slice(1) + 'Input');
       if (input) input.value = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
     });
   },
@@ -645,7 +645,7 @@ const Settings = {
           if (!count) throw new Error('none');
           // Re-populate the visible prompt fields with the imported values.
           this.PROMPTS.forEach(name => {
-            const field = $('#prompt' + name[0].toUpperCase() + name.slice(1) + 'Input');
+            const field = $('#prompt' + name.charAt(0).toUpperCase() + name.slice(1) + 'Input');
             if (field) field.value = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
           });
           Ui.showToast(I18n.t ? I18n.t('settings.promptsImported', { count }) : ('Imported ' + count + ' prompts'), 'success');

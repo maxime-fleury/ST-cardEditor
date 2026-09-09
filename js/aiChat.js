@@ -1200,6 +1200,7 @@ const AiChat = {
     const n = queue.length;
     const i = ((index % n) + n) % n;
     const item = queue[i];
+    if (!item) return;
     ChatState.applyIndex = i;
 
     const modalEl = document.querySelector('#aiPreviewModal');
@@ -1623,18 +1624,22 @@ const AiChat = {
     let targetUserIdx = -1;
     if (typeof historyIndex === 'number') {
       for (let i = historyIndex; i >= 0; i--) {
-        if (chatHistory[i] && chatHistory[i].role === 'user') { targetUserIdx = i; break; }
+        const msg = chatHistory[i];
+        if (msg && msg.role === 'user') { targetUserIdx = i; break; }
       }
     }
     if (targetUserIdx < 0) {
       // Fallback: last user message (legacy behaviour for unannotated nodes).
       for (let i = chatHistory.length - 1; i >= 0; i--) {
-        if (chatHistory[i].role === 'user') { targetUserIdx = i; break; }
+        const msg = chatHistory[i];
+        if (msg && msg.role === 'user') { targetUserIdx = i; break; }
       }
     }
     if (targetUserIdx < 0) return;
 
-    const lastUserPrompt = chatHistory[targetUserIdx].content;
+    const lastMsg = chatHistory[targetUserIdx];
+    if (!lastMsg) return;
+    const lastUserPrompt = lastMsg.content;
     // Abort any in-flight generation so stale callbacks don't mutate the UI.
     this._abortAll();
     ChatState.bumpGen(); // also invalidate the aborted run's .then/.catch

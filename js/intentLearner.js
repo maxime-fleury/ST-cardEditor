@@ -80,7 +80,10 @@ function prune(map) {
   if (keys.length <= MAX_KEYWORDS) return;
   const total = (k) => Object.values(map[k]).reduce((s, n) => s + n, 0);
   keys.sort((a, b) => total(a) - total(b));
-  for (let i = 0; i < keys.length - MAX_KEYWORDS; i++) delete map[keys[i]];
+  for (let i = 0; i < keys.length - MAX_KEYWORDS; i++) {
+    const key = keys[i];
+    if (key) delete map[key];
+  }
 }
 
 const IntentLearner = {

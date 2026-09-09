@@ -149,13 +149,13 @@ const CardStorage = {
 
   getPrompt(name) {
     if (!name || typeof name !== 'string' || !name.length) return '';
-    const key = this._keys['prompt' + name[0].toUpperCase() + name.slice(1)];
+    const key = this._keys['prompt' + name.charAt(0).toUpperCase() + name.slice(1)];
     if (!key) return '';
     return localStorage.getItem(this.PREFIX + key) || '';
   },
 
   setPrompt(name, value) {
-    const key = this._keys['prompt' + name[0].toUpperCase() + name.slice(1)];
+    const key = this._keys['prompt' + name.charAt(0).toUpperCase() + name.slice(1)];
     localStorage.setItem(this.PREFIX + key, value || '');
   },
 
@@ -177,7 +177,7 @@ const CardStorage = {
   _bufToB64(buf) {
     const bytes = new Uint8Array(buf);
     let bin = '';
-    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i] ?? 0);
     return btoa(bin);
   },
   _b64ToBuf(b64) {

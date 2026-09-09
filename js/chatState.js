@@ -105,7 +105,8 @@ const ChatState = {
   /** Index of the first not-yet-applied change in the queue (-1 when all done). */
   firstUnappliedIndex() {
     for (let i = 0; i < applyQueue.length; i++) {
-      if (!applyQueue[i].applied) return i;
+      const item = applyQueue[i];
+      if (item && !item.applied) return i;
     }
     return -1;
   },
@@ -113,7 +114,8 @@ const ChatState = {
   /** Index of the next not-yet-applied change after the current one (-1 when exhausted). */
   nextUnappliedIndex() {
     for (let i = applyIndex + 1; i < applyQueue.length; i++) {
-      if (!applyQueue[i].applied) return i;
+      const item = applyQueue[i];
+      if (item && !item.applied) return i;
     }
     return -1;
   },

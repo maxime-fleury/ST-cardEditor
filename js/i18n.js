@@ -62,7 +62,7 @@ const I18n = {
     // base language ("pt"), so e.g. a pt-PT browser gets the Portuguese
     // (Portugal) translation instead of the Brazilian one.
     if (SUPPORTED.includes(browserLang)) return browserLang;
-    const short = browserLang.split('-')[0];
+    const short = browserLang.split('-')[0] || '';
     return SUPPORTED.includes(short) ? short : 'en';
   },
 

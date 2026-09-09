@@ -686,6 +686,7 @@ function setupModalFocusTraps() {
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
+      if (!first || !last) return; // non-empty list guarantees both; guard for TS
       if (ke.shiftKey && document.activeElement === first) { ke.preventDefault(); last.focus(); }
       else if (!ke.shiftKey && document.activeElement === last) { ke.preventDefault(); first.focus(); }
     });

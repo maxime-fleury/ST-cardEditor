@@ -197,7 +197,7 @@ const AIService = {
     // host root, while others expose /models from an already versioned URL.
     // Try the alternate form once when the first path is not available.
     if (resp.status === 404) {
-      const pathname = (apiBaseUrl.split('?')[0].split('#')[0]).replace(/\/+$/, '');
+      const pathname = ((apiBaseUrl.split('?')[0] || '').split('#')[0] || '').replace(/\/+$/, '');
       const alternateBase = pathname.endsWith('/v1')
         ? pathname.slice(0, -3)
         : pathname;
@@ -377,7 +377,7 @@ const AIService = {
    */
   _v1BaseUrl(baseUrl) {
     const url = String(baseUrl || '').trim();
-    const path = url.split('?')[0].split('#')[0].replace(/\/+$/, '');
+    const path = ((url.split('?')[0] || '').split('#')[0] || '').replace(/\/+$/, '');
     const lastSegment = path.split('/').pop() || '';
     // "v1" alone, or any segment starting with v + digits (v2, v1.1…)
     if (/^v\d/.test(lastSegment)) return url.replace(/\/+$/, '');

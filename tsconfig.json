@@ -11,11 +11,13 @@
     "noImplicitAny": false,
     "noImplicitThis": true,
     "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
     "useUnknownInCatchVariables": false,
-    // strictNullChecks is ON (Passe 5): aiChat/cardManager/editor were hardened
-    // against null DOM lookups and possibly-undefined card fields, and
-    // cardEngine now types its card factories as CardShape instead of inferring
-    // `_imageBase64: null`. The unit + e2e suites guard the refactor.
+    // strictNullChecks is ON (Passe 5+) for every // @ts-check module, and
+    // noUncheckedIndexedAccess (Passe 8) makes every index access return
+    // `T | undefined` — array/NodeList lookups (wizard image slots, apply
+    // queue, PNG parser bytes) and string indexing (name[0]) are all guarded
+    // or narrowed locally. The unit + e2e suites guard the refactors.
     "alwaysStrict": true,
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,

@@ -616,6 +616,7 @@ const CardManager = {
         const toIdx = dropCards.findIndex(c => c._id === dropId);
         if (fromIdx < 0 || toIdx < 0) return;
         const [moved] = dropCards.splice(fromIdx, 1);
+        if (!moved) return; // splice already removed it; nothing left to re-insert
         const adjustedTo = toIdx > fromIdx ? toIdx - 1 : toIdx;
         dropCards.splice(adjustedTo, 0, moved);
         CardStorage.saveCardIndex(dropCards);
@@ -932,7 +933,9 @@ const CardManager = {
       const dec = new TextDecoder('utf-8');
       let offset = 8;
       while (offset + 12 <= bytes.length) {
-        const len = ((bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]) >>> 0;
+        // Bounds guarantee these 4 bytes exist; ?? 0 is only for the typechecker.
+        const b0 = bytes[offset] ?? 0, b1 = bytes[offset + 1] ?? 0, b2 = bytes[offset + 2] ?? 0, b3 = bytes[offset + 3] ?? 0;
+        const len = ((b0 << 24) | (b1 << 16) | (b2 << 8) | b3) >>> 0;
         const type = dec.decode(bytes.slice(offset + 4, offset + 8));
         if (type === 'tEXt' || type === 'iTXt' || type === 'zTXt') {
           const data = bytes.slice(offset + 8, offset + 8 + len);

@@ -17474,7 +17474,7 @@ var I18n = {
     const browserLang = (navigator.language || navigator.userLanguage || "").toLowerCase();
     if (SUPPORTED.includes(browserLang))
       return browserLang;
-    const short = browserLang.split("-")[0];
+    const short = browserLang.split("-")[0] || "";
     return SUPPORTED.includes(short) ? short : "en";
   },
   init() {
@@ -18291,13 +18291,13 @@ var CardStorage = {
   getPrompt(name) {
     if (!name || typeof name !== "string" || !name.length)
       return "";
-    const key = this._keys["prompt" + name[0].toUpperCase() + name.slice(1)];
+    const key = this._keys["prompt" + name.charAt(0).toUpperCase() + name.slice(1)];
     if (!key)
       return "";
     return localStorage.getItem(this.PREFIX + key) || "";
   },
   setPrompt(name, value) {
-    const key = this._keys["prompt" + name[0].toUpperCase() + name.slice(1)];
+    const key = this._keys["prompt" + name.charAt(0).toUpperCase() + name.slice(1)];
     localStorage.setItem(this.PREFIX + key, value || "");
   },
   _secrets: { apiKey: "", customApiKey: "", providerKeys: {} },
@@ -18308,7 +18308,7 @@ var CardStorage = {
     const bytes = new Uint8Array(buf);
     let bin = "";
     for (let i = 0;i < bytes.length; i++)
-      bin += String.fromCharCode(bytes[i]);
+      bin += String.fromCharCode(bytes[i] ?? 0);
     return btoa(bin);
   },
   _b64ToBuf(b64) {
@@ -19028,7 +19028,7 @@ var AIService = {
       throw new Error(I18n.t ? I18n.t("error.customUnreachable", { url: apiBaseUrl }) : "Cannot reach " + apiBaseUrl + ". Check the URL and that the server is running.", { cause: err });
     }
     if (resp.status === 404) {
-      const pathname = apiBaseUrl.split("?")[0].split("#")[0].replace(/\/+$/, "");
+      const pathname = ((apiBaseUrl.split("?")[0] || "").split("#")[0] || "").replace(/\/+$/, "");
       const alternateBase = pathname.endsWith("/v1") ? pathname.slice(0, -3) : pathname;
       const alternateUrl = alternateBase + "/models";
       try {
@@ -19150,7 +19150,7 @@ var AIService = {
   },
   _v1BaseUrl(baseUrl) {
     const url = String(baseUrl || "").trim();
-    const path = url.split("?")[0].split("#")[0].replace(/\/+$/, "");
+    const path = ((url.split("?")[0] || "").split("#")[0] || "").replace(/\/+$/, "");
     const lastSegment = path.split("/").pop() || "";
     if (/^v\d/.test(lastSegment))
       return url.replace(/\/+$/, "");
@@ -19525,14 +19525,16 @@ var ChatState = {
   },
   firstUnappliedIndex() {
     for (let i = 0;i < applyQueue.length; i++) {
-      if (!applyQueue[i].applied)
+      const item = applyQueue[i];
+      if (item && !item.applied)
         return i;
     }
     return -1;
   },
   nextUnappliedIndex() {
     for (let i = applyIndex + 1;i < applyQueue.length; i++) {
-      if (!applyQueue[i].applied)
+      const item = applyQueue[i];
+      if (item && !item.applied)
         return i;
     }
     return -1;
@@ -19686,8 +19688,11 @@ function prune(map) {
     return;
   const total = (k) => Object.values(map[k]).reduce((s, n) => s + n, 0);
   keys.sort((a, b) => total(a) - total(b));
-  for (let i = 0;i < keys.length - MAX_KEYWORDS; i++)
-    delete map[keys[i]];
+  for (let i = 0;i < keys.length - MAX_KEYWORDS; i++) {
+    const key = keys[i];
+    if (key)
+      delete map[key];
+  }
 }
 var IntentLearner = {
   learn(prompt, fields) {
@@ -20788,6 +20793,8 @@ SillyTavern is an AI roleplay frontend. Cards define character personalities.`,
     const n = queue.length;
     const i = (index % n + n) % n;
     const item = queue[i];
+    if (!item)
+      return;
     ChatState.applyIndex = i;
     const modalEl = document.querySelector("#aiPreviewModal");
     if (!modalEl)
@@ -21193,7 +21200,8 @@ Current:
     let targetUserIdx = -1;
     if (typeof historyIndex === "number") {
       for (let i = historyIndex;i >= 0; i--) {
-        if (chatHistory[i] && chatHistory[i].role === "user") {
+        const msg = chatHistory[i];
+        if (msg && msg.role === "user") {
           targetUserIdx = i;
           break;
         }
@@ -21201,7 +21209,8 @@ Current:
     }
     if (targetUserIdx < 0) {
       for (let i = chatHistory.length - 1;i >= 0; i--) {
-        if (chatHistory[i].role === "user") {
+        const msg = chatHistory[i];
+        if (msg && msg.role === "user") {
           targetUserIdx = i;
           break;
         }
@@ -21209,7 +21218,10 @@ Current:
     }
     if (targetUserIdx < 0)
       return;
-    const lastUserPrompt = chatHistory[targetUserIdx].content;
+    const lastMsg = chatHistory[targetUserIdx];
+    if (!lastMsg)
+      return;
+    const lastUserPrompt = lastMsg.content;
     this._abortAll();
     ChatState.bumpGen();
     chatHistory.splice(targetUserIdx);
@@ -23077,6 +23089,8 @@ var CardManager = {
         if (fromIdx < 0 || toIdx < 0)
           return;
         const [moved] = dropCards.splice(fromIdx, 1);
+        if (!moved)
+          return;
         const adjustedTo = toIdx > fromIdx ? toIdx - 1 : toIdx;
         dropCards.splice(adjustedTo, 0, moved);
         CardStorage.saveCardIndex(dropCards);
@@ -23381,7 +23395,8 @@ var CardManager = {
       const dec = new TextDecoder("utf-8");
       let offset = 8;
       while (offset + 12 <= bytes.length) {
-        const len = (bytes[offset] << 24 | bytes[offset + 1] << 16 | bytes[offset + 2] << 8 | bytes[offset + 3]) >>> 0;
+        const b0 = bytes[offset] ?? 0, b1 = bytes[offset + 1] ?? 0, b2 = bytes[offset + 2] ?? 0, b3 = bytes[offset + 3] ?? 0;
+        const len = (b0 << 24 | b1 << 16 | b2 << 8 | b3) >>> 0;
         const type = dec.decode(bytes.slice(offset + 4, offset + 8));
         if (type === "tEXt" || type === "iTXt" || type === "zTXt") {
           const data = bytes.slice(offset + 8, offset + 8 + len);
@@ -24066,6 +24081,8 @@ function setupModalFocusTraps() {
         return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
+      if (!first || !last)
+        return;
       if (ke.shiftKey && document.activeElement === first) {
         ke.preventDefault();
         last.focus();
@@ -24960,7 +24977,7 @@ Each greeting should be an in-character opening message that could start a conve
       CardStorage.setVignette(vignetteToggle.checked);
     this.applyAppearance();
     this.PROMPTS.forEach((name) => {
-      const input = document.querySelector("#prompt" + name[0].toUpperCase() + name.slice(1) + "Input");
+      const input = document.querySelector("#prompt" + name.charAt(0).toUpperCase() + name.slice(1) + "Input");
       const value = input ? input.value : "";
       CardStorage.setPrompt(name, value === this.getDefaultPrompt(name) ? "" : value);
     });
@@ -25141,7 +25158,7 @@ Each greeting should be an in-character opening message that could start a conve
     this.syncAccentControls();
     this.syncAppearanceControls();
     this.PROMPTS.forEach((name) => {
-      const input = $("#prompt" + name[0].toUpperCase() + name.slice(1) + "Input");
+      const input = $("#prompt" + name.charAt(0).toUpperCase() + name.slice(1) + "Input");
       if (input)
         input.value = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
     });
@@ -25415,7 +25432,7 @@ Each greeting should be an in-character opening message that could start a conve
           if (!count)
             throw new Error("none");
           this.PROMPTS.forEach((name) => {
-            const field = $("#prompt" + name[0].toUpperCase() + name.slice(1) + "Input");
+            const field = $("#prompt" + name.charAt(0).toUpperCase() + name.slice(1) + "Input");
             if (field)
               field.value = CardStorage.getPrompt(name) || this.getDefaultPrompt(name);
           });

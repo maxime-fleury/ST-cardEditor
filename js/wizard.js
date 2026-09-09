@@ -635,6 +635,7 @@ const Wizard = {
       // Show loading spinners on slots being fetched
       for (const i of slotsToFetch) {
         const card = document.querySelectorAll('.wizard-image-card')[i];
+        if (!card) continue; // slot element missing — nothing to update
         card.classList.remove('selected');
         const thumb = /** @type {HTMLImageElement | null} */ (card.querySelector('.wiz-thumb'));
         if (thumb) { thumb.src = ''; thumb.hidden = true; }
@@ -679,6 +680,7 @@ const Wizard = {
             tags: (item.tags || []).map(t => t.name).join(', '),
           };
           const card = document.querySelectorAll('.wizard-image-card')[i];
+          if (!card) return; // slot element missing — data is stored anyway
           const thumb = /** @type {HTMLImageElement | null} */ (card.querySelector('.wiz-thumb'));
           if (thumb) { thumb.src = objUrl; thumb.hidden = false; }
           const loader = card.querySelector('.wiz-image-loader');
@@ -688,6 +690,7 @@ const Wizard = {
           console.error('waifu.im slot ' + i + ' fetch failed', e);
           // Show error state in the card
           const card = document.querySelectorAll('.wizard-image-card')[i];
+          if (!card) return;
           const loader = card.querySelector('.wiz-image-loader');
           if (loader) loader.classList.add('d-none');
           const ph = card.querySelector('.wizard-image-placeholder');

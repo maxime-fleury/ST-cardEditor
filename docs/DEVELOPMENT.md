@@ -18,7 +18,11 @@ comfortably in CI on every push/PR (`ci.yml`) and locally before committing.
 > **Note on the typecheck scope.** Every module in the shared bundle carries
 > `// @ts-check` with `strictNullChecks` **on** — the null-noise of the legacy
 > era was cleaned up pass by pass (Passe 5: aiChat/cardManager/editor;
-> Passe 6: settings/wizard; Passe 7: ui/aiService/storage/i18n). Notable
+> Passe 6: settings/wizard; Passe 7: ui/aiService/storage/i18n; Passe 8 added
+> `noUncheckedIndexedAccess`, so every index access returns `T | undefined` —
+> array/NodeList lookups (wizard image slots, apply queue, PNG parser bytes)
+> and string indexing (`name[0]` → `name.charAt(0)`) are guarded or narrowed
+> locally). Notable
 > conventions: DOM lookups are guarded or use non-null helpers (`Ui.$el` for
 > static shell elements, wizard's `qs()`), literal-typed fields carry inline
 > `@type` JSDoc (`_modal`, `_fetchedImages`, `_pendingRemoteTouched`, …),
