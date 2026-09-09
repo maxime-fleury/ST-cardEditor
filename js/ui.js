@@ -1,3 +1,4 @@
+// @ts-check
 /* ============================================================
    ui.js — Main Controller: Utilities, Init, Event Binding
    ============================================================ */
@@ -35,6 +36,8 @@ if (typeof window !== 'undefined') window.AppState = {
 const Ui = {
   $(sel) { return document.querySelector(sel); },
   $$(sel) { return document.querySelectorAll(sel); },
+  /** Non-null querySelector for static shell elements (navbar, panels). */
+  $el(sel) { const el = document.querySelector(sel); if (!el) throw new Error('ui: missing element ' + sel); return el; },
 
   showToast(msg, type) {
     type = type || 'info';
@@ -60,7 +63,7 @@ const Ui = {
     const initialSecs = Math.ceil(DURATION / 1000);
     const toastLabel = (I18n && I18n.t) ? I18n.t('gen.toastAutoHide', { s: initialSecs }) : 'Auto-hides in ' + initialSecs + 's';
     el.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2 w-100"><div class="flex-grow-1 d-flex align-items-center gap-2"><i class="bi ' + (icons[type] || icons.info) + '"></i>' + this.escapeHtml(msg) + '</div><div class="toast-timer" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">' + toastLabel + '</div><button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
-    document.querySelector('#toastContainer').appendChild(el);
+    container.appendChild(el);
     const toast = new bootstrap.Toast(el, { delay: DURATION });
     toast.show();
     // Live countdown timer
@@ -168,6 +171,12 @@ const Ui = {
     return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   },
 
+  /**
+   * @template T
+   * @param {(this: T, ...args: any[]) => void} fn
+   * @param {number} delay
+   * @returns {(this: T, ...args: any[]) => void}
+   */
   debounce(fn, delay) {
     let timer;
     return function (...args) { clearTimeout(timer); timer = setTimeout(() => fn.apply(this, args), delay); };
@@ -175,10 +184,10 @@ const Ui = {
 
   updateUIState() {
     const h = !!CardState.activeCard;
-    document.querySelector('#btnSaveCard').disabled = !h;
-    document.querySelector('#btnExportJson').disabled = !h;
-    document.querySelector('#btnExportPng').disabled = !h;
-    document.querySelector('#btnDeleteCard').disabled = !h;
+    this.$el('#btnSaveCard').disabled = !h;
+    this.$el('#btnExportJson').disabled = !h;
+    this.$el('#btnExportPng').disabled = !h;
+    this.$el('#btnDeleteCard').disabled = !h;
     this.setDirty(CardState.dirty);
   },
 
@@ -232,7 +241,7 @@ const Ui = {
         CardState.activeCard = updated;
         try {
           const b64 = await CardStorage.getImage(updated._id);
-          if (b64) CardState.activeCard._imageBase64 = b64;
+          if (b64) updated._imageBase64 = b64;
         } catch (err) {
           console.error('Failed to load image from IndexedDB:', err);
         }
@@ -248,6 +257,10 @@ const Ui = {
   // fields adopt the remote snapshot so cross-tab changes are preserved (#103).
   async _mergePendingRemote(expectedCardId) {
     const snapshotPromise = this._pendingRemoteSnapshot;
+    // Capture the touched-field set BEFORE resetting the pending state below:
+    // reading it after the reset would always see null and the "local edits
+    // win" guard would never fire (found by the strictNullChecks hardening).
+    const touched = this._pendingRemoteTouched;
     this._pendingRemoteReload = false;
     this._pendingRemoteCardId = null;
     this._pendingRemoteSnapshot = null;
@@ -265,7 +278,6 @@ const Ui = {
     } else {
       return; // no remote version captured; nothing to merge
     }
-    const touched = this._pendingRemoteTouched;
     const id = ac._id;
     const localB64 = ac._imageBase64;
     const merged = JSON.parse(JSON.stringify(ac));
@@ -282,7 +294,7 @@ const Ui = {
     CardState.activeCard = merged;
     try {
       const b64 = await CardStorage.getImage(merged._id);
-      if (b64) CardState.activeCard._imageBase64 = b64;
+      if (b64) merged._imageBase64 = b64;
     } catch (err) {
       console.error('Failed to load image from IndexedDB:', err);
     }
@@ -294,18 +306,24 @@ const Ui = {
       console.error('Failed to persist merged card:', err);
     }
     Editor.populateEditor(CardState.activeCard);
-    if (localB64) CardState.activeCard._imageBase64 = localB64; // keep local avatar
+    if (localB64) merged._imageBase64 = localB64; // keep local avatar
   },
 
   // ─── Markdown Renderer (lazy-loads marked + DOMPurify) ───
   _markdownReady: false,
+  /** @type {boolean | null} */
   _markdownLoading: null,
   _markdownRetryAfter: 0,
+  /** @type {Array<{ target: Element; text: string }>} */
   _markdownPending: [],        // [{target, text}] re-rendered once libs arrive
   _pendingRemoteReload: false,
+  /** @type {string | null} */
   _pendingRemoteCardId: null,
+  /** @type {Promise<CardShape | null> | null} */
   _pendingRemoteSnapshot: null, // Promise<remote card data> for the cross-tab merge
+  /** @type {Set<string> | null} */
   _pendingRemoteTouched: null,  // field names edited locally since the remote write
+  /** @type {string | null} */
   _pendingBlurCardId: null,     // card whose remote update waits for a field blur
 
   // Record that the user edited `field` on the active card. Used to decide which
@@ -410,7 +428,9 @@ const Ui = {
   },
 
   // ─── Saved Indicator ──────────────────────────────────
+  /** @type {ReturnType<typeof setTimeout> | null} */
   _savedTimer: null,
+  /** @type {string | null} */
   _savedOrigHTML: null,
   flashSaved() {
     const btn = document.querySelector('#btnSaveCard');
@@ -422,7 +442,7 @@ const Ui = {
     btn.classList.add('btn-saved-flash');
     if (this._savedTimer) clearTimeout(this._savedTimer);
     this._savedTimer = setTimeout(() => {
-      btn.innerHTML = this._savedOrigHTML;
+      btn.innerHTML = this._savedOrigHTML || '';
       btn.classList.remove('btn-saved-flash');
       this._savedTimer = null;
       this._savedOrigHTML = null;
@@ -453,34 +473,38 @@ function initFloatingLabels() {
     });
   }
   document.addEventListener('focusin', (e) => {
-    if (e.target.matches(SEL)) {
-      const label = e.target.closest('.floating-label')?.querySelector('label');
+    const t = /** @type {Element} */ (e.target);
+    if (t.matches(SEL)) {
+      const label = t.closest('.floating-label')?.querySelector('label');
       if (label) label.classList.add('floated');
     }
   });
   document.addEventListener('focusout', (e) => {
-    if (e.target.matches(SEL)) {
-      const label = e.target.closest('.floating-label')?.querySelector('label');
-      if (label && !(e.target.value && e.target.value.trim().length > 0)) {
+    const t = /** @type {Element} */ (e.target);
+    if (t.matches(SEL)) {
+      const label = t.closest('.floating-label')?.querySelector('label');
+      if (label && !(t.value && t.value.trim().length > 0)) {
         label.classList.remove('floated');
       }
     }
   });
   document.addEventListener('input', (e) => {
-    if (e.target.matches(SEL)) {
-      const label = e.target.closest('.floating-label')?.querySelector('label');
+    const t = /** @type {Element} */ (e.target);
+    if (t.matches(SEL)) {
+      const label = t.closest('.floating-label')?.querySelector('label');
       if (label) {
-        const hasVal = e.target.value && e.target.value.trim().length > 0;
-        label.classList.toggle('floated', hasVal || document.activeElement === e.target);
+        const hasVal = t.value && t.value.trim().length > 0;
+        label.classList.toggle('floated', hasVal || document.activeElement === t);
       }
     }
   });
   document.addEventListener('change', (e) => {
-    if (e.target.matches('.floating-label select')) {
-      const label = e.target.closest('.floating-label')?.querySelector('label');
+    const t = /** @type {Element} */ (e.target);
+    if (t.matches('.floating-label select')) {
+      const label = t.closest('.floating-label')?.querySelector('label');
       if (label) {
-        const hasVal = e.target.value && e.target.value.trim().length > 0;
-        label.classList.toggle('floated', hasVal || document.activeElement === e.target);
+        const hasVal = t.value && t.value.trim().length > 0;
+        label.classList.toggle('floated', hasVal || document.activeElement === t);
       }
     }
   });
@@ -618,7 +642,8 @@ async function init() {
   // blur is the safe moment to reload.
   document.addEventListener('focusout', (e) => {
     if (!Ui._pendingBlurCardId) return;
-    if (!(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable))) return;
+    const t = /** @type {HTMLElement | null} */ (e.target);
+    if (!(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable))) return;
     const cardId = Ui._pendingBlurCardId;
     Ui._pendingBlurCardId = null;
     if (CardState.activeCard && CardState.activeCard._id === cardId && !CardState.dirty) {
@@ -654,14 +679,15 @@ function setupModalFocusTraps() {
       if (firstFocusable) firstFocusable.focus();
     });
     modalEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') return; // let Bootstrap handle Escape
-      if (e.key !== 'Tab') return;
+      const ke = /** @type {KeyboardEvent} */ (e);
+      if (ke.key === 'Escape') return; // let Bootstrap handle Escape
+      if (ke.key !== 'Tab') return;
       const focusable = modalEl.querySelectorAll(focusableSelector);
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      if (ke.shiftKey && document.activeElement === first) { ke.preventDefault(); last.focus(); }
+      else if (!ke.shiftKey && document.activeElement === last) { ke.preventDefault(); first.focus(); }
     });
   });
 }
@@ -742,8 +768,8 @@ function bindEvents(settingsModal) {
   // Clipboard paste: PNG/JSON cards import as cards, plain images land on the
   // active card's avatar. Text fields keep their native paste behavior.
   document.addEventListener('paste', async (e) => {
-    const target = e.target;
-    const isEditable = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+    const target = /** @type {HTMLElement | null} */ (e.target);
+    const isEditable = !!(target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable));
     if (isEditable) return;
     const dt = e.clipboardData;
     if (!dt) return;
@@ -1015,7 +1041,7 @@ function bindEvents(settingsModal) {
 
   // Edit / Preview toggle for textareas
   document.querySelectorAll('.field-toggle-group').forEach(group => {
-    const targetId = group.dataset.target;
+    const targetId = group.dataset.target || '';
     group.querySelectorAll('.field-toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const mode = btn.dataset.mode;
@@ -1115,7 +1141,8 @@ function bindEvents(settingsModal) {
   };
   document.querySelectorAll('.token-insert-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const ta = document.getElementById(btn.dataset.target);
+      const targetId = btn.dataset.target || '';
+      const ta = document.getElementById(targetId);
       if (ta && btn.dataset.token) insertTokenAtCursor(ta, btn.dataset.token);
     });
   });
@@ -1153,7 +1180,7 @@ function bindEvents(settingsModal) {
   const toggleAI = $('#btnToggleAI');
   if (toggleAI) {
     toggleAI.addEventListener('click', () => {
-      document.querySelector('#panelRight').classList.toggle('mobile-open');
+      document.querySelector('#panelRight')?.classList.toggle('mobile-open');
     });
   }
 
@@ -1195,7 +1222,7 @@ function bindEvents(settingsModal) {
 
   // Global button click feedback
   document.addEventListener('mousedown', (e) => {
-    const btn = e.target.closest('.btn');
+    const btn = (/** @type {Element} */ (e.target)).closest('.btn');
     if (btn && !Anims._disabled()) Anims.scaleClick(btn);
   });
 
@@ -1207,7 +1234,7 @@ function bindEvents(settingsModal) {
   // Collapse either side panel to a 0-width rail (an edge chevron lets the
   // user expand it back). Focus mode is simply both panels collapsed.
   function setupPanelCollapse() {
-    const app = document.querySelector('#appContainer');
+    const app = Ui.$el('#appContainer');
     const storageKey = (side) => CardStorage.PREFIX + 'panel' + (side === 'left' ? 'Left' : 'Right') + 'Collapsed';
 
     const setCollapsed = (side, collapsed) => {
@@ -1265,7 +1292,7 @@ function bindEvents(settingsModal) {
     const RIGHT_MIN = 280;
     const RIGHT_MAX = 560;
     const root = document.documentElement;
-    const app = document.querySelector('#appContainer');
+    const app = Ui.$el('#appContainer');
 
     // Read a saved width as a bare number, tolerating legacy values that were
     // stored with a "px" suffix ("300px" or even the corrupt "300pxpx").
@@ -1341,7 +1368,7 @@ function bindEvents(settingsModal) {
           root.style.setProperty('--panel-right-width', w + 'px');
         }
       };
-      let safetyTimer = null;
+      let safetyTimer = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
       const up = () => {
         document.body.classList.remove('resizing');
         // Persist bare numbers (never the "300px" CSS string)
@@ -1405,8 +1432,8 @@ function handleKeyboardShortcuts(e) {
   }
   if (e.altKey && key === 'f') {
     e.preventDefault();
-    const app = document.querySelector('#appContainer');
-    const focused = app && app.classList.contains('side-left-collapsed') && app.classList.contains('side-right-collapsed');
+    const app = Ui.$el('#appContainer');
+    const focused = app.classList.contains('side-left-collapsed') && app.classList.contains('side-right-collapsed');
     if (Ui.setFocusMode) Ui.setFocusMode(!focused);
     return;
   }
@@ -1438,13 +1465,13 @@ async function handleStorageChange(e) {
   CardState.cards = CardStorage.getCards();
   CardManager.renderCardList();
   if (CardState.activeCard) {
-    const active = document.activeElement;
+    const active = /** @type {HTMLElement | null} */ (document.activeElement);
     if (CardState.dirty) {
       // We have unsaved local edits; don't clobber them now. Remember the card
       // so it gets merged from the other tab once the local save completes.
       if (Ui._pendingRemoteReload) return;
       Ui._pendingRemoteReload = true;
-      Ui._pendingRemoteCardId = CardState.activeCard._id;
+      Ui._pendingRemoteCardId = CardState.activeCard._id || null;
       Ui._pendingRemoteTouched = new Set();
       // Snapshot the other tab's version *now*: by the time the local autosave
       // completes, IndexedDB holds our copy, not the remote one — so reloading
@@ -1459,7 +1486,7 @@ async function handleStorageChange(e) {
       // A focused field means the user may be typing; don't clobber the DOM.
       // Remember the card and reload it as soon as the field loses focus so
       // remote edits are surfaced instead of being skipped until a reload.
-      Ui._pendingBlurCardId = CardState.activeCard._id;
+      Ui._pendingBlurCardId = CardState.activeCard._id || null;
       return;
     }
     Ui._reloadActiveCard(CardState.activeCard._id);

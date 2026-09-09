@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * ST Card Editor - Internationalization Module
  * Supports: en, fr, es, de, pt, ja, zh, ko, el, ru, it, pl, tr, nl, uk, vi, id, hi, ar, he, fa, ro, cs, sv, th, pt-pt, tl
@@ -54,7 +55,9 @@ const I18n = {
   _detectLanguage() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved && SUPPORTED.includes(saved)) return saved;
-    const browserLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
+    // userLanguage is a legacy IE property absent from lib.dom — read it via a
+    // narrow cast so old browsers that only expose it still get language detection.
+    const browserLang = (navigator.language || (/** @type {{ userLanguage?: string }} */ (navigator)).userLanguage || '').toLowerCase();
     // Prefer the full regional code ("pt-pt") before falling back to the
     // base language ("pt"), so e.g. a pt-PT browser gets the Portuguese
     // (Portugal) translation instead of the Brazilian one.

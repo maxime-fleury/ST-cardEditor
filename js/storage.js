@@ -1,3 +1,4 @@
+// @ts-check
 /* ============================================================
    storage.js — localStorage + IndexedDB Persistence
    ============================================================ */
@@ -18,7 +19,9 @@ const CardStorage = {
     dbName: 'stce_data',
     version: 1,
     stores: { cards: 'cards', images: 'images' },
+    /** @type {IDBDatabase | null} */
     _db: null,
+    /** @type {Promise<IDBDatabase> | null} */
     _dbPromise: null,
 
     async init() {
@@ -27,7 +30,7 @@ const CardStorage = {
         this._dbPromise = new Promise((resolve, reject) => {
           const req = indexedDB.open(this.dbName, this.version);
           req.onupgradeneeded = (e) => {
-            const db = e.target.result;
+            const db = (/** @type {IDBOpenDBRequest} */ (e.target)).result;
             if (!db.objectStoreNames.contains(this.stores.cards)) {
               db.createObjectStore(this.stores.cards);
             }
@@ -43,7 +46,10 @@ const CardStorage = {
           req.onerror = () => { this._dbPromise = null; reject(req.error); };
         });
       }
-      return this._dbPromise;
+      // Both branches above guarantee _dbPromise is set; the guard is for TS.
+      const pending = this._dbPromise;
+      if (!pending) throw new Error('IndexedDB init failed');
+      return pending;
     },
     async get(store, id) {
       const db = await this.init();
@@ -57,7 +63,7 @@ const CardStorage = {
       const db = await this.init();
       return new Promise((resolve, reject) => {
         const req = db.transaction(store, 'readwrite').objectStore(store).put(data, id);
-        req.onsuccess = () => resolve();
+        req.onsuccess = () => resolve(undefined);
         req.onerror = () => reject(req.error && req.error.name === 'QuotaExceededError'
           ? new Error((I18n.t ? I18n.t('error.storageFull') : 'Storage full! Try removing some cards or exporting them.'))
           : req.error);
@@ -67,7 +73,7 @@ const CardStorage = {
       const db = await this.init();
       return new Promise((resolve, reject) => {
         const req = db.transaction(store, 'readwrite').objectStore(store).delete(id);
-        req.onsuccess = () => resolve();
+        req.onsuccess = () => resolve(undefined);
         req.onerror = () => reject(req.error);
       });
     },
@@ -75,7 +81,7 @@ const CardStorage = {
       const db = await this.init();
       return new Promise((resolve, reject) => {
         const req = db.transaction(store, 'readwrite').objectStore(store).clear();
-        req.onsuccess = () => resolve();
+        req.onsuccess = () => resolve(undefined);
         req.onerror = () => reject(req.error);
       });
     },

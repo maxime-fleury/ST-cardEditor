@@ -136,6 +136,7 @@ interface Element {
   value: string;
   disabled: boolean;
   title: string;
+  placeholder: string;
   dataset: DOMStringMap;
   focus(options?: FocusOptions): void;
   offsetParent: Element | null;
@@ -366,6 +367,19 @@ declare const Wizard: {
 
 declare const Diff: {
   diffWords(oldText: string, newText: string): Array<{ value: string; added?: boolean; removed?: boolean }>;
+};
+
+// Lazy-loaded CDN markdown renderer + sanitizer (ui.js renderMarkdown). Loaded
+// as classic <script> tags from the CDN, so they are ambient globals here.
+declare const marked: {
+  (text: string, opts?: unknown): string;
+  parse(text: string, opts?: unknown): string;
+  setOptions(opts?: unknown): void;
+  [k: string]: unknown;
+};
+declare const DOMPurify: {
+  sanitize(html: string, opts?: unknown): string;
+  [k: string]: unknown;
 };
 
 declare const bootstrap: {

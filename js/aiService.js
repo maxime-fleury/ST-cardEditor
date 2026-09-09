@@ -1,3 +1,4 @@
+// @ts-check
 /* ============================================================
    aiService.js — OpenRouter API Integration
    ============================================================ */
@@ -405,6 +406,7 @@ const AIService = {
   },
 
   async chat(prompt, systemPrompt = '', model = '', opts = {}) {
+    /** @type {{ jsonMode?: boolean; signal?: AbortSignal | null; history?: ChatMessage[] }} */
     const safeOpts = (typeof opts === 'object' && opts !== null) ? opts : {};
     const { jsonMode = false, signal, history = [] } = safeOpts;
     const apiKey = this._getApiKeyForProvider();
@@ -536,7 +538,7 @@ const AIService = {
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let full = '';
-    let usage = null;
+    let usage = /** @type {{ prompt_tokens: number; completion_tokens: number; total_tokens: number; cost: number } | null} */ (null);
     let eventType = '';
     let streamDone = false;
 
@@ -577,7 +579,7 @@ const AIService = {
         if (done) break;
         bufferStr += decoder.decode(value, { stream: true });
         const lines = bufferStr.split('\n');
-        bufferStr = lines.pop();
+        bufferStr = lines.pop() || '';
         for (const line of lines) {
           if (handleLine(line)) { streamDone = true; break; }
         }
@@ -634,7 +636,7 @@ const AIService = {
     let maxTokens = this.DEFAULT_MAX_TOKENS;
     if (modelId && window.AppState.models) {
       const m = window.AppState.models.find(x => x.id === modelId);
-      if (m && m.max_output_tokens > 0) maxTokens = m.max_output_tokens;
+      if (m && m.max_output_tokens && m.max_output_tokens > 0) maxTokens = m.max_output_tokens;
     }
 
     return Math.min(maxTokens, available);
@@ -653,7 +655,8 @@ const AIService = {
   _getContextLength(modelId) {
     if (modelId && window.AppState.models) {
       const m = window.AppState.models.find(x => x.id === modelId);
-      if (m && m.context_length > 0) return m.context_length;
+      const ctx = m && m.context_length;
+      if (ctx && ctx > 0) return ctx;
     }
     return 128000; // safe fallback
   },

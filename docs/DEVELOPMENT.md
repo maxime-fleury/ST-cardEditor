@@ -15,18 +15,20 @@ comfortably in CI on every push/PR (`ci.yml`) and locally before committing.
 | i18n parity | `bun run i18n:check` | All 27 `js/i18n/*.js` files stay in sync with `en.js` (same keys, no single-brace placeholders, ≥ 75 % coverage). |
 | e2e | `bunx playwright test` | Playwright suite in `tests/*.spec.js`. The config picks a free port automatically (8300 on Windows where 8182 is OS-reserved, 8182 elsewhere) and starts a scripted OpenAI-compatible mock server for the live-model suite — no ports to juggle by hand. |
 
-> **Note on the typecheck scope.** The hot modules carry `// @ts-check`
-> (`aiChat.js`, `cardManager.js`, `editor.js`, `cardEngine.js`, `settings.js`,
-> `wizard.js`, plus the typed stores) and `strictNullChecks` is **on** for
-> them — the null-noise of the legacy era was cleaned up (Passe 5: DOM lookups
-> guarded, `activeCard` treated as nullable where the flow allows it,
-> `_imageBase64` typed `string | undefined` instead of the old literal `null`;
-> Passe 6: `settings.js` and `wizard.js` hardened the same way — `wizard.js`
-> gained a non-null `qs()` helper for its static modal elements and typed its
-> `_modal` / `_fetchedImages` fields, `settings.js` guards the optional model
-> list and typed file-input handlers). The rest of `js/` is legacy JS without
-> type annotations and is not checked; type coverage grows module by module as
-> code is migrated.
+> **Note on the typecheck scope.** Every module in the shared bundle carries
+> `// @ts-check` with `strictNullChecks` **on** — the null-noise of the legacy
+> era was cleaned up pass by pass (Passe 5: aiChat/cardManager/editor;
+> Passe 6: settings/wizard; Passe 7: ui/aiService/storage/i18n). Notable
+> conventions: DOM lookups are guarded or use non-null helpers (`Ui.$el` for
+> static shell elements, wizard's `qs()`), literal-typed fields carry inline
+> `@type` JSDoc (`_modal`, `_fetchedImages`, `_pendingRemoteTouched`, …),
+> event handlers cast `e.target`/`e` to the concrete element/event type, and
+> `marked`/`DOMPurify` (lazy CDN globals) are declared in `globals.d.ts`. The
+> hardening also surfaced a real bug: `_mergePendingRemote` read
+> `_pendingRemoteTouched` after resetting it to `null`, so the "local edits
+> win" cross-tab guard never fired — fixed by capturing the set before the
+> reset. Only the lazy `wizard.chunk.js`/`waifuTab.chunk.js` and the built
+> `js/*.chunk.js` artifacts are not type-checked.
 
 ### Module isolation for unit tests
 
