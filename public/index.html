@@ -12,13 +12,17 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ST Card Editor">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com esm.sh; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' cdn.jsdelivr.net fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co;">
+  <!-- script-src is 'self' only: every script the app runs is vendored under
+       vendor/ and committed (see scripts/vendor.mjs), so no third-party origin
+       may execute code in this page. The remaining remote origins are data
+       (AI providers, waifu.im/anilist images) plus Google Fonts stylesheets. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co;">
   
   <!-- Bootstrap 5.3 CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" id="bootstrapLtr">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet" id="bootstrapRtl" disabled>
+  <link href="vendor/bootstrap.min.css" rel="stylesheet" id="bootstrapLtr">
+  <link href="vendor/bootstrap.rtl.min.css" rel="stylesheet" id="bootstrapRtl" disabled>
   <!-- Bootstrap Icons -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="vendor/bootstrap-icons.css" rel="stylesheet">
   <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   
@@ -45,7 +49,7 @@
           <i class="bi bi-stars"></i>
         </div>
         <span class="brand-text" data-i18n="nav.brand">ST Card Editor</span>
-        <span class="badge bg-purple ms-2">v2.7.1</span>
+        <span class="badge bg-purple ms-2">v2.8.0</span>
       </a>
       
       <div class="d-flex align-items-center gap-2">
@@ -121,7 +125,7 @@
       <div class="px-3 pb-2" id="cardSearchWrap" style="display:none;">
         <div class="input-group input-group-sm">
           <span class="input-group-text"><i class="bi bi-search"></i></span>
-          <input type="text" class="form-control" id="cardSearchInput" data-i18n-placeholder="left.search" placeholder="Search cards...">
+          <input type="text" class="form-control" id="cardSearchInput" data-i18n-placeholder="left.search" placeholder="Search every field &amp; lorebook...">
         </div>
       </div>
 
@@ -1441,6 +1445,7 @@
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body" style="font-size:0.85rem;">
+          <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span data-i18n="shortcuts.palette">Command palette</span><kbd>Ctrl+K</kbd></div>
           <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span data-i18n="shortcuts.save">Save card</span><kbd>Ctrl+S</kbd></div>
           <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span data-i18n="shortcuts.newCard">New card</span><kbd>Ctrl+N</kbd></div>
           <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span data-i18n="shortcuts.undo">Undo</span><kbd>Ctrl+Z</kbd></div>
@@ -1450,6 +1455,29 @@
           <div class="d-flex justify-content-between py-1 border-bottom border-secondary"><span data-i18n="shortcuts.focus">Focus mode</span><kbd>Alt+F</kbd></div>
           <div class="d-flex justify-content-between py-1"><span data-i18n="shortcuts.collapsePanel">Collapse/expand side panel</span><kbd>Ctrl+\</kbd></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Command palette (Ctrl/Cmd+K) — cards, fields and actions in one input.
+       Deliberately NOT `.fade`: Bootstrap drops a hide() issued while the show
+       transition is still running (`_isTransitioning`), so a user who typed and
+       pressed Enter within ~150 ms of opening would see the palette stay open
+       and the command never run. Without the transition class the show/hide
+       state machine is synchronous, which also matches how a launcher is
+       expected to feel. -->
+  <div class="modal" id="commandPalette" tabindex="-1" aria-hidden="true" aria-labelledby="paletteInputLabel">
+    <div class="modal-dialog modal-lg modal-dialog-centered palette-dialog">
+      <div class="modal-content palette-content">
+        <div class="palette-input-row">
+          <i class="bi bi-search" aria-hidden="true"></i>
+          <label class="visually-hidden" for="paletteInput" id="paletteInputLabel" data-i18n="palette.title">Command palette</label>
+          <input type="text" id="paletteInput" class="palette-input" autocomplete="off" spellcheck="false"
+                 role="combobox" aria-expanded="true" aria-controls="paletteResults" aria-autocomplete="list"
+                 data-i18n-placeholder="palette.placeholder" placeholder="Search cards, fields, or run a command…">
+        </div>
+        <div class="palette-results" id="paletteResults" role="listbox" aria-label="Results"></div>
+        <div class="palette-footer"><span data-i18n="palette.hint">↑↓ navigate · Enter to run · Esc to close</span></div>
       </div>
     </div>
   </div>
@@ -1513,15 +1541,15 @@
   </div>
 
   <!-- Bootstrap JS -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
-  <!-- CDN Libraries -->
-  <!-- diff is version-pinned (9.0.0) so its SRI hash can never drift from a floating 'latest' republish -->
-  <script src="https://cdn.jsdelivr.net/npm/diff@9.0.0/dist/diff.min.js" integrity="sha384-TvJwlBkfFFd9hmaVfyJyF6lIPjAUL6x01MvObCeUao5yP6QZ6owU6fqw+JQoyRD1" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js" integrity="sha384-/Mc/2ffICYME94wcPOYwoL99IzpbvFsDTty0/5V5t22x2n26tp8JRSsxKjvgZuZs" crossorigin="anonymous"></script>
+  <script src="vendor/bootstrap.bundle.min.js"></script>
+  <!-- Vendored libraries (public/vendor/, sha384-pinned in MANIFEST.txt; see scripts/vendor.mjs) -->
+  <!-- diff is version-pinned (9.0.0) so its hash can never drift from a floating 'latest' republish -->
+  <script src="vendor/diff.min.js"></script>
+  <script src="vendor/anime.min.js"></script>
   
   <!-- App bundle -- one entry module built by `bun run build` (scripts/build.mjs).
        Replaces the 13 individual <script type="module"> tags; a single ?v= buster
        (derived from package.json version by check-assets) invalidates the cache.) -->
-  <script type="module" src="js/app.js?v=271"></script>
+  <script type="module" src="js/app.js?v=280"></script>
 </body>
 </html>

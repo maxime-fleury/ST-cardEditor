@@ -6,6 +6,9 @@
 // Module dependencies (ES imports — window.* exports kept for compat).
 import { I18n } from './i18n.js';
 import { Ui } from './ui.js';
+// Pure data module (no imports of its own), so this adds no import cycle — and
+// the version history needs the exact signature the duplicate-import check uses.
+import { CardEngine } from './cardEngine.js';
 
 const CardStorage = {
   PREFIX: 'stce_',
@@ -17,8 +20,9 @@ const CardStorage = {
    */
   DB: {
     dbName: 'stce_data',
-    version: 1,
-    stores: { cards: 'cards', images: 'images' },
+    // v2 added the `snapshots` store (per-card version history).
+    version: 2,
+    stores: { cards: 'cards', images: 'images', snapshots: 'snapshots' },
     /** @type {IDBDatabase | null} */
     _db: null,
     /** @type {Promise<IDBDatabase> | null} */
@@ -36,6 +40,9 @@ const CardStorage = {
             }
             if (!db.objectStoreNames.contains(this.stores.images)) {
               db.createObjectStore(this.stores.images);
+            }
+            if (!db.objectStoreNames.contains(this.stores.snapshots)) {
+              db.createObjectStore(this.stores.snapshots);
             }
           };
           req.onsuccess = () => {
@@ -403,6 +410,25 @@ const CardStorage = {
     localStorage.setItem(this.PREFIX + 'sortMode', String(mode));
   },
 
+  // Library view = the search query, the active tag filters and the collapsed
+  // letter groups, persisted as one blob next to the sort mode so reopening the
+  // app does not silently drop the filters the user set.
+  getLibraryView() {
+    try {
+      const raw = localStorage.getItem(this.PREFIX + 'libraryView');
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  },
+
+  setLibraryView(view) {
+    try {
+      localStorage.setItem(this.PREFIX + 'libraryView', JSON.stringify(view || {}));
+    } catch (_) { /* a full quota must not break the library UI */ }
+  },
+
   // ─── Provider ───────────────────────────────────────
 
   getProvider() {
@@ -549,6 +575,18 @@ const CardStorage = {
     }
   },
 
+  /**
+   * Announce a write so same-tab consumers can react without polling: the
+   * full-text index (js/cardSearch.js) and the card preview cache both need to
+   * know a card changed. Cross-tab changes are already covered by the
+   * `storage` event; this covers the tab that performed the write, which never
+   * receives its own storage event. Fired after the write succeeded.
+   */
+  _announce(name, detail) {
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+    try { window.dispatchEvent(new CustomEvent(name, { detail })); } catch (_) { /* non-browser runtime */ }
+  },
+
   _extractMeta(card) {
     return {
       _id: card._id,
@@ -614,6 +652,16 @@ const CardStorage = {
     const toSave = { ...card };
     delete toSave._imageBase64;
 
+    // Snapshot the content being replaced before overwriting it, so the version
+    // history is written by the one write funnel every save path already goes
+    // through. A failure here must never block the save itself.
+    try {
+      const before = await this.DB.get(this.DB.stores.cards, card._id);
+      await this._recordSnapshot(before, card);
+    } catch (e) {
+      console.warn('storage: could not record a version snapshot', e);
+    }
+
     // Persist the full card to IndexedDB first, then update the lightweight
     // localStorage index so the two stores stay consistent.
     await this.DB.set(this.DB.stores.cards, card._id, toSave);
@@ -634,6 +682,8 @@ const CardStorage = {
       }
       throw e;
     }
+    // Announced last: listeners may re-read the card, so the write must be done.
+    this._announce('stce:card-saved', { card });
   },
 
   /**
@@ -647,13 +697,16 @@ const CardStorage = {
       this.deleteImage(id),
       this.DB.delete(this.DB.stores.cards, id),
     ]);
-    // Remove the card's chat history + sessions so they don't outlive the card.
+    // Remove the card's chat history, sessions and version history so nothing
+    // outlives the card.
     this.clearChatHistory(id);
+    await this.deleteSnapshots(id).catch(() => {});
     const index = this.getCards().filter(c => c._id !== id);
     localStorage.setItem(this.PREFIX + this._keys.cardIndex, JSON.stringify(index));
     if (this.getActiveCardId() === id) {
       this.setActiveCardId(null);
     }
+    this._announce('stce:card-deleted', { id });
   },
 
   // ─── Active Card ───────────────────────────────────────
@@ -814,6 +867,7 @@ const CardStorage = {
     await Promise.all([
       this.DB.clear(this.DB.stores.cards).catch(() => {}),
       this.DB.clear(this.DB.stores.images).catch(() => {}),
+      this.DB.clear(this.DB.stores.snapshots).catch(() => {}),
     ]);
     // Reset in-memory state too — the keys above only touch localStorage/IDB,
     // so without this the decrypted API keys survive a "clear all" until reload
@@ -822,6 +876,7 @@ const CardStorage = {
     this._secretWarn = { apiKey: false, customApiKey: false };
     this._secretUnlocked = false;
     this._migrationDone = false;
+    this._announce('stce:cards-cleared', {});
   },
 
   // ─── Image Storage Helpers ─────────────────────────────
@@ -829,6 +884,105 @@ const CardStorage = {
   getImage(id) { return this.DB.get(this.DB.stores.images, id); },
   saveImage(id, base64) { return this.DB.set(this.DB.stores.images, id, base64); },
   deleteImage(id) { return this.DB.delete(this.DB.stores.images, id); },
+
+  // ─── Version history ───────────────────────────────────
+  //
+  // One IndexedDB record per card: `{ versions: [{ at, data }] }`, newest first.
+  // IndexedDB rather than localStorage because a card's text can exceed the
+  // 5MB localStorage budget on its own, and always the *previous* content is
+  // recorded so the list reads "what this card looked like before each change".
+  // Image bytes are deliberately not versioned: they are stored separately,
+  // they dominate the size, and restoring text into the current artwork is what
+  // users expect from "restore this version".
+
+  SNAPSHOT_LIMIT: 20,
+
+  /**
+   * The decision part of the history, kept free of IndexedDB so it can be unit
+   * tested: given the versions already stored and the content being replaced,
+   * return the new list — or null when this change is not worth recording
+   * (unchanged content, or a duplicate of the newest version). Image bytes are
+   * stripped: they live in their own store and would dwarf the text.
+   */
+  pushVersion(versions, previous, incoming, limit) {
+    if (!previous) return null;
+    const signature = CardEngine.cardSignature(previous);
+    if (signature === CardEngine.cardSignature(incoming)) return null;
+    const list = Array.isArray(versions) ? versions.slice() : [];
+    if (list[0] && list[0].signature === signature) return null;
+    const data = { ...previous };
+    delete data._imageBase64;
+    delete data._thumbnail;
+    list.unshift({ at: Date.now(), signature, data });
+    const cap = limit || this.SNAPSHOT_LIMIT;
+    if (list.length > cap) list.length = cap;
+    return list;
+  },
+
+  /**
+   * IndexedDB half of the history: read this card's versions, let `pushVersion`
+   * decide, write the result back. Read-modify-write without a transaction, so
+   * two saves of the *same* card landing at the same instant could drop one
+   * snapshot — a gap in the history, never a loss of card content.
+   */
+  async _recordSnapshot(previous, incoming) {
+    if (!previous || !previous._id) return;
+    const record = await this.DB.get(this.DB.stores.snapshots, previous._id) || { versions: [] };
+    const versions = this.pushVersion(record.versions, previous, incoming);
+    if (!versions) return;
+    await this.DB.set(this.DB.stores.snapshots, previous._id, { versions });
+  },
+
+  /** Versions of a card, newest first (empty when there is no history yet). */
+  async getSnapshots(id) {
+    if (!id) return [];
+    const record = await this.DB.get(this.DB.stores.snapshots, id);
+    return record && Array.isArray(record.versions) ? record.versions : [];
+  },
+
+  deleteSnapshots(id) { return this.DB.delete(this.DB.stores.snapshots, id); },
+
+  // ─── Delete / restore ──────────────────────────────────
+
+  /**
+   * Everything needed to bring a deleted card back: its content, its artwork
+   * and its chat, since `deleteCard` drops all three. Capture lives here
+   * rather than in the UI so both delete paths (single card and batch) restore
+   * exactly the same thing instead of the batch one silently losing a step.
+   */
+  async snapshotForDelete(id) {
+    const card = await this.getCard(id);
+    if (!card) return null;
+    let image = card._imageBase64 || null;
+    if (!image) {
+      try { image = await this.getImage(id) || null; } catch (_) {}
+    }
+    const sessions = this.getChatSessions(id) || [];
+    return {
+      card,
+      image,
+      history: this.getChatHistory(id) || [],
+      sessions: sessions.map(s => ({ meta: s, messages: this.getSessionMessages(id, s.id) || [] })),
+    };
+  },
+
+  /** Recreate a card captured by `snapshotForDelete` (content, image and chat). */
+  async restoreDeleted(snapshot) {
+    if (!snapshot || !snapshot.card) return null;
+    const card = { ...snapshot.card };
+    await this.upsertCard(card);
+    if (snapshot.image) {
+      await this.saveImage(card._id, snapshot.image);
+      card._imageBase64 = snapshot.image;
+      card._hasImage = true;
+    }
+    if (snapshot.history.length) this.saveChatHistory(snapshot.history, card._id);
+    for (const s of snapshot.sessions) {
+      this.saveChatSession(card._id, s.meta);
+      this.saveSessionMessages(card._id, s.meta.id, s.messages);
+    }
+    return card;
+  },
 
   /**
    * Estimate total storage usage (localStorage + IndexedDB card/image data).

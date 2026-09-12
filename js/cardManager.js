@@ -13,6 +13,9 @@ import { Editor } from './editor.js';
 import { ExportUtils } from './exportUtils.js';
 import { AiChat } from './aiChat.js';
 import { CardState } from './cardState.js';
+import { ChatState } from './chatState.js';
+import { CardSearch } from './cardSearch.js';
+import { CardHealth } from './cardHealth.js';
 
 // Same debounce delay as ui.js's DEBOUNCE_SEARCH_MS. Kept as a local copy
 // instead of an import: index.html loads the modules with ?v= cache-busters,
@@ -98,24 +101,12 @@ const CardManager = {
   _cardListBound: false,
 
   /**
-   * Compact content signature used to detect exact duplicate imports
-   * (image bytes excluded — same text with different art is legitimate).
+   * Content signature used to detect exact duplicate imports. Delegates to
+   * CardEngine: storage.js records the version history with the same function,
+   * and it cannot import this store without a cycle.
    */
   _cardSignature(card) {
-    const tags = (card.tags || []).map(t => String(t == null ? '' : t).trim().toLowerCase()).filter(Boolean);
-    return JSON.stringify([
-      card.spec_version || '',
-      (card.description || '').trim(),
-      (card.first_mes || '').trim(),
-      (card.personality || '').trim(),
-      (card.scenario || '').trim(),
-      (card.mes_example || '').trim(),
-      (card.creator_notes || '').trim(),
-      (card.system_prompt || '').trim(),
-      (card.post_history_instructions || '').trim(),
-      (card.character_version || '').trim(),
-      tags.join('|'),
-    ]);
+    return CardEngine.cardSignature(card);
   },
 
   // Rename an imported card when an identical one already exists so re-imports
@@ -155,6 +146,32 @@ const CardManager = {
   // doesn't silently re-expand them mid-session.
   _collapsedGroups: new Set(),
 
+  /**
+   * Persist the library view (query, tag filters, collapsed groups). The sort
+   * mode was already persisted while these three reset on every reload — an
+   * inconsistency users notice as "my filters are gone" (the query is only
+   * restored together with the input text, see ui.js, so a filtered library is
+   * never invisible).
+   */
+  _persistLibraryView() {
+    if (!CardStorage.setLibraryView) return;
+    CardStorage.setLibraryView({
+      query: this._searchQuery,
+      tags: [...this._activeTagFilters],
+      collapsed: [...this._collapsedGroups],
+    });
+  },
+
+  /** Restore the persisted library view (called once, before the first render). */
+  restoreLibraryView() {
+    if (!CardStorage.getLibraryView) return;
+    const view = CardStorage.getLibraryView();
+    if (!view || typeof view !== 'object') return;
+    if (typeof view.query === 'string') this._searchQuery = view.query;
+    if (Array.isArray(view.tags)) this._activeTagFilters = new Set(view.tags.filter(t => typeof t === 'string' && t));
+    if (Array.isArray(view.collapsed)) this._collapsedGroups = new Set(view.collapsed.filter(l => typeof l === 'string'));
+  },
+
   _toggleBatchSelect(cardId) {
     if (this._selectedIds.has(cardId)) this._selectedIds.delete(cardId);
     else this._selectedIds.add(cardId);
@@ -183,17 +200,27 @@ const CardManager = {
       message: I18n.t('batch.deleteConfirm', { count: this._selectedIds.size }),
       buttonLabel: I18n.t('dialog.delete'),
     })) return;
-    for (const id of this._selectedIds) await CardStorage.deleteCard(id);
+    // Capture what `deleteCard` is about to drop (content, artwork, chat) BEFORE
+    // deleting, so undo restores the cards themselves and not empty shells.
+    const ids = [...this._selectedIds];
+    const snapshots = [];
+    for (const id of ids) {
+      const snap = await CardStorage.snapshotForDelete(id);
+      if (snap) snapshots.push(snap);
+    }
+    if (!await this._deleteCards(ids)) return;
     this._selectedIds.clear();
     this._updateBatchToolbar();
-    CardState.cards = CardStorage.getCards();
-    const activeCard = CardState.activeCard;
-    if (activeCard && !CardState.cards.find(c => c._id === activeCard._id)) {
-      CardState.activeCard = null;
-      Editor.hideEditor();
-    }
     this.renderCardList();
-    Ui.showToast(I18n.t('toast.cardsDeleted'), 'warning');
+    this._showUndoToast({
+      message: I18n.t('toast.cardsDeleted'),
+      onUndo: async () => {
+        for (const snap of snapshots) await CardStorage.restoreDeleted(snap);
+        CardState.cards = CardStorage.getCards();
+        this.renderCardList();
+        Ui.showToast(I18n.t('toast.cardsRestored', { count: snapshots.length }), 'success');
+      },
+    });
   },
 
   async batchCompare() {
@@ -203,15 +230,28 @@ const CardManager = {
     const cardB = await CardStorage.getCard(idB);
     if (!cardA || !cardB) { Ui.showToast((I18n.t ? I18n.t('batch.compareLoadFailed') : 'Failed to load cards for comparison'), 'danger'); return; }
 
-    const jsonA = CardEngine.toJSON(cardA);
-    const jsonB = CardEngine.toJSON(cardB);
+    const fallback = (key, text) => (I18n.t ? I18n.t(key) : text);
+    this._showComparison(
+      '<i class="bi bi-layout-sidebar-inset me-2 text-accent"></i>'
+        + fallback('batch.comparePrefix', 'Compare: ') + Ui.escapeHtml(cardA.name || fallback('batch.cardA', 'Card A'))
+        + fallback('batch.compareVs', ' vs ') + Ui.escapeHtml(cardB.name || fallback('batch.cardB', 'Card B')),
+      CardEngine.toJSON(cardA),
+      CardEngine.toJSON(cardB),
+    );
+  },
 
+  /**
+   * Read-only two-column diff in the AI preview modal. Both `batchCompare` and
+   * the version history show one, and the read-only setup is subtle enough to
+   * deserve a single home: a stray visible "Apply all" would let a click apply
+   * pending AI changes from inside a comparison.
+   */
+  _showComparison(titleHtml, jsonA, jsonB) {
     const oldEl = document.querySelector('#aiDiffOld');
     const newEl = document.querySelector('#aiDiffNew');
     const titleEl = document.querySelector('#aiPreviewModal .modal-title');
     if (!oldEl || !newEl) return;
-
-    if (titleEl) titleEl.innerHTML = '<i class="bi bi-layout-sidebar-inset me-2 text-accent"></i>' + (I18n.t ? I18n.t('batch.comparePrefix') : 'Compare: ') + Ui.escapeHtml(cardA.name || (I18n.t ? I18n.t('batch.cardA') : 'Card A')) + (I18n.t ? I18n.t('batch.compareVs') : ' vs ') + Ui.escapeHtml(cardB.name || (I18n.t ? I18n.t('batch.cardB') : 'Card B'));
+    if (titleEl) titleEl.innerHTML = titleHtml;
 
     // Reuse the existing diff renderer
     AiChat._renderDiff(jsonA, jsonB);
@@ -310,6 +350,49 @@ const CardManager = {
     return sorted;
   },
 
+  /**
+   * Whether a manual reorder is meaningful right now, explaining why not.
+   * Two cases make the visible order diverge from the stored index order: an
+   * active search/tag filter (the list shows a subset) and any sort mode other
+   * than Manual (the list is re-sorted, so a move would silently reshuffle a
+   * hidden order). Shared by drag & drop and the keyboard arrows so both refuse
+   * in exactly the same situations.
+   */
+  _canReorder() {
+    if (this._searchQuery || this._activeTagFilters.size > 0) {
+      Ui.showToast(I18n.t('toast.reorderFiltered'), 'info');
+      return false;
+    }
+    if (this._sortMode !== 'manual') {
+      Ui.showToast(I18n.t('toast.reorderManual'), 'info');
+      return false;
+    }
+    return true;
+  },
+
+  /**
+   * Move a card by `delta` slots in the stored manual order (the keyboard path
+   * — drag & drop drops onto a target row instead). Re-renders because the
+   * reorder changes the DOM order, then restores focus to the same handle: the
+   * re-render replaces every node, so without this the second arrow press
+   * would go nowhere.
+   */
+  _moveCardBy(id, delta) {
+    if (!id || !this._canReorder()) return;
+    const list = CardState.cards;
+    const from = list.findIndex(c => c._id === id);
+    if (from < 0) return;
+    const to = from + delta;
+    if (to < 0 || to >= list.length) return;
+    const [moved] = list.splice(from, 1);
+    if (!moved) return;
+    list.splice(to, 0, moved);
+    CardStorage.saveCardIndex(list);
+    this.renderCardList();
+    const handle = document.querySelector('.card-drag-handle[data-card-id="' + id + '"]');
+    if (handle && typeof handle.focus === 'function') handle.focus();
+  },
+
   // ─── TAG CLOUD ────────────────────────────────────────
   _renderTagCloud() {
     const tagCloudEl = document.querySelector('#tagCloud');
@@ -329,12 +412,16 @@ const CardManager = {
       return;
     }
 
+    // <button>, not <span>: the chips filter the list, so they must be reachable
+    // with Tab and activatable with Enter/Space. aria-pressed carries the
+    // on/off state that the `.active` class only shows visually.
     tagCloudEl.innerHTML = sortedTags.map(([tag, count]) => {
       const isActive = this._activeTagFilters.has(tag);
-      return '<span class="tag-chip' + (isActive ? ' active' : '') + '" data-tag="' + Ui.escapeAttr(tag) + '">'
+      return '<button type="button" class="tag-chip' + (isActive ? ' active' : '') + '" data-tag="' + Ui.escapeAttr(tag) + '"'
+        + ' aria-pressed="' + isActive + '">'
         + Ui.escapeHtml(tag)
-        + ' <span class="tag-count">' + count + '</span>'
-        + '</span>';
+        + ' <span class="tag-count" aria-hidden="true">' + count + '</span>'
+        + '</button>';
     }).join('');
 
     tagCloudEl.querySelectorAll('.tag-chip').forEach(chip => {
@@ -345,13 +432,35 @@ const CardManager = {
         } else {
           this._activeTagFilters.add(tag);
         }
+        this._persistLibraryView();
         this.renderCardList();
       });
     });
   },
 
+  /**
+   * "Found in <field>" badge + snippet for a full-text hit. The snippet is raw
+   * card text, so each slice is escaped on its own before the matched span is
+   * wrapped in <mark> — escaping the joined string first would break the
+   * offsets the index reported.
+   */
+  _matchHtml(match) {
+    const label = I18n.t(match.labelKey);
+    const { snippet, snippetMatchStart: start, snippetMatchLength: len } = match;
+    let body;
+    if (len > 0 && start >= 0 && start + len <= snippet.length) {
+      body = Ui.escapeHtml(snippet.slice(0, start))
+        + '<mark>' + Ui.escapeHtml(snippet.slice(start, start + len)) + '</mark>'
+        + Ui.escapeHtml(snippet.slice(start + len));
+    } else {
+      body = Ui.escapeHtml(snippet);
+    }
+    return '<div class="card-list-match"><span class="card-match-field">' + Ui.escapeHtml(label) + '</span>'
+      + '<span class="card-match-snippet">' + body + '</span></div>';
+  },
+
   // One row of the library list (shared by flat and grouped rendering).
-  _rowHtml(card, activeCard) {
+  _rowHtml(card, activeCard, match) {
     const isActive = activeCard && activeCard._id === card._id;
     const isBatch = this._selectedIds.has(card._id);
     const tags = (card.tags || []).slice(0, 2);
@@ -369,10 +478,17 @@ const CardManager = {
       + (card.creator && tags.length ? ' · ' : '')
       + tags.map(t => Ui.escapeHtml(t)).join(', ')
       + (fileSize ? ' <span class="meta-filesize">' + fileSize + '</span>' : '')
-      + '</div></div>'
+      + '</div>'
+      + (match ? this._matchHtml(match) : '')
+      + '</div>'
       + '<button type="button" class="card-preview-btn" data-card-id="' + card._id + '" title="' + (I18n.t ? I18n.t('preview.open') : 'Preview card') + '" aria-label="' + (I18n.t ? I18n.t('preview.open') : 'Preview card') + '"><i class="bi bi-eye"></i></button>'
       + '<input type="checkbox" class="card-batch-check" data-card-id="' + card._id + '"' + (isBatch ? ' checked' : '') + '>'
-      + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"><i class="bi bi-grip-vertical"></i></span>'
+      // The handle is also the keyboard reorder control: `role="button"` +
+      // tabindex makes the arrow-key shortcut reachable, since drag & drop is
+      // pointer-only. `draggable` still drives the mouse path.
+      + '<span class="card-drag-handle" draggable="true" data-card-id="' + card._id + '"'
+      + ' role="button" tabindex="0" aria-label="' + Ui.escapeAttr(I18n.t('library.reorderHandle')) + '">'
+      + '<i class="bi bi-grip-vertical" aria-hidden="true"></i></span>'
       + (card.spec_version ? '<span class="card-list-badge bg-purple">v' + Ui.escapeHtml(card.spec_version) + '</span>' : '')
       + '<div class="card-preview-tooltip">'
       + (thumb ? '<img class="preview-avatar" src="' + Ui.escapeAttr(thumb) + '" alt="">' : '')
@@ -384,6 +500,9 @@ const CardManager = {
 
   // Glued first-letter group headers when sorted by name; flat otherwise.
   _groupCards(list) {
+    // While searching, the list is ordered by relevance — letter headers would
+    // re-bucket it and hide the ranking, so search results stay flat.
+    if (this._searchQuery) return [{ letter: '', items: list }];
     if (this._sortMode !== 'name-asc' && this._sortMode !== 'name-desc') {
       return [{ letter: '', items: list }];
     }
@@ -421,6 +540,7 @@ const CardManager = {
       btn.addEventListener('click', () => {
         if (btn.dataset.clear) this._activeTagFilters.clear();
         else { const t = btn.dataset.tag; this._activeTagFilters.has(t) ? this._activeTagFilters.delete(t) : this._activeTagFilters.add(t); }
+        this._persistLibraryView();
         this.renderCardList();
       });
     });
@@ -433,7 +553,6 @@ const CardManager = {
     const emptyState = $('#emptyState');
     const searchWrap = $('#cardSearchWrap');
     const controlsWrap = $('#libraryControls');
-    $('#cardCount').textContent = I18n.t('left.cards', { count: cards.length });
 
     if (searchWrap) searchWrap.style.display = cards.length > 3 ? '' : 'none';
     if (controlsWrap) controlsWrap.style.display = cards.length > 3 ? '' : 'none';
@@ -441,17 +560,13 @@ const CardManager = {
     this._renderTagCloud();
     this._renderTagChipStrip();
 
+    this._bindCardEvents();
+
     let filtered = cards;
 
-    // Text search
-    if (this._searchQuery) {
-      const q = this._searchQuery.toLowerCase();
-      filtered = cards.filter(c => (c.name || '').toLowerCase().includes(q)
-        || (c.creator || '').toLowerCase().includes(q)
-        || [...this._tagSet(c)].some(t => t.includes(q)));
-    }
-
-    // Tag filter
+    // Tag filter first: the full-text pass below is restricted to this set, so
+    // a tag filter and a query compose (AND) instead of one overriding the
+    // other.
     if (this._activeTagFilters.size > 0) {
       filtered = filtered.filter(c => {
         const cardTags = this._tagSet(c);
@@ -462,8 +577,30 @@ const CardManager = {
       });
     }
 
-    // Sort
-    filtered = this._sortCards(filtered);
+    // Text search — full-text across every field and the lorebook, ranked by
+    // relevance (name > creator/tags > body). Ranked order replaces the sort
+    // dropdown while a query is active; the dropdown still governs the
+    // unsearched list.
+    /** @type {Map<string, SearchHit> | null} */
+    let hits = null;
+    let capped = false;
+    if (this._searchQuery) {
+      const allow = new Set(filtered.map(c => String(c._id || '')).filter(Boolean));
+      const results = CardSearch.search(this._searchQuery, { allow });
+      capped = results.length >= CardSearch.MAX_RESULTS;
+      hits = new Map(results.map(h => [h.id, h]));
+      const byId = new Map(filtered.map(c => [c._id, c]));
+      filtered = results.map(h => byId.get(h.id)).filter(c => !!c);
+    } else {
+      filtered = this._sortCards(filtered);
+    }
+
+    // The count has to describe what is on screen: with a query or a tag filter
+    // active, the whole-library total is simply wrong (and now that both persist
+    // across reloads, it would be wrong on first paint).
+    $('#cardCount').textContent = (this._searchQuery || this._activeTagFilters.size > 0)
+      ? I18n.t('search.results', { count: filtered.length })
+      : I18n.t('left.cards', { count: cards.length });
 
     if (filtered.length === 0 && (this._searchQuery || this._activeTagFilters.size > 0)) {
       container.innerHTML = '<div class="text-center text-muted py-4">' + I18n.t('gen.noMatch') + '</div>';
@@ -475,8 +612,11 @@ const CardManager = {
 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    container.innerHTML = this._groupCards(filtered).map(group => {
-      const rows = group.items.map(card => this._rowHtml(card, activeCard)).join('');
+    container.innerHTML = (capped
+      ? '<div class="search-notice">' + I18n.t('search.capped', { count: CardSearch.MAX_RESULTS }) + '</div>'
+      : '')
+      + this._groupCards(filtered).map(group => {
+      const rows = group.items.map(card => this._rowHtml(card, activeCard, hits ? hits.get(card._id) : null)).join('');
       const collapsed = group.letter ? this._collapsedGroups.has(group.letter) : false;
       return '<div class="card-list-group" data-letter="' + Ui.escapeAttr(group.letter) + '">'
         + (group.letter
@@ -519,9 +659,9 @@ const CardManager = {
         const descEl = item.querySelector('.preview-desc');
         if (!descEl || descEl.dataset.filled) return;
         const id = item.dataset.cardId;
-        if (this._previewCache.has(id)) { this._fillTooltipDesc(descEl, id); return; }
+        if (this._readPreview(id)) { this._fillTooltipDesc(descEl, id); return; }
         CardStorage.getCard(id).then((full) => {
-          if (full) { this._previewCache.set(id, full); this._fillTooltipDesc(descEl, id); }
+          if (full) { this._cachePreview(full); this._fillTooltipDesc(descEl, id); }
         }).catch(() => {});
       });
     }
@@ -539,6 +679,7 @@ const CardManager = {
             // Persist so a re-render (search/filter/sort) keeps the group collapsed.
             if (collapsed) this._collapsedGroups.add(letter);
             else this._collapsedGroups.delete(letter);
+            this._persistLibraryView();
           }
           return;
         }
@@ -563,7 +704,14 @@ const CardManager = {
       if (searchInput) {
         searchInput.addEventListener('input', Ui.debounce(() => {
           this._searchQuery = searchInput.value.trim();
+          this._persistLibraryView();
           this.renderCardList();
+          // The index may still be cold (first search of the session) or hold a
+          // card that was just imported: fill the gaps, then re-render so the
+          // results are complete rather than partially populated.
+          CardSearch.ensure((id) => CardStorage.getCard(id))
+            .then((indexed) => { if (indexed > 0) this.renderCardList(); })
+            .catch(() => {});
         }, DEBOUNCE_SEARCH_MS));
       }
 
@@ -594,18 +742,9 @@ const CardManager = {
         const item = e.target.closest('.card-list-item');
         if (item) item.classList.remove('drag-over');
         if (!dragId || !item) return;
-        // Reordering by DOM position corrupts order when a filter/search is active,
-        // so only allow it on the full, unfiltered list.
-        if (this._searchQuery || this._activeTagFilters.size > 0) {
-          Ui.showToast(I18n.t('toast.reorderFiltered'), 'info');
-          dragId = null;
-          return;
-        }
-        // The visible order only matches the stored index order in Manual mode;
-        // under any other sort a drop would silently reshuffle the hidden
-        // manual order while the list visibly snaps right back.
-        if (this._sortMode !== 'manual') {
-          Ui.showToast(I18n.t('toast.reorderManual'), 'info');
+        // Same guard as the keyboard path: reordering by DOM position corrupts
+        // the stored order under an active filter or a non-manual sort.
+        if (!this._canReorder()) {
           dragId = null;
           return;
         }
@@ -628,6 +767,17 @@ const CardManager = {
         if (dragItem) { dragItem.style.transform = ''; dragItem.style.opacity = ''; }
         dragId = null;
       });
+
+      // Keyboard equivalent of drag & drop (delegated: the rows are rebuilt on
+      // every render). Arrow keys move the card; the handle is the only
+      // focusable part of a row, so this cannot fight with list navigation.
+      container.addEventListener('keydown', (e) => {
+        const handle = e.target.closest('.card-drag-handle');
+        if (!handle) return;
+        if (e.key === 'ArrowUp') { e.preventDefault(); this._moveCardBy(handle.dataset.cardId, -1); }
+        else if (e.key === 'ArrowDown') { e.preventDefault(); this._moveCardBy(handle.dataset.cardId, 1); }
+        else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); }
+      });
     }
   },
 
@@ -643,12 +793,12 @@ const CardManager = {
 
   async _doSelect(cardMeta) {
     const { activeCard } = CardState;
-    const { isAiLoading } = window.AppState;
+    const { isAiLoading } = ChatState;
     // Abort any ongoing AI generation when switching cards
     if (isAiLoading) {
       AiChat._abortAll();
       AiChat._bumpGen(); // invalidate the aborted run's callbacks (mirror retry/clear)
-      window.AppState.isAiLoading = false;
+      ChatState.isAiLoading = false;
       AiChat.updateSendButton();
     }
     if (activeCard && activeCard._id !== cardMeta._id) await Editor.syncEditorToCard();
@@ -695,14 +845,14 @@ const CardManager = {
     }
 
     const cardHistory = CardStorage.getChatHistory(fullCard._id);
-    window.AppState.chatHistory = cardHistory;
+    ChatState.history = cardHistory;
     // Load the latest session's messages if available
     const sessions = CardStorage.getChatSessions(fullCard._id);
     if (sessions.length > 0) {
       const latestSession = sessions[0]; // sessions are sorted newest first
       const sessionMessages = CardStorage.getSessionMessages(fullCard._id, latestSession.id);
       if (sessionMessages.length > 0) {
-        window.AppState.chatHistory = sessionMessages;
+        ChatState.history = sessionMessages;
         AiChat._setCurrentSession(latestSession.id);
       } else {
         // Fallback: migrate THIS card's own chat history into a session. The
@@ -764,88 +914,102 @@ const CardManager = {
     Ui.showToast(I18n.t('toast.cardDup'), 'success');
   },
 
-  async deleteActiveCard() {
-    const { activeCard } = CardState;
-    if (!activeCard) return;
-    await Editor.syncEditorToCard();
-    const snapshot = { ...activeCard };
-    if (!snapshot._imageBase64) {
-      try {
-        const b64 = await CardStorage.getImage(snapshot._id);
-        if (b64) snapshot._imageBase64 = b64;
-      } catch (_) {}
-    }
-    try {
-      await CardStorage.deleteCard(activeCard._id);
-    } catch (e) {
-      console.error('Failed to delete card:', e);
-      Ui.showToast(I18n.t ? (I18n.t('toast.deleteFailed') || 'Failed to delete card') : 'Failed to delete card', 'danger');
-      return;
-    }
-    CardState.cards = CardStorage.getCards();
-    CardState.activeCard = null;
-    Editor.hideEditor();
-    this.renderCardList();
-    if (CardState.cards.length > 0) await this.selectCard(CardState.cards[0]);
-
+  /**
+   * Toast with an Undo button and a live countdown. Both delete paths need
+   * exactly this; duplicating it is how they drifted apart (the single-card
+   * delete had undo, the batch delete did not).
+   */
+  _showUndoToast({ message, onUndo, duration = 8000 }) {
     let undone = false;
-    const DURATION = 8000;
-    const toastLabel = (I18n && I18n.t) ? I18n.t('gen.toastAutoHide', { s: Math.ceil(DURATION / 1000) }) : 'Auto-hides in 8s';
+    const t = (key, fallback) => (I18n && I18n.t ? I18n.t(key) : fallback);
     const toastEl = document.createElement('div');
     toastEl.className = 'toast align-items-center border-0';
     toastEl.setAttribute('role', 'alert');
     toastEl.innerHTML = '<div class="d-flex"><div class="toast-body d-flex align-items-center gap-2 w-100"><div class="flex-grow-1 d-flex align-items-center gap-2">'
-      + '<i class="bi bi-trash-fill text-danger"></i>' + I18n.t('toast.cardDeleted', { name: Ui.escapeHtml(snapshot.name || I18n.t('gen.unnamed')) })
-      + '<button class="btn btn-sm btn-outline-accent ms-2" id="undoDeleteBtn">' + I18n.t('toast.undo') + '</button>'
-      + '</div><div class="toast-timer" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">' + toastLabel + '</div><button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
+      + '<i class="bi bi-trash-fill text-danger"></i>' + message
+      // A class, not an id: two delete toasts can be on screen at once (delete a
+      // card, then batch-delete), and duplicate ids are invalid HTML that any
+      // `document.querySelector('#…')` would resolve arbitrarily.
+      + '<button class="btn btn-sm btn-outline-accent ms-2 undo-delete-btn">' + t('toast.undo', 'Undo') + '</button>'
+      + '</div><div class="toast-timer" style="font-size:0.62rem;white-space:nowrap;font-family:var(--font-mono);min-width:3.2em;text-align:right;">'
+      + t('gen.toastAutoHide', { s: Math.ceil(duration / 1000) }) + '</div>'
+      + '<button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button></div></div>';
     const toastContainer = document.querySelector('#toastContainer');
     if (toastContainer) toastContainer.appendChild(toastEl);
-    const toast = new bootstrap.Toast(toastEl, { delay: DURATION });
+    const toast = new bootstrap.Toast(toastEl, { delay: duration });
     toast.show();
-    // Live countdown timer
+
+    // Live countdown. The interval has to die with the toast however it goes
+    // away — including when something removes the node without hiding it — or
+    // it keeps ticking against a detached element.
     const timerEl = toastEl.querySelector('.toast-timer');
     if (timerEl) {
       const interval = 200;
-      let remaining = DURATION;
-      const tick = () => {
+      let remaining = duration;
+      const timer = setInterval(() => {
         remaining -= interval;
-        if (remaining <= 0 || undone) { timerEl.textContent = ''; return; }
-        const secs = Math.ceil(remaining / 1000);
-        timerEl.textContent = (I18n && I18n.t)
-          ? I18n.t('gen.toastAutoHide', { s: secs })
-          : 'Auto-hides in ' + secs + 's';
-      };
-      const timer = setInterval(tick, interval);
-      const clearTimer = () => { clearInterval(timer); toastEl.removeEventListener('hidden.bs.toast', clearTimer); };
-      toastEl.addEventListener('hidden.bs.toast', clearTimer);
+        if (remaining <= 0 || undone) { timerEl.textContent = ''; clearInterval(timer); return; }
+        timerEl.textContent = t('gen.toastAutoHide', { s: Math.ceil(remaining / 1000) });
+      }, interval);
+      const stop = () => clearInterval(timer);
+      toastEl.addEventListener('hidden.bs.toast', stop);
       const observer = new MutationObserver(() => {
-        if (!document.body.contains(toastEl)) { clearTimer(); observer.disconnect(); }
+        if (!document.body.contains(toastEl)) { stop(); observer.disconnect(); }
       });
       observer.observe(document.body, { childList: true, subtree: true });
-      toastEl.addEventListener('hidden.bs.toast', () => {
-        toastEl.remove();
-        if (!undone) return;
-      });
-    } else {
-      toastEl.addEventListener('hidden.bs.toast', () => {
-        toastEl.remove();
-        if (!undone) return;
+    }
+    toastEl.addEventListener('hidden.bs.toast', () => toastEl.remove());
+
+    const undoBtn = toastEl.querySelector('.undo-delete-btn');
+    if (undoBtn) {
+      undoBtn.addEventListener('click', async () => {
+        undone = true;
+        toast.hide();
+        await onUndo();
       });
     }
-    const undoBtn = toastEl.querySelector('#undoDeleteBtn');
-    if (!undoBtn) return;
-    undoBtn.addEventListener('click', async () => {
-      undone = true;
-      toast.hide();
-      await CardStorage.upsertCard(snapshot);
-      if (snapshot._imageBase64) {
-        await CardStorage.saveImage(snapshot._id, snapshot._imageBase64);
-        snapshot._hasImage = true;
-      }
-      CardState.cards = CardStorage.getCards();
-      this.renderCardList();
-      await this.selectCard(snapshot);
-      Ui.showToast(I18n.t('toast.cardRestored'), 'success');
+  },
+
+  /**
+   * Delete cards by id and keep CardState in step with the result. The callers
+   * own their own capture/undo: this is only the irreversible half.
+   */
+  async _deleteCards(ids) {
+    try {
+      for (const id of ids) await CardStorage.deleteCard(id);
+    } catch (e) {
+      console.error('Failed to delete card:', e);
+      Ui.showToast(I18n.t ? (I18n.t('toast.deleteFailed') || 'Failed to delete card') : 'Failed to delete card', 'danger');
+      return false;
+    }
+    CardState.cards = CardStorage.getCards();
+    const activeCard = CardState.activeCard;
+    if (activeCard && !CardState.cards.find(c => c._id === activeCard._id)) {
+      CardState.activeCard = null;
+      Editor.hideEditor();
+    }
+    return true;
+  },
+
+  async deleteActiveCard() {
+    const { activeCard } = CardState;
+    if (!activeCard) return;
+    await Editor.syncEditorToCard();
+    const snapshot = await CardStorage.snapshotForDelete(activeCard._id);
+    if (!snapshot) return;
+    if (!await this._deleteCards([activeCard._id])) return;
+    this.renderCardList();
+    if (CardState.cards.length > 0) await this.selectCard(CardState.cards[0]);
+    this._showUndoToast({
+      message: I18n.t('toast.cardDeleted', { name: Ui.escapeHtml(snapshot.card.name || I18n.t('gen.unnamed')) }),
+      onUndo: async () => {
+        const restored = await CardStorage.restoreDeleted(snapshot);
+        if (!restored) return;
+        CardState.cards = CardStorage.getCards();
+        this.renderCardList();
+        await this.selectCard(restored);
+        Ui.showToast(I18n.t('toast.cardRestored'), 'success');
+      },
     });
   },
 
@@ -854,12 +1018,100 @@ const CardManager = {
   /** @type {{ show(): void; hide(): void } | null} */
   _previewModal: null,
   _previewCardId: null,
-  // Full cards fetched for the hover tooltip / preview modal (id → full card).
+  // Full cards fetched for the hover tooltip / preview modal (id → full card),
+  // capped LRU: the map is never invalidated by the browser, so an unbounded
+  // cache both leaked memory and kept serving stale descriptions after an edit.
   _previewCache: new Map(),
+  _PREVIEW_CACHE_MAX: 30,
   _previewHoverBound: false,
 
+  /** Cache a full card, evicting the least recently used entry. */
+  _cachePreview(card) {
+    if (!card || !card._id) return;
+    this._previewCache.delete(card._id); // re-insert so the order stays LRU
+    this._previewCache.set(card._id, card);
+    while (this._previewCache.size > this._PREVIEW_CACHE_MAX) {
+      const oldest = this._previewCache.keys().next().value;
+      if (oldest === undefined) break;
+      this._previewCache.delete(oldest);
+    }
+  },
+
+  /** Read a cached card and mark it as recently used. */
+  _readPreview(id) {
+    const card = this._previewCache.get(id);
+    if (card) this._cachePreview(card);
+    return card;
+  },
+
+  _cardEventsBound: false,
+
+  /**
+   * Same-tab reaction to every write: keep the full-text index and the preview
+   * cache in step with storage. `CardStorage.upsertCard` / `deleteCard` are the
+   * app's only write funnels, so these three events cover every save path
+   * (editor autosave, AI apply, import, wizard, delete, clear-all). Cross-tab
+   * writes arrive separately through the `storage` event.
+   */
+  _bindCardEvents() {
+    if (this._cardEventsBound || typeof window === 'undefined') return;
+    this._cardEventsBound = true;
+    window.addEventListener('stce:card-saved', (e) => {
+      const card = /** @type {CustomEvent} */ (e).detail && /** @type {CustomEvent} */ (e).detail.card;
+      if (!card) return;
+      CardSearch.remember(card);
+      this._previewCache.delete(card._id); // a stale tooltip is worse than a refetch
+    });
+    window.addEventListener('stce:card-deleted', (e) => {
+      const id = /** @type {CustomEvent} */ (e).detail && /** @type {CustomEvent} */ (e).detail.id;
+      if (!id) return;
+      CardSearch.forget(id);
+      this._previewCache.delete(id);
+    });
+    window.addEventListener('stce:cards-cleared', () => {
+      CardSearch.reset();
+      this._previewCache.clear();
+    });
+  },
+
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  _indexRefreshTimer: null,
+
+  /**
+   * Rebuild the full-text index from storage, debounced. Another tab's save
+   * arrives as a `cardIndex` change that does not name the card (IndexedDB has
+   * no cross-tab event), and indexing is idempotent — so refreshing the whole
+   * index is both simpler and cheaper than guessing which card moved. Without
+   * it, a card edited elsewhere keeps its old text here and a snippet can quote
+   * words that no longer exist.
+   */
+  refreshSearchIndex() {
+    if (this._indexRefreshTimer) clearTimeout(this._indexRefreshTimer);
+    this._indexRefreshTimer = setTimeout(() => {
+      this._indexRefreshTimer = null;
+      CardSearch.reset();
+      this.primeSearchIndex();
+    }, 500);
+  },
+
+  /**
+   * Build the full-text index in the background so the first search is instant.
+   * Deferred to an idle slot: reading every card out of IndexedDB is cheap but
+   * not free, and nothing on screen depends on it yet.
+   */
+  primeSearchIndex() {
+    this._bindCardEvents();
+    const run = () => {
+      CardSearch.ensure((id) => CardStorage.getCard(id))
+        .then((indexed) => { if (indexed > 0) this.renderCardList(); })
+        .catch(() => {});
+    };
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run);
+    else setTimeout(run, 300);
+  },
+
   _fillTooltipDesc(descEl, cardId) {
-    const full = this._previewCache.get(cardId);
+    const full = this._readPreview(cardId);
     if (!full) return;
     const text = (full.description || '').trim();
     const snippet = (text || (full.first_mes || '').trim()).slice(0, 400);
@@ -907,14 +1159,156 @@ const CardManager = {
     if (!sections.length) {
       sections.push('<p class="text-muted mb-0" style="font-size:0.85rem;">' + t('preview.empty', 'No description or first message.') + '</p>');
     }
+    // Diagnostics and history always render — "nothing found" and "never
+    // edited" are answers, not reasons to hide the section.
+    sections.push('<h6 class="card-preview-section-title">' + t('health.title', 'Card health') + '</h6>'
+      + '<div class="card-preview-section" id="cardPreviewHealth"></div>');
+    sections.push('<h6 class="card-preview-section-title">' + t('history.title', 'Version history') + '</h6>'
+      + '<div class="card-preview-section" id="cardPreviewHistory"></div>');
     body.innerHTML = sections.join('');
     const descEl = $('#cardPreviewDesc');
     if (descEl) descEl.innerHTML = Ui.renderMarkdown(full.description || '', descEl);
     const fmEl = $('#cardPreviewFirstMes');
     if (fmEl) fmEl.innerHTML = Ui.renderMarkdown(full.first_mes || '', fmEl);
 
+    this._renderHealth(full, t);
+    this._bindPreviewHistory();
+    await this._renderHistory(cardId, t);
+
     this._previewModal = this._previewModal || new bootstrap.Modal('#cardPreviewModal');
     this._previewModal.show();
+  },
+
+  /** Diagnostics for the previewed card (see js/cardHealth.js for the rules). */
+  _renderHealth(card, t) {
+    const el = document.querySelector('#cardPreviewHealth');
+    if (!el) return;
+    const issues = CardHealth.analyze(card, {
+      maxTokens: CardStorage.getMaxTokens ? CardStorage.getMaxTokens() : 0,
+      // The thumbnail counts: a card with art but no full-size image still looks
+      // illustrated, so "no image" would be a false alarm.
+      hasImage: !!(card._imageBase64 || card._thumbnail),
+    });
+    const styles = {
+      error: { cls: 'is-danger', icon: 'bi-x-circle-fill' },
+      warning: { cls: 'is-warn', icon: 'bi-exclamation-triangle-fill' },
+      info: { cls: 'is-info', icon: 'bi-info-circle-fill' },
+    };
+    const rows = issues.map((issue) => {
+      const style = styles[issue.level] || styles.info;
+      return '<div class="health-issue ' + style.cls + '"><i class="bi ' + style.icon + '" aria-hidden="true"></i>'
+        + '<span>' + Ui.escapeHtml(I18n.t(issue.labelKey, issue.values)) + '</span></div>';
+    });
+    if (!rows.length) {
+      rows.push('<div class="health-issue is-ok"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>'
+        + '<span>' + t('health.ok', 'No problems found.') + '</span></div>');
+    }
+    // Silent lorebook entries are the most common reason a card "does nothing"
+    // in chat, so say up front how many can fire on the card alone.
+    const active = CardHealth.simulate(card, null).length;
+    if (active) {
+      rows.push('<div class="health-issue is-info"><i class="bi bi-journal-text" aria-hidden="true"></i>'
+        + '<span>' + Ui.escapeHtml(I18n.t('health.loreActive', { count: active })) + '</span></div>');
+    }
+    el.innerHTML = rows.join('');
+  },
+
+  /**
+   * A version's timestamp in the language the interface is set to, not the one
+   * the operating system happens to use — the two disagree for anyone who
+   * picked a language other than their OS locale.
+   */
+  _formatTimestamp(ms) {
+    const lang = (I18n && I18n.getLang) ? I18n.getLang() : undefined;
+    return new Date(ms).toLocaleString(lang);
+  },
+
+  /** Fill the preview's version list (newest first). */
+  async _renderHistory(cardId, t) {
+    const el = document.querySelector('#cardPreviewHistory');
+    if (!el) return;
+    const versions = await CardStorage.getSnapshots(cardId).catch(() => []);
+    if (!versions.length) {
+      el.innerHTML = '<p class="text-muted mb-0" style="font-size:0.8rem;">' + t('history.empty', 'No earlier versions yet.') + '</p>';
+      return;
+    }
+    el.innerHTML = versions.map((v, i) => ('<div class="history-item" data-index="' + i + '">'
+      + '<div class="history-item-when"><i class="bi bi-clock-history me-1"></i>' + Ui.escapeHtml(this._formatTimestamp(v.at)) + '</div>'
+      + '<div class="history-item-actions">'
+      + '<button type="button" class="btn btn-sm btn-outline-secondary history-compare" data-index="' + i + '">' + t('history.compare', 'Compare with current') + '</button>'
+      + '<button type="button" class="btn btn-sm btn-outline-accent history-restore" data-index="' + i + '">' + t('history.restore', 'Restore') + '</button>'
+      + '</div></div>')).join('');
+  },
+
+  _previewHistoryBound: false,
+
+  /** Delegated once on the modal body, so a re-render can never stack handlers. */
+  _bindPreviewHistory() {
+    if (this._previewHistoryBound) return;
+    const body = document.querySelector('#cardPreviewBody');
+    if (!body) return;
+    this._previewHistoryBound = true;
+    body.addEventListener('click', (e) => {
+      const restoreBtn = (/** @type {Element} */ (e.target)).closest('.history-restore');
+      const compareBtn = (/** @type {Element} */ (e.target)).closest('.history-compare');
+      const btn = restoreBtn || compareBtn;
+      if (!btn || !this._previewCardId) return;
+      const index = Number(btn.getAttribute('data-index') || -1);
+      if (index < 0) return;
+      if (restoreBtn) this.restoreVersion(this._previewCardId, index);
+      else this.compareVersion(this._previewCardId, index);
+    });
+  },
+
+  /**
+   * Put a stored version's text back on the card. Image bytes are not versioned
+   * (they live in their own store and dominate the size), so the artwork the
+   * card has right now is kept — and the restore is itself recorded as a
+   * version, which makes it reversible like any other edit.
+   */
+  async restoreVersion(cardId, index) {
+    const versions = await CardStorage.getSnapshots(cardId).catch(() => []);
+    const version = versions[index];
+    const current = await CardStorage.getCard(cardId);
+    if (!version || !version.data || !current) return;
+    const restored = {
+      ...version.data,
+      _id: cardId,
+      _filename: current._filename,
+      _thumbnail: current._thumbnail,
+      _hasImage: current._hasImage,
+    };
+    // The stored _fileSize belongs to the old content; the library list shows it
+    // until the next editor sync, so recompute it here rather than lie.
+    restored._fileSize = CardEngine.computeFileSize(restored);
+    await CardStorage.upsertCard(restored);
+    CardState.cards = CardStorage.getCards();
+    this.renderCardList();
+    await this.selectCard(CardState.cards.find(c => c._id === cardId) || restored);
+    Ui.showToast(I18n.t('history.restored'), 'success');
+    await this.showCardPreview(cardId);
+  },
+
+  /** Show a stored version against the card as it is now, read-only. */
+  async compareVersion(cardId, index) {
+    const versions = await CardStorage.getSnapshots(cardId).catch(() => []);
+    const version = versions[index];
+    const current = await CardStorage.getCard(cardId);
+    if (!version || !current) return;
+    const title = '<i class="bi bi-clock-history me-2 text-accent"></i>'
+      + (I18n.t ? I18n.t('history.comparePrefix') : 'Changes since ')
+      + Ui.escapeHtml(this._formatTimestamp(version.at));
+    const open = () => this._showComparison(title, CardEngine.toJSON({ ...version.data, _id: cardId }), CardEngine.toJSON(current));
+    // Two Bootstrap modals must never be mid-transition together (the palette
+    // bug: hide() is ignored during an opening animation), so wait for the
+    // preview to be fully hidden before opening the diff.
+    const previewEl = document.querySelector('#cardPreviewModal');
+    if (previewEl && previewEl.classList.contains('show') && this._previewModal) {
+      previewEl.addEventListener('hidden.bs.modal', open, { once: true });
+      this._previewModal.hide();
+    } else {
+      open();
+    }
   },
 
   // ─── Clipboard paste (card import + paste-to-avatar) ───

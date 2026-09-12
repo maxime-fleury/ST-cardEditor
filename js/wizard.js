@@ -668,7 +668,7 @@ const Wizard = {
           if (!items.length) throw new Error('No image for tags: ' + slotTags.join(', '));
           const item = items[Math.floor(Math.random() * items.length)];
           const imgResp = await fetch(item.url);
-          // A 404/500 (or a blocked CDN) must not become a broken thumbnail:
+          // A 404/500 (or a blocked image host) must not become a broken thumbnail:
           // fail the slot so the card shows its error state instead.
           if (!imgResp.ok) throw new Error('Image fetch failed: ' + imgResp.status);
           const blob = await imgResp.blob();

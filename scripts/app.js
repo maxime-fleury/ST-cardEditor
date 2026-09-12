@@ -16,6 +16,8 @@
 // same app — just one shared file, one entry, and two lazy chunks.
 import "../js/tokenizer.js";
 import "../js/cardEngine.js";
+import "../js/cardSearch.js";
+import "../js/cardHealth.js";
 import "../js/animations.js";
 import "../js/aiService.js";
 import "../js/storage.js";

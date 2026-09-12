@@ -358,6 +358,38 @@ const Editor = {
     'editMesExample','editCreatorNotes','editSystemPrompt','editPostHistory',
     'editCreator','editVersion','editTags'],
 
+  /**
+   * Reveal an editor field: switch to the tab that owns it, scroll it into view
+   * and focus it. Used by the command palette's "go to field" entries — the
+   * palette never duplicates the tab/scroll logic, it calls this.
+   * @param {string} id editor element id (`editDescription`, …)
+   * @param {string} tabTarget bootstrap tab selector (`#tabCore`, … or '')
+   */
+  revealField(id, tabTarget) {
+    const el = document.querySelector('#' + id);
+    if (!el) return;
+    // Tabs are plain buttons with data-bs-toggle, so a click is the supported
+    // way to switch panes without depending on the Tab API surface.
+    if (tabTarget) {
+      const trigger = document.querySelector('#editorTabs .nav-link[data-bs-target="' + tabTarget + '"]');
+      if (trigger && !trigger.classList.contains('active') && typeof (/** @type {HTMLElement} */ (trigger)).click === 'function') {
+        (/** @type {HTMLElement} */ (trigger)).click();
+      }
+    }
+    const focus = () => {
+      const target = document.querySelector('#' + id);
+      if (!target) return;
+      if (typeof (/** @type {HTMLElement} */ (target)).scrollIntoView === 'function') {
+        (/** @type {HTMLElement} */ (target)).scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+      (/** @type {HTMLElement} */ (target)).focus();
+    };
+    // A pane switch fades in (~150 ms) and a hidden textarea cannot be focused,
+    // so focus after the transition rather than during it.
+    if (tabTarget) setTimeout(focus, 180);
+    else focus();
+  },
+
   autoResizeTextareas() {
     document.querySelectorAll('.editor-textarea').forEach(ta => {
       // Skip textareas in hidden tab panes: their scrollHeight is 0, so resizing
@@ -388,8 +420,8 @@ const Editor = {
       countEl.classList.add('field-counter');
       countEl.classList.remove('is-warn', 'is-danger');
       const len = (el.value || '').length;
-      // Use the same estimator as the context bar (real BPE once the CDN lib
-      // loads, heuristic before) so the char counts and the token budget agree.
+      // Use the same estimator as the context bar (real BPE once the vendored
+      // tokenizer loads, heuristic before) so the counts and budget agree.
       // syncCount degrades to the heuristic internally — no guard needed.
       const tokens = Tokenizer.syncCount(el.value || '');
       countEl.textContent = I18n.t ? I18n.t('editor.charCount', { chars: len, tokens }) : (len + ' chars ~' + tokens + ' tokens');

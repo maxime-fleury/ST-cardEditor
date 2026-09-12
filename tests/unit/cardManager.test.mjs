@@ -5,6 +5,8 @@ import { test, expect, beforeAll, beforeEach, afterEach, mock } from 'bun:test';
 // stub objects per-test (window/document/localStorage remain free globals).
 let CardManager;
 let CardState;
+let ChatState;
+let CardSearch;
 // Tests that exercise _doSelect stub out renderCardList (it needs a real DOM);
 // restore the original afterwards so the tag-path tests run it for real.
 let realRenderCardList;
@@ -76,12 +78,15 @@ beforeAll(async () => {
   CardManager = (await import('../../js/cardManager.js')).CardManager;
   realRenderCardList = CardManager.renderCardList;
   CardState = (await import('../../js/cardState.js')).CardState;
+  ChatState = (await import('../../js/chatState.js')).ChatState;
+  CardSearch = (await import('../../js/cardSearch.js')).CardSearch;
 });
 
 const LIST_DOM = ['#cardList', '#emptyState', '#cardSearchWrap', '#libraryControls', '#cardCount'];
 
 beforeEach(() => {
-  window.AppState = { cards: [], activeCard: null, isAiLoading: false, chatHistory: [] };
+  ChatState.isAiLoading = false;
+  ChatState.history = [];
   CardState.cards = [];
   CardState.activeCard = null;
   CardManager._searchQuery = '';
@@ -90,6 +95,7 @@ beforeEach(() => {
   CardManager._sortMode = 'manual';
   CardManager._collapsedGroups.clear();
   CardManager._cardListBound = false;
+  CardSearch.reset(); // the index is module state: never leak it across tests
 });
 
 afterEach(() => {
@@ -127,7 +133,7 @@ test('switching cards aborts AI and clears the apply queue and session id', asyn
   const rendered = { list: false, history: false };
   CardManager.renderCardList = () => { rendered.list = true; };
   CardState.activeCard = { _id: 'A' };
-  window.AppState.isAiLoading = true;
+  ChatState.isAiLoading = true;
 
   Object.assign(stubs.CardStorage, baseCardStorage(), {
     getChatHistory: (id) => ['history for ' + id],
@@ -151,9 +157,9 @@ test('switching cards aborts AI and clears the apply queue and session id', asyn
   expect(rendered.sessionSet).toBeUndefined(); // no sessions: session stays cleared
   expect(rendered.history).toBe(true);
   expect(rendered.list).toBe(true);
-  expect(window.AppState.isAiLoading).toBe(false);
+  expect(ChatState.isAiLoading).toBe(false);
   expect(CardState.activeCard._id).toBe('B');
-  expect(window.AppState.chatHistory).toEqual(['history for B']); // THIS card's history
+  expect(ChatState.history).toEqual(['history for B']); // THIS card's history
   expect(populated[0]._id).toBe('B');
 });
 
@@ -173,7 +179,7 @@ test('restores the latest session messages and keeps its session id', async () =
 
   await CardManager._doSelect({ _id: 'B' });
 
-  expect(window.AppState.chatHistory).toEqual(['msg-a', 'msg-b']);
+  expect(ChatState.history).toEqual(['msg-a', 'msg-b']);
   expect(session.id).toBe('s9');
   expect(saves).toHaveLength(0); // nothing migrated: real messages exist
 });
@@ -191,13 +197,13 @@ test('session fallback migrates only the new card\'s own history', async () => {
   Object.assign(stubs.AiChat, baseAiChat(), {
     _setCurrentSession: (id) => { session.id = id; },
   });
-  window.AppState.chatHistory = ['history for A']; // stale leftover from the previous card
+  ChatState.history = ['history for A']; // stale leftover from the previous card
 
   await CardManager._doSelect({ _id: 'B' });
 
   // The fallback must write B's own history into B's session — never A's.
   expect(saves).toEqual([['B', 's1', ['history for B']]]);
-  expect(window.AppState.chatHistory).toEqual(['history for B']);
+  expect(ChatState.history).toEqual(['history for B']);
   expect(session.id).toBe('s1');
 });
 
@@ -330,7 +336,7 @@ test('batchCompare hides Apply-all and cleans up leftover preview handlers', asy
     getCard: async () => ({ _id: 'x', name: 'A' }),
   });
   Object.assign(stubs.CardEngine, { toJSON: (c) => JSON.stringify(c) });
-  window.AppState = { activeCard: null };
+  CardState.activeCard = null;
   CardManager._selectedIds = new Set(['a', 'b']);
   await CardManager.batchCompare();
 
@@ -353,18 +359,9 @@ test('_tagSet tolerates missing or null tags', () => {
   expect(CardManager._tagSet({ tags: null }).size).toBe(0);
 });
 
-test('_cardSignature is stable across tag case/whitespace and normalizes malformed tags', () => {
-  const base = { name: 'X', description: 'D' };
-  const a = CardManager._cardSignature({ ...base, tags: ['Fantasy', ' Elf '] });
-  const b = CardManager._cardSignature({ ...base, tags: ['fantasy', 'elf'] });
-  expect(a).toBe(b); // case + surrounding whitespace are ignored
-
-  const c = CardManager._cardSignature({ ...base, tags: [42, null, {}] });
-  const d = CardManager._cardSignature({ ...base, tags: ['42', '[object Object]'] });
-  expect(c).toBe(d); // numeric/object tags are string-coerced identically
-
-  expect(a).not.toBe(c); // genuinely different tags still differ
-});
+// _cardSignature moved to CardEngine.cardSignature (storage.js records the
+// version history with the same function and cannot import this store without
+// a cycle); its tag normalization is covered in cardEngine.test.mjs.
 
 test('search matches malformed tags without crashing', () => {
   globalThis.document = makeDom(LIST_DOM);
@@ -373,6 +370,9 @@ test('search matches malformed tags without crashing', () => {
     { _id: '2', name: 'Grom', tags: [42, null, undefined, '', ['orc']] },
     { _id: '3', name: 'Mira', tags: [{}] },
   ];
+  // Text search now answers from the full-text index (js/cardSearch.js), so the
+  // fixtures must be indexed first — exactly what `ensure()` does at runtime.
+  CardState.cards.forEach((c) => CardSearch.remember(c));
 
   CardManager._searchQuery = 'elf';
   CardManager.renderCardList();
@@ -434,12 +434,31 @@ test('tag filter requires every selected tag and renders the no-match state', ()
   expect(document.els.get('#emptyState').style.display).toBe('none');
 });
 
+test('search matches a word that only exists in the card body', () => {
+  globalThis.document = makeDom(LIST_DOM);
+  CardState.cards = [
+    { _id: '1', name: 'Elara', tags: ['fantasy'], description: 'A wandering cartographer.' },
+    { _id: '2', name: 'Mira', tags: ['fantasy'], description: 'A quiet archivist.' },
+  ];
+  CardState.cards.forEach((c) => CardSearch.remember(c));
+
+  CardManager._searchQuery = 'cartographer';
+  CardManager.renderCardList();
+  const html = document.els.get('#cardList').innerHTML;
+  expect(html).toContain('Elara');
+  expect(html).not.toContain('Mira');
+  // The row says WHERE it matched, and the snippet is part of the card text.
+  expect(html).toContain('card-match-field');
+  expect(html).toContain('cartographer');
+});
+
 test('search and tag filter compose', () => {
   globalThis.document = makeDom(LIST_DOM);
   CardState.cards = [
     { _id: '1', name: 'Elara', tags: ['fantasy', 'elf'] },
     { _id: '2', name: 'Mira', tags: ['fantasy'] },
   ];
+  CardState.cards.forEach((c) => CardSearch.remember(c));
 
   CardManager._searchQuery = 'el';
   CardManager._activeTagFilters = new Set(['fantasy']);

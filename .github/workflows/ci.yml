@@ -6,6 +6,10 @@
 # (8 files) and the asset/version drift guard, which includes the
 # bundle-freshness diff of js/app.js against a fresh `bun run build`.
 
+# The end-to-end Playwright suite runs in deploy.yml, which is also wired to
+# pull_request — the two workflows are deliberately split so PRs get both
+# signals without duplicating a browser install here.
+
 name: CI
 
 on:
@@ -41,14 +45,23 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Unit tests (8 files, incl. cardEngine/tokenizer/aiService/i18n/cardManager/editor/exportUtils/settings)
+      - name: Unit tests (tests/unit — every hand-written module under js/)
         run: bun run test:unit
 
-      - name: 'Typecheck (@ts-check files: aiChat/cardManager/editor)'
+      - name: Typecheck (@ts-check on every hand-written module under js/)
         run: bun run typecheck
 
       - name: Lint (ESLint flat config — style + static bugs)
         run: bun run lint
+
+      # Every new UI string must reach all 27 locales (a missing key renders as
+      # the raw key to the user), and the coverage floor catches a locale
+      # drifting back toward the English fallback.
+      - name: i18n key parity + coverage
+        run: bun run i18n:check
+
+      - name: No locale is missing an en.js key
+        run: bun scripts/i18n-add.mjs --check
 
       - name: Asset / SW-shell / version drift + bundle freshness check
         run: bun scripts/check-assets.mjs

@@ -31,7 +31,7 @@ test.describe('OpenAI-compatible model', () => {
 
     // The curated 'test' tag is kept; the model's suggestions must be added.
     await expect(page.locator('#editTags')).not.toHaveValue('test');
-    const tags = await page.evaluate(() => window.AppState.activeCard.tags);
+    const tags = await page.evaluate(() => window.CardState.activeCard.tags);
     expect(Array.isArray(tags)).toBe(true);
     expect(tags.length).toBeGreaterThan(1);
     expect(errors, 'live suggest-tags flow must not throw').toEqual([]);

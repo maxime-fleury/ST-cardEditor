@@ -141,21 +141,6 @@ test('importSettings routes the imported model into the imported provider\'s slo
   expect(els['#aiModelSelect'].value).toBe('deepseek-chat');
   delete globalThis.FileReader;
   delete globalThis.document;
-});
-
-// Service-worker activate filter: the CDN cache (no ':' in its name) must be
-// exempt from the legacy-cache purge, or it gets wiped on every activation.
-test('sw activate filter keeps the CDN cache and old legacy caches are still purged', () => {
-  const CDN_CACHE = 'stce-cdn-v2.5.3';
-  const CACHE_NAME = 'stce-v2.5.5:/';
-  const BASE_PATH = '/';
-  const keep = (key) => {
-    const separator = key.indexOf(':');
-    const cachePath = separator >= 0 ? key.slice(separator + 1) : '';
-    if (key === CDN_CACHE || key.startsWith('stce-cdn-')) return false; // never purge the CDN cache
-    return key.startsWith('stce-') && key !== CACHE_NAME && (cachePath === BASE_PATH || cachePath === '');
-  };
-  const keys = [CDN_CACHE, 'stce-cdn-v2.5.0', CACHE_NAME, 'stce-v2.2', 'stce-v2.5.5:/other/', 'unrelated-cache'];
-  const toDelete = keys.filter(keep);
-  expect(toDelete).toEqual(['stce-v2.2']); // only the true legacy cache
-});
+});// The service-worker activate filter moved to its own file
+// (tests/unit/serviceWorker.test.mjs), where it drives the real public/sw.js
+// instead of a copy of the filter that could silently drift from it.

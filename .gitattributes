@@ -1,2 +1,8 @@
 * text=auto
 js/*.js text eol=lf
+
+# Vendored third-party assets are stored byte-for-byte: public/vendor/MANIFEST.txt
+# pins a sha384 per file and `bun run vendor:check` re-hashes them, so any
+# line-ending "normalization" on checkout would break the provenance check — and
+# silently change code the browser executes. `-text` disables all conversion.
+public/vendor/** -text

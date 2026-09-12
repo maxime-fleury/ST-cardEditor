@@ -2,16 +2,16 @@
    cardState.js — Single source of truth for the card collection
    ============================================================
    Before this module, the active card, the card list and the dirty flag
-   lived as plain fields on window.AppState, mutated from six files at once
-   (ui, editor, cardManager, aiChat, settings, wizard). That split is what
-   let stale activeCard/cards values survive card switches and imports
+   lived as plain fields on one mutable AppState global, mutated from six files
+   at once (ui, editor, cardManager, aiChat, settings, wizard). That split is
+   what let stale activeCard/cards values survive card switches and imports
    (#2/#21/#24). CardState owns those three pieces of state and the
    transitions that mutate them, so a reset is ONE call instead of ad-hoc
    field assignments scattered across files.
 
-   window.AppState keeps its other fields (chatHistory, models, isAiLoading)
-   and exposes cards/activeCard/dirty as delegating accessors, so legacy
-   callers and the e2e suite keep working against a single source of truth. */
+   The AI chat's runtime state (transcript, model list, loading flag) moved to
+   ChatState, so the two stores together are the whole mutable app state and
+   the old AppState global no longer exists (check-assets enforces that). */
 
 // @ts-check
 

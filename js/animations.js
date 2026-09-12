@@ -1,3 +1,4 @@
+// @ts-check
 /* ============================================================
    animations.js — Anime.js Animation Utilities
    ============================================================ */
@@ -29,6 +30,7 @@ const Anims = {
   },
 
   _slideToken: 0,
+  /** @type {{ pause(): void } | null} */
   _activeTimeline: null,
 
   slideStep(outEl, inEl, direction, onDone) {

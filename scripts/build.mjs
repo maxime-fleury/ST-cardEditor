@@ -27,15 +27,20 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENTRY = join(root, "scripts", "app.js");
 
-// Deterministic, code-split, browser-targeted ESM. minify:false keeps the
-// artifacts (somewhat) debuggable and guarantees byte-stable builds for the
-// freshness check; the ?v= cache-buster in index.html handles caching of the
-// entry, and the service worker precaches the chunks.
+// Deterministic, code-split, browser-targeted ESM.
+//
+// minify:true is what ships: the shared chunk is the single largest asset the
+// browser parses on boot, and un-minified it was ~1.17 MB (25k lines) of
+// mostly indentation and long identifiers. The freshness check is unaffected —
+// check-assets diffs a *freshly built* artifact, and bun's minifier is
+// deterministic for the same input + version, so "committed === fresh build"
+// keeps working (the .bun-version pin makes that guarantee explicit). Source is
+// always one `bun run build` away, which is what the debug workflow uses.
 const BUNDLE_CONFIG = {
   entrypoints: [ENTRY],
   target: "browser",
   format: "esm",
-  minify: false,
+  minify: true,
   sourcemap: "none",
   splitting: true,
   // Entry and chunks keep stable names (no content hashes): sw.js precaches

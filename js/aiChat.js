@@ -121,7 +121,7 @@ const AiChat = {
     // character always reach the model in the form the card actually needs.
     const prompt = this._normalizePlaceholders(rawPrompt);
     const { activeCard } = CardState;
-    if (!prompt || window.AppState.isAiLoading) return;
+    if (!prompt || ChatState.isAiLoading) return;
 
     if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
 
@@ -172,14 +172,14 @@ const AiChat = {
       // Keep the input hot so the next instruction can be typed while the
       // model streams (multi-round editing without a mouse trip).
       input.focus();
-      const userIdx = window.AppState.chatHistory.length;
+      const userIdx = ChatState.history.length;
       this.addChatMessage('user', prompt, null, null, userIdx);
     }
-    window.AppState.isAiLoading = true;
+    ChatState.isAiLoading = true;
     this.updateSendButton();
 
-    window.AppState.chatHistory.push({ role: 'user', content: prompt });
-    CardStorage.saveChatHistory(window.AppState.chatHistory, CardState.activeCard?._id);
+    ChatState.history.push({ role: 'user', content: prompt });
+    CardStorage.saveChatHistory(ChatState.history, CardState.activeCard?._id);
     // Create a new session if none exists
     const cardId = CardState.activeCard?._id || 'global';
     if (!ChatState.currentSessionId) {
@@ -194,7 +194,7 @@ const AiChat = {
       ChatState.currentSessionId = session.id;
       CardStorage.saveChatSession(cardId, session);
     }
-    CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, window.AppState.chatHistory);
+    CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, ChatState.history);
 
     const groupedCard = this._createGroupedCard(selectedFields);
     this._abortAll();
@@ -237,10 +237,10 @@ const AiChat = {
 
           if (completedCount === selectedFields.length) {
             this._finalizeGroupedCard(groupedCard, selectedFields.length);
-            window.AppState.chatHistory.push({ role: 'assistant', content: combinedContent });
-            CardStorage.saveChatHistory(window.AppState.chatHistory, CardState.activeCard?._id);
+            ChatState.history.push({ role: 'assistant', content: combinedContent });
+            CardStorage.saveChatHistory(ChatState.history, CardState.activeCard?._id);
             this._updateSession();
-            window.AppState.isAiLoading = false;
+            ChatState.isAiLoading = false;
             this.updateSendButton();
             Settings.refreshCredits();
           }
@@ -260,8 +260,8 @@ const AiChat = {
           if (completedCount === selectedFields.length) {
             try { this._finalizeGroupedCard(groupedCard, selectedFields.length); } catch (e) { console.error('aiChat: failed to finalize grouped card:', e); }
             if (combinedContent.trim()) {
-              window.AppState.chatHistory.push({ role: 'assistant', content: combinedContent.trim() });
-              CardStorage.saveChatHistory(window.AppState.chatHistory, CardState.activeCard?._id);
+              ChatState.history.push({ role: 'assistant', content: combinedContent.trim() });
+              CardStorage.saveChatHistory(ChatState.history, CardState.activeCard?._id);
             }
             // _updateSession() must run for partial AND complete failure alike:
             // if any field produced content the history already changed; if none
@@ -269,7 +269,7 @@ const AiChat = {
             // preview/count/lastUpdated to catch up, or it goes stale and the
             // next message forks a fresh session.
             this._updateSession();
-            window.AppState.isAiLoading = false;
+            ChatState.isAiLoading = false;
             this.updateSendButton();
             Settings.refreshCredits();
           }
@@ -567,7 +567,7 @@ const AiChat = {
    * kept in the estimate).
    */
   _getRecentHistory(maxMessages = 10, includeLast = false) {
-    const { chatHistory } = window.AppState;
+    const chatHistory = ChatState.history;
     if (!chatHistory || chatHistory.length <= 1) return [];
     return chatHistory.slice(0, includeLast ? chatHistory.length : -1).slice(-maxMessages);
   },
@@ -578,7 +578,7 @@ const AiChat = {
     opts = opts || {};
     const $ = Ui.$;
     const { activeCard } = CardState;
-    if (window.AppState.isAiLoading) return;
+    if (ChatState.isAiLoading) return;
     if (!AIService.hasApiKey()) { Ui.showToast(I18n.t('toast.apiKey'), 'warning'); return; }
     if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
     const modelSelect = $('#aiModelSelect');
@@ -590,12 +590,12 @@ const AiChat = {
     input.value = '';
     this._abortAll();
     const gen = ChatState.bumpGen(); // generation token for stale-callback bailout
-    window.AppState.isAiLoading = true;
+    ChatState.isAiLoading = true;
     this.updateSendButton();
 
-    this.addChatMessage('user', prompt, null, null, window.AppState.chatHistory.length);
-    window.AppState.chatHistory.push({ role: 'user', content: prompt });
-    CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
+    this.addChatMessage('user', prompt, null, null, ChatState.history.length);
+    ChatState.history.push({ role: 'user', content: prompt });
+    CardStorage.saveChatHistory(ChatState.history, activeCard?._id);
     // Create a new session if none exists
     const cardId = activeCard?._id || 'global';
     if (!ChatState.currentSessionId) {
@@ -610,14 +610,14 @@ const AiChat = {
       ChatState.currentSessionId = session.id;
       CardStorage.saveChatSession(cardId, session);
     }
-    CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, window.AppState.chatHistory);
+    CardStorage.saveSessionMessages(cardId, ChatState.currentSessionId, ChatState.history);
 
     const streamingEl = this.createStreamingMessage();
     let shimmerGone = false;
 
     // Live “thinking…” presence: elapsed-time + (once tokens arrive) a live
     // token count, so long generations never look hung. Uses the shared
-    // estimator (real BPE once the CDN lib loads, heuristic before) so this
+    // estimator (real BPE once the vendored tokenizer loads, heuristic before) so this
     // display agrees with the context bar and the editor counters.
     const startedAt = Date.now();
     let lastOut = '';
@@ -684,11 +684,11 @@ const AiChat = {
         clearInterval(liveTimer);
         if (gen !== ChatState.gen) { streamingEl.remove(); return; }
         streamingEl.remove();
-        const asstIdx = window.AppState.chatHistory.length;
+        const asstIdx = ChatState.history.length;
         const applyTarget = opts.applyTarget || 'full';
         this.addChatMessage('assistant', result.content, result.usage, { content: result.content, field: applyTarget }, asstIdx);
-        window.AppState.chatHistory.push({ role: 'assistant', content: result.content });
-        CardStorage.saveChatHistory(window.AppState.chatHistory, activeCard?._id);
+        ChatState.history.push({ role: 'assistant', content: result.content });
+        CardStorage.saveChatHistory(ChatState.history, activeCard?._id);
         this._updateSession();
         this.tryApplyAIResponse(result.content, applyTarget);
         Settings.refreshCredits();
@@ -707,7 +707,7 @@ const AiChat = {
       .finally(() => {
         this._releaseController(controller);
         if (gen !== ChatState.gen) return;
-        window.AppState.isAiLoading = false; this.updateSendButton();
+        ChatState.isAiLoading = false; this.updateSendButton();
       });
   },
 
@@ -1617,7 +1617,7 @@ const AiChat = {
   },
 
   retryLastMessage(historyIndex) {
-    const { chatHistory } = window.AppState;
+    const chatHistory = ChatState.history;
     // Determine the user message that prompted the response being retried.
     // historyIndex is the chatHistory index of the assistant message the user
     // clicked "Retry" on; we regenerate its own prompt, not the last one.
@@ -1645,7 +1645,7 @@ const AiChat = {
     ChatState.bumpGen(); // also invalidate the aborted run's .then/.catch
     // Remove the user message being retried and everything after it.
     chatHistory.splice(targetUserIdx);
-    window.AppState.isAiLoading = false;
+    ChatState.isAiLoading = false;
     this.updateSendButton();
     CardStorage.saveChatHistory(chatHistory, CardState.activeCard?._id);
     if (ChatState.currentSessionId) {
@@ -1707,7 +1707,7 @@ const AiChat = {
 
   renderChatHistory() {
     if (ChatState.historyRendered) return;
-    const { chatHistory } = window.AppState;
+    const chatHistory = ChatState.history;
     const $ = Ui.$;
     const container = $('#aiChatMessages');
     if (chatHistory.length === 0) {
@@ -1726,7 +1726,8 @@ const AiChat = {
   },
 
   _updateSession() {
-    const { chatHistory, activeCard } = window.AppState;
+    const chatHistory = ChatState.history;
+    const activeCard = CardState.activeCard;
     if (!chatHistory || chatHistory.length < 2) return;
     const cardId = activeCard?._id || 'global';
     const sessions = CardStorage.getChatSessions(cardId);
@@ -1832,7 +1833,7 @@ const AiChat = {
 
     // Load this session's messages into chatHistory
     const sessionMessages = CardStorage.getSessionMessages(cardId, sessionId);
-    window.AppState.chatHistory = sessionMessages;
+    ChatState.history = sessionMessages;
     ChatState.currentSessionId = sessionId;
     ChatState.historyRendered = false;
     // Pending AI responses belong to the conversation that generated them:
@@ -1885,10 +1886,10 @@ const AiChat = {
     // unlike a card switch, which keeps it.
     ChatState.resetChat();
     ChatState.selectedFields.clear();
-    window.AppState.isAiLoading = false;
+    ChatState.isAiLoading = false;
     this.updateSendButton();
     this._renderFieldChips();
-    window.AppState.chatHistory = [];
+    ChatState.history = [];
     CardStorage.clearChatHistory(CardState.activeCard?._id);
     this._showWelcome();
     Ui.showToast(I18n.t('toast.chatCleared'), 'info');
@@ -1899,9 +1900,9 @@ const AiChat = {
     const btn = $('#btnAiSend');
     const stop = $('#btnAiStop');
     if (!btn) return;
-    btn.disabled = window.AppState.isAiLoading;
-    btn.innerHTML = window.AppState.isAiLoading ? '<span class="spinner-border spinner-border-sm"></span>' : '<i class="bi bi-send-fill"></i>';
-    if (stop) stop.classList.toggle('d-none', !window.AppState.isAiLoading);
+    btn.disabled = ChatState.isAiLoading;
+    btn.innerHTML = ChatState.isAiLoading ? '<span class="spinner-border spinner-border-sm"></span>' : '<i class="bi bi-send-fill"></i>';
+    if (stop) stop.classList.toggle('d-none', !ChatState.isAiLoading);
   },
 
   async updateContextBar() {
@@ -1956,14 +1957,14 @@ const AiChat = {
     }
     if (gen !== ChatState.contextBarGen) return; // superseded by a newer call
     if (!inputTokens) {
-      // Shared estimator: real BPE once the CDN lib is loaded (even when the
-      // async count above failed), heuristic before — always the same number
+      // Shared estimator: real BPE once the vendored tokenizer is loaded (even
+      // when the async count above failed), heuristic before — always the same number
       // the editor counters and the live streaming display compute.
       inputTokens = Tokenizer.syncCount(inputText + '\n' + historyText + '\n' + prompt);
     }
 
     // Get the model's actual max output limit from the model data
-    const modelData = (window.AppState.models || []).find(m => m.id === modelId);
+    const modelData = (ChatState.models || []).find(m => m.id === modelId);
     const modelMaxOut = (modelData && typeof modelData.max_output_tokens === 'number' && modelData.max_output_tokens > 0)
       ? modelData.max_output_tokens
       : AIService.DEFAULT_MAX_TOKENS;

@@ -41,7 +41,12 @@ const SUPPORTED = ['en','fr','es','de','pt','ja','zh','ko','el','ru','it','pl','
 const RTL_LANGS = ['ar','he','fa'];
 
 const translations = {
-  en, fr, es, de, pt, ja, zh, ko, elGr, ru, it, pl, tr, nl, uk, vi, id, hi, ar, he, fa,
+  // `el: elGr` — the import is aliased (elGr) so the *key* must be spelled out.
+  // Registered as the shorthand `elGr` instead, the whole Greek dictionary was
+  // unreachable: `t()` looked up translations['el'], found nothing and fell
+  // back to English, so choosing Ελληνικά silently showed English. The parity
+  // check passed because it only compares the dictionaries that exist.
+  en, fr, es, de, pt, ja, zh, ko, el: elGr, ru, it, pl, tr, nl, uk, vi, id, hi, ar, he, fa,
   ro, cs, sv, th, 'pt-pt': ptPt, tl
 };
 
@@ -148,5 +153,5 @@ const I18n = {
   }
 };
 
-export { I18n, translations };
+export { I18n, translations, SUPPORTED };
 if (typeof window !== 'undefined') window.I18n = I18n;

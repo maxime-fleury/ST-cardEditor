@@ -93,6 +93,17 @@ interface CardJSON {
   [k: string]: unknown;
 }
 
+/** One ranked full-text result from js/cardSearch.js. */
+interface SearchHit {
+  id: string;
+  field: string;
+  labelKey: string;
+  score: number;
+  snippet: string;
+  snippetMatchStart: number;
+  snippetMatchLength: number;
+}
+
 /** A pending AI change ready to be reviewed/applied. */
 interface ApplyItem {
   el: unknown;
@@ -116,12 +127,12 @@ interface FieldDef {
   hasCount?: boolean;
 }
 
-interface AppStateShape {
-  cards: CardShape[];
-  activeCard: CardShape | null;
-  chatHistory: ChatMessage[];
-  isAiLoading: boolean;
-  models?: Array<{ id: string; name?: string; max_output_tokens?: number; context_length?: number; [k: string]: unknown }>;
+/** One entry of the provider's model list (Settings → Refresh Models). */
+interface ModelInfo {
+  id: string;
+  name?: string;
+  max_output_tokens?: number;
+  context_length?: number;
   [k: string]: unknown;
 }
 
@@ -310,6 +321,9 @@ declare const ChatState: {
   gen: number;
   contextBarGen: number;
   abortControllers: AbortController[];
+  isAiLoading: boolean;
+  history: ChatMessage[];
+  models: ModelInfo[];
   applyQueue: ApplyItem[];
   applyStore: Map<string, { content: string; field: string }>;
   applyElMap: WeakMap<object, ApplyItem>;
@@ -330,9 +344,8 @@ declare const ChatState: {
 
 /**
  * Single source of truth for the card collection state (see cardState.js):
- * the card list, the active card and the dirty flag. window.AppState exposes
- * these same three fields as delegating accessors so legacy callers and the
- * e2e suite keep working against this store.
+ * the card list, the active card and the dirty flag. This is the store every
+ * caller and the e2e suite read directly — there is no second global anymore.
  */
 declare const CardState: {
   cards: CardShape[];
@@ -360,6 +373,34 @@ declare const ExportUtils: {
   [k: string]: any;
 };
 
+// Library search index (js/cardSearch.js) and card diagnostics
+// (js/cardHealth.js) — plain modules that also publish a global so the e2e
+// suite can wait on index readiness. Declared here for the same reason as the
+// others: the `window.X = X` export line is otherwise unchecked (Window has an
+// index signature).
+declare const CardSearch: {
+  remember(card: CardShape): void;
+  forget(id: string): void;
+  reset(): void;
+  ensure(loader: (id: string) => Promise<CardShape | null>): Promise<number>;
+  search(query: string, options?: unknown): SearchHit[];
+  readonly size: number;
+  [k: string]: unknown;
+};
+
+declare const CardHealth: {
+  analyze(card: unknown, opts?: { maxTokens?: number; hasImage?: boolean }): Array<{ id: string; level: string; labelKey: string; values: any }>;
+  simulate(card: unknown, haystack: string | null): Array<{ index: number; entry: any; reason: string; order: number }>;
+  [k: string]: unknown;
+};
+
+declare const CommandPalette: {
+  show(): void;
+  hide(): void;
+  readonly isOpen: boolean;
+  [k: string]: unknown;
+};
+
 declare const Wizard: {
   show(): void;
   [k: string]: unknown;
@@ -369,8 +410,9 @@ declare const Diff: {
   diffWords(oldText: string, newText: string): Array<{ value: string; added?: boolean; removed?: boolean }>;
 };
 
-// Lazy-loaded CDN markdown renderer + sanitizer (ui.js renderMarkdown). Loaded
-// as classic <script> tags from the CDN, so they are ambient globals here.
+// Lazy-loaded markdown renderer + sanitizer (ui.js renderMarkdown). Loaded on
+// first use as classic <script> tags from public/vendor/ (vendored, same-origin,
+// hence ambient globals rather than imports).
 declare const marked: {
   (text: string, opts?: unknown): string;
   parse(text: string, opts?: unknown): string;
@@ -382,6 +424,21 @@ declare const DOMPurify: {
   [k: string]: unknown;
 };
 
+/**
+ * anime.js v3 (classic script, vendored — see public/vendor/anime.min.js and
+ * its MANIFEST.txt entry). Only the shapes the app uses are declared: the
+ * default builder, `stagger`, and the tiny timeline facade the wizard's step
+ * transitions drive.
+ */
+declare const anime: {
+  (params: Record<string, unknown>): { pause(): void; play(): void; restart(): void };
+  stagger(value: number): unknown;
+  timeline(params?: Record<string, unknown>): {
+    add(params: Record<string, unknown>, offset?: number | string): void;
+    pause(): void;
+  };
+};
+
 declare const bootstrap: {
   Modal: new (el: unknown, opts?: unknown) => { show(): void; hide(): void };
   Toast: new (el: unknown, opts?: unknown) => { show(): void; hide(): void };
@@ -389,9 +446,11 @@ declare const bootstrap: {
 };
 
 interface Window {
-  AppState: AppStateShape;
   AiChat: typeof AiChat;
   Tokenizer: typeof Tokenizer;
+  CardSearch: typeof CardSearch;
+  CardHealth: typeof CardHealth;
+  CommandPalette: typeof CommandPalette;
   Ui: typeof Ui;
   Editor: typeof Editor;
   CardManager: typeof CardManager;

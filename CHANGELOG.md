@@ -6,6 +6,101 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-09-12
+
+### Added
+- **Full-text library search** — the search box now looks inside every field and
+  the lorebook, not just name/creator/tags, so a card is findable by a line of
+  its description, a greeting or a lorebook entry. Results are ranked
+  (name > creator/tags > body), show which field matched plus a short excerpt
+  with the match highlighted, and are accent- and case-insensitive
+  (“elodie” finds “Élodie”). The index is built from storage in an idle
+  callback, kept current by the same save funnel as the rest of the app, rebuilt
+  when another tab writes, and capped at 100 results with a visible notice. A
+  tag filter and a query now compose (AND) instead of one overriding the other,
+  and the query, tag filters and collapsed groups survive a reload.
+- **Command palette (Ctrl/Cmd+K)** — one input to open a card, jump to any
+  field of the current card (switching to the tab that owns it) or run an action
+  (new card, save, export JSON/PNG, duplicate, delete, theme, focus mode,
+  settings, shortcuts, clear chat). Loaded as a lazy chunk on first use and
+  built from the same entry points as the buttons, so a palette action cannot
+  drift from its button.
+- **Per-card version history** — every save through the single write funnel
+  records the replaced content in a new IndexedDB `snapshots` store (schema v2),
+  de-duplicated by content signature so autosave cannot fill the history with
+  copies of itself, capped and image-bytes-free. The card preview lists the
+  versions with **Compare with current** (read-only diff, reusing the existing
+  comparison modal, with the apply buttons hidden) and **Restore** — which is
+  itself recorded as a version.
+- **Card health panel** — the preview now reports what is wrong or risky in a
+  card: missing name/description/first message/tags/spec, names over 50 chars,
+  unknown `{{macros}}` that would be sent to the model verbatim, unbalanced
+  braces, a greeting set over the configured output budget, and lorebook entries
+  that can never fire or that share a key. It also reports how many entries
+  trigger on the card's own text alone — the usual reason a card “does
+  nothing” in chat. The activation rules are modelled in a pure module and
+  documented, with what is deliberately approximated, in **docs/LOREBOOK.md**.
+- **Keyboard access to the tag cloud and card reordering** — tag chips are real
+  `<button>`s with `aria-pressed` (they were click-only `<span>`s), and the drag
+  handle answers to Up/Down, sharing the same guards as drag & drop (it refuses
+  to reorder a filtered/ranked list) and keeping focus across the re-render.
+- **Batch-delete undo** — deleting a selection can be undone, restoring each
+  card's content, avatar and chat history.
+- **Tooling** — `bun run i18n:add` appends new `en.js` keys to the other 26
+  locales as English placeholders instead of 26 hand edits, with
+  `--check` in CI and in the pre-commit hook; `bun run vendor:check` re-hashes
+  `public/vendor/` against its manifest. `check-assets` additionally fails on a
+  module without `// @ts-check`, on a vendored file the manifest does not list,
+  on the lazy tokenizer being precached, and on any reappearance of the removed
+  `window.AppState` global.
+
+### Changed
+- **App state lives in exactly two stores** — `window.AppState` is gone; its
+  remaining fields (chat transcript, model list, loading flag) moved into
+  `ChatState`, next to `CardState`. That third global is what let a stale active
+  card, apply queue or transcript outlive a card switch (#2/#4/#21/#24), and
+  `check-assets` now fails the build if it is reintroduced.
+- **Third-party libraries are vendored, not fetched from a CDN** — Bootstrap,
+  Bootstrap Icons, jsdiff, anime.js, marked and DOMPurify live in
+  `public/vendor/` with a provenance manifest (source URL + sha384 per file),
+  served same-origin and precached with the app shell. `script-src` is now
+  `'self'` only, Google Fonts is the last cross-origin origin, and the service
+  worker's CDN-cache path is gone: the “purged CDN cache broke offline mode”
+  bug (#26) no longer exists instead of being worked around. The 2.7 MB BPE
+  tokenizer stays a lazy fetch, cached at runtime on first use.
+- **The bundle is minified** (`minify: true`): the shared chunk went from
+  1 337 773 to 1 222 079 bytes and from 25 595 to 161 lines — and that is
+  *smaller* than before even though this release adds the search index, the
+  command palette, the history store and the health module. The dev server now
+  gzips text responses as well (GitHub Pages already did): the shared chunk is
+  ~346 KB over the wire instead of ~1.19 MB.
+- **Type checking covers every hand-written module** — the five modules that
+  were missing `// @ts-check` (including `cardEngine.js`) now have it, and the
+  e2e suite drives the real `public/sw.js` instead of a copy of its logic.
+- **i18n coverage floor is 70%, not 75%** — the metric is a ratio, so shipping
+  a feature lowered every locale's percentage even when nobody stopped
+  translating; the per-locale report still names every untranslated key.
+
+### Fixed
+- **Greek was unreachable** — the dictionary was registered under `elGr` while
+  the picker offered `el`, so choosing Ελληνικά silently rendered English and
+  every parity check still looked green. `check-i18n` now fails when a language
+  in `SUPPORTED` has no dictionary (or a dictionary is unreachable).
+- **Ctrl+K followed by a fast Enter did not run the command** — Bootstrap drops
+  a `hide()` issued while the show transition is still running, so the palette
+  stayed open and the keystroke was lost. The modal carries no transition class
+  (the state machine is synchronous) and the close fallbacks are guarded by a
+  run token, so a reopened palette is never slammed shut.
+- **Deleting a card no longer loses its chat** — both the single-card delete and
+  the new batch-delete undo restore the card's chat history along with its text
+  and avatar.
+- **`vendor:check` reported a valid manifest as failed** — the parser keyed on
+  the wrong discriminator and dropped every entry whose base64 hash had no
+  padding. A re-download that returns different bytes is now refused outright
+  (leaving the file untouched) unless `--force` is passed.
+- **Tooltip preview cache is bounded and invalidated** — it grew without limit
+  and served stale text after an edit.
+
 ## [2.7.1] - 2026-09-08
 
 ### Fixed
@@ -264,7 +359,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   with a white popup in dark mode — fixed via `color-scheme` plus dark
   `form-select`/`option` styling across all browsers.
 
-[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.7.1...HEAD
+[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.8.0...HEAD
+[2.8.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.8.0
 [2.7.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.7.1
 [2.7.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.7.0
 [2.6.2]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.6.2

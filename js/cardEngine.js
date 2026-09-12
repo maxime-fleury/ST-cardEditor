@@ -1,3 +1,4 @@
+// @ts-check
 /* ============================================================
    cardEngine.js — SillyTavern Character Card Parser & Editor
    ============================================================ */
@@ -70,7 +71,9 @@ const CardEngine = {
     }
 
     let offset = 8;
+    /** @type {Uint8Array | null} */
     let charaRaw = null;
+    /** @type {Uint8Array | null} */
     let ccv3Raw = null;
     // A chara/ccv3 chunk we found but couldn't decode would otherwise silently
     // become an image-only empty card, losing the character data. Track that so
@@ -150,12 +153,17 @@ const CardEngine = {
   },
 
   async _inflate(bytes) {
+    /** @type {WritableStreamDefaultWriter<BufferSource> | null} */
     let writer = null;
     try {
       if (typeof DecompressionStream === 'undefined') return null;
+      /** @type {DecompressionStream} */
       let ds;
       try {
-        ds = new DecompressionStream('zlib');
+        // lib.dom's CompressionFormat union omits 'zlib' even though every
+        // browser that ships DecompressionStream at all accepts it; the cast
+        // keeps the runtime probe below meaningful (Bun still rejects it).
+        ds = new DecompressionStream(/** @type {any} */ ('zlib'));
       } catch (_) {
         // Not every runtime accepts the 'zlib' format (Bun rejects it; some
         // Safari versions too). zTXt/iTXt data is standard zlib-wrapped
@@ -309,6 +317,31 @@ const CardEngine = {
     }, null, 2);
   },
 
+  /**
+   * Compact content signature: every field a user edits, with tags normalized,
+   * and the image bytes deliberately excluded (the same text with different art
+   * is a legitimate card). Two cards sharing a signature are "the same
+   * content" — what duplicate-import detection and the version history both
+   * need — so it lives here, in the dependency-free data module, instead of in
+   * a store object that both callers would have to import in a cycle.
+   */
+  cardSignature(card) {
+    const tags = (card.tags || []).map(t => String(t == null ? '' : t).trim().toLowerCase()).filter(Boolean);
+    return JSON.stringify([
+      card.spec_version || '',
+      (card.description || '').trim(),
+      (card.first_mes || '').trim(),
+      (card.personality || '').trim(),
+      (card.scenario || '').trim(),
+      (card.mes_example || '').trim(),
+      (card.creator_notes || '').trim(),
+      (card.system_prompt || '').trim(),
+      (card.post_history_instructions || '').trim(),
+      (card.character_version || '').trim(),
+      tags.join('|'),
+    ]);
+  },
+
   getTextContent(card, field) {
     if (field && card[field] !== undefined) return card[field] || '';
     const fields = [
@@ -370,7 +403,8 @@ const CardEngine = {
       img.onload = () => {
         try {
           const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
+          // A canvas the app just created always yields a 2d context.
+          const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
           const MAX = this.THUMBNAIL_MAX_SIZE;
           let w = img.width, h = img.height;
           if (w > h) {
@@ -387,7 +421,9 @@ const CardEngine = {
           try {
             const pixels = ctx.getImageData(0, 0, w, h).data;
             for (let i = 3; i < pixels.length; i += 4) {
-              if (pixels[i] < 255) { needsAlpha = true; break; }
+              // ?? 255 is only for the typechecker: the loop bound guarantees
+              // the index exists (noUncheckedIndexedAccess widens it anyway).
+              if ((pixels[i] ?? 255) < 255) { needsAlpha = true; break; }
             }
           } catch (_) { /* getImageData can throw on tainted canvases; keep JPEG */ }
           // Release the decoded image WITHOUT nuking the src: assigning ''

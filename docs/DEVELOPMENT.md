@@ -8,14 +8,16 @@ comfortably in CI on every push/PR (`ci.yml`) and locally before committing.
 
 | Gate | Command | What it checks |
 | --- | --- | --- |
-| Typecheck | `bun run typecheck` | `tsc --noEmit` on the `// @ts-check` modules (`aiChat.js`, `cardManager.js`, `editor.js`, `cardEngine.js`, plus `js/globals.d.ts`). Types only — see below. |
+| Typecheck | `bun run typecheck` | `tsc --noEmit` on **every** hand-written module under `js/` (all 20 carry `// @ts-check`, plus `js/globals.d.ts`). Types only — see below. `check-assets` fails on a module that is missing the pragma, since a file without it is reported on not at all. |
 | Lint | `bun run lint` | ESLint (flat config, `eslint.config.js`). Style + static bugs: unused vars, dead code, undeclared globals, complexity… |
-| Unit tests | `bun run test:unit` | 136 Bun tests across `tests/unit/` (cardEngine, tokenizer, aiService, i18n, cardManager, editor, exportUtils, settings, aiChat, chatState, intentLearner). Runs with `--parallel` (see the module-isolation note). |
-| Bundle freshness | `bun scripts/check-assets.mjs` | `js/app.js` (committed build artifact) matches a fresh `bun run build`; also checks SW shell, version cache-busters and the `CACHE_PREFIX`. |
-| i18n parity | `bun run i18n:check` | All 27 `js/i18n/*.js` files stay in sync with `en.js` (same keys, no single-brace placeholders, ≥ 75 % coverage). |
+| Unit tests | `bun run test:unit` | Bun tests across `tests/unit/` (the count is deliberately not written down here — it changes with every test). One file per module, plus `cardSearch` (index + ranking + snippets), `cardHealth` (diagnostics + the lorebook simulator) and `storage` (the version-history rules). Runs with `--parallel` (see the module-isolation note). |
+| Vendored assets | `bun scripts/vendor.mjs --check` | `public/vendor/*` matches `public/vendor/MANIFEST.txt` (sha384 per file). `check-assets` also asserts the directory has no unlisted file and that the 2.7 MB tokenizer stays out of the precached shell. |
+| Bundle freshness | `bun scripts/check-assets.mjs` | The five committed build artifacts match a fresh `bun run build`; also checks the SW shell and that the lazy tokenizer stays out of it, the `?v=` cache-busters, the navbar/README/`CACHE_PREFIX` versions, the vendor manifest, and that no module reintroduces `window.AppState`. |
+| i18n parity | `bun run i18n:check` | All 27 `js/i18n/*.js` files stay in sync with `en.js` (same keys, no single-brace placeholders, ≥ 70 % coverage). |
+| i18n completeness | `bun scripts/i18n-add.mjs --check` | No locale is missing a key that `en.js` has. New keys are appended by `bun run i18n:add` as English placeholders rather than typed 26 times. |
 | e2e | `bunx playwright test` | Playwright suite in `tests/*.spec.js`. The config picks a free port automatically (8300 on Windows where 8182 is OS-reserved, 8182 elsewhere) and starts a scripted OpenAI-compatible mock server for the live-model suite — no ports to juggle by hand. |
 
-> **Note on the typecheck scope.** Every module in the shared bundle carries
+> **Note on the typecheck scope.** Every hand-written module carries
 > `// @ts-check` with `strictNullChecks` **on** — the null-noise of the legacy
 > era was cleaned up pass by pass (Passe 5: aiChat/cardManager/editor;
 > Passe 6: settings/wizard; Passe 7: ui/aiService/storage/i18n; Passe 8 added
@@ -31,8 +33,17 @@ comfortably in CI on every push/PR (`ci.yml`) and locally before committing.
 > hardening also surfaced a real bug: `_mergePendingRemote` read
 > `_pendingRemoteTouched` after resetting it to `null`, so the "local edits
 > win" cross-tab guard never fired — fixed by capturing the set before the
-> reset. Only the lazy `wizard.chunk.js`/`waifuTab.chunk.js` and the built
-> `js/*.chunk.js` artifacts are not type-checked.
+> reset. The last five modules (cardEngine, exportUtils, animations, tokenizer,
+> waifuTab — Passe 9) joined the checked set; only the built `js/*.chunk.js`
+> artifacts and `js/app.js` are not type-checked.
+>
+> Two conventions worth knowing when adding to the checked set:
+> `js/globals.d.ts` declares the classic-script globals (`bootstrap`, `Diff`,
+> `anime`, `marked`, `DOMPurify`) and widens `Element` for the dynamic-selector
+> style the codebase uses. Its `Element` augmentation cannot carry a
+> *non-optional* `src`/`hidden`: `HTMLElement` has no `src` of its own, so a
+> required member there makes every `HTMLElement → Element` assignment illegal.
+> Cast the lookup instead (`/** @type {HTMLImageElement | null} */ (document.querySelector(…))`).
 
 ### Module isolation for unit tests
 
@@ -40,6 +51,39 @@ The unit tests stub module dependencies with Bun's `mock.module`. Because Bun
 shares **one module registry per process**, mocks would leak across test files
 when run sequentially. The `test:unit` script therefore runs with
 `--parallel` (one worker per file), which gives each file its own process.
+
+The corollary: a function that is only reachable through a mocked dependency
+cannot be unit tested through it. When logic matters, keep it on a pure module
+(`cardEngine.cardSignature`, `storage.pushVersion`, `cardHealth.*`) so the test
+imports the real thing — `cardManager` delegates to `cardEngine` for exactly
+this reason.
+
+## State, indexes and derived data
+
+- **The two stores** — `CardState` (cards, active card, dirty flag, batch
+  selection) and `ChatState` (history, sessions, models, loading). Nothing else
+  holds mutable app state; `check-assets` fails the build on `window.AppState`,
+  and it also fails a module that uses a `window.X` while importing `X`.
+- **The search index** (`cardSearch.js`) is rebuilt from the same storage events
+  the tooltip cache uses (`stce:card-saved`, `stce:card-deleted`,
+  `stce:cards-cleared`) rather than from call sites, so an import, an AI apply
+  and an editor autosave all keep it correct. It is built in an idle callback
+  after the first render and refilled on demand (`ensure()`) when a search runs
+  before it is warm.
+- **The version history** (`storage.js` + the `snapshots` IndexedDB store) is
+  written by `upsertCard` — the single write funnel — so no save path can
+  forget it. `pushVersion` is the pure decision half (dedup by content
+  signature, cap, strip the image bytes) and is covered by unit tests; the
+  IndexedDB plumbing around it is covered by the e2e suite.
+- **Card health** (`cardHealth.js`) is pure and returns issues carrying an i18n
+  key plus values, never rendered strings, so it can be rendered in the modal,
+  logged, or asserted in a test without a DOM.
+
+Storage schema changes bump `CardStorage.DB.version` and add the store inside
+`onupgradeneeded` (v2 added `snapshots`). A new store must also be cleared by
+`clearAll()` — "Clear all data" silently keeping one store is the kind of bug
+that only shows up when a user expects a clean slate.
+
 
 ## ESLint configuration
 
@@ -95,9 +139,18 @@ rule with hundreds of hits just teaches everyone to ignore lint output.
 
 ## Build & release
 
-- `bun run build` regenerates `js/app.js` (single-bundle artifact, ~1.2 MB).
-  It is committed and must be regenerated whenever `js/**` sources change —
+- `bun run build` regenerates the committed bundle artifacts (see the table
+  below). They must be regenerated whenever `js/**` sources change —
   `check-assets` fails CI otherwise.
+- `bun scripts/vendor.mjs` (re)downloads the pinned third-party assets into
+  `public/vendor/` and rewrites `public/vendor/MANIFEST.txt`. Run it **only**
+  when intentionally bumping one of the pinned versions in that script; the
+  manifest hash makes an unexpected upstream change visible.
+- The build is **minified** (`minify: true`): the shared chunk is the biggest
+  asset the browser parses on boot. Byte-stability is preserved (bun's minifier
+  is deterministic for a given version, which `.bun-version` pins), so
+  `check-assets`' "committed === fresh build" comparison keeps working. Readable
+  code is always one `bun run build` away from the sources.
 - Releases: `bun scripts/release.mjs X.Y.Z` bumps `package.json`, the SW cache
   prefix, the `?v=NNN` cache-busters and inserts the `CHANGELOG.md` entry.
   Then tag + GitHub release as documented in the changelog workflow.
@@ -110,30 +163,49 @@ The app is built as a **code-split ESM bundle** (`bun run build`, see
 | Artifact | Size | Role |
 | --- | --- | --- |
 | `js/app.js` | ~24 B | ESM entry — imports the shared chunk. |
-| `js/app.chunk.js` | ~1.17 MB | Shared code — every module except the two lazy ones. |
-| `js/wizard.chunk.js` | ~33 KB | Card-creation wizard — `import()`ed on first open. |
-| `js/waifuTab.chunk.js` | ~14 KB | Waifu Image tab — `import()`ed on first open. |
+| `js/app.chunk.js` | ~1.1 MB | Minified shared code — every module except the lazy three. |
+| `js/wizard.chunk.js` | ~22 KB | Card-creation wizard — `import()`ed on first open. |
+| `js/waifuTab.chunk.js` | ~9 KB | Waifu Image tab — `import()`ed on first open. |
+| `js/commandPalette.chunk.js` | ~7 KB | `Ctrl+K` palette — `import()`ed on the first keypress. |
+| `public/vendor/*` (11 files) | ~3.7 MB | Pinned third-party assets, precached except `gpt-tokenizer.js`. |
+
+### Third-party code is vendored, not fetched from a CDN
+
+The app used to load Bootstrap, bootstrap-icons, jsdiff, anime.js, marked and
+DOMPurify straight from jsdelivr/cdnjs — and the BPE tokenizer from `esm.sh`.
+Every one of those is **remote code executed in the page**, and the offline PWA
+only worked because the service worker had cached the responses at runtime
+(hence the "app is unstyled right after an update" bug, v2 #26). They are now
+pinned, hashed, committed under `public/vendor/` and served same-origin:
+
+- `script-src` is `'self'` **only** — no third-party origin can execute code.
+- The shell precaches all of them except `vendor/gpt-tokenizer.js` (~2.7 MB),
+  which stays a lazy fetch emitted on first token count and cached at runtime
+  (`RUNTIME_FILES` in public/sw.js) so "used once → works offline" still holds.
+- Google Fonts is the single remaining cross-origin dependency (fonts are data,
+  not code); its stylesheet also depends on the CDN runtime cache.
 
 Names are **deterministic** (no content hashes), so the committed artifacts
 are diffable against a fresh build and the service worker precaches the exact
 list. The split is wired end to end:
 
-- `js/ui.js` owns the two lazy entry points: a click on `#btnWizardNav`
-  `import()`s `wizard.js` and calls `show()`; the first `shown.bs.tab` of the
-  Waifu pane imports `waifuTab.js` and inits it. `wizard.js` self-initializes
-  in `show()` (`if (!this._modal) this.init()`), so the AI quick action
+- `js/ui.js` owns the lazy entry points. A click on `#btnWizardNav` `import()`s
+  `wizard.js` and calls `show()`; the first `shown.bs.tab` of the Waifu pane
+  imports `waifuTab.js` and inits it; the first `Ctrl+K` imports
+  `commandPalette.js` and calls `show()`. `wizard.js` self-initializes in
+  `show()` (`if (!this._modal) this.init()`), so the AI quick action
   (`aiChat.js` `newcard`) loads the chunk on demand too. The old circular
   import `aiChat ↔ wizard` is gone — wizard → aiChat is one-way now.
-- `public/sw.js` precaches all four artifacts, so opening the wizard or waifu
-  tab **offline** works on first try (`shell.spec.js` covers exactly that).
+- `public/sw.js` precaches all five artifacts, so opening the wizard, the waifu
+  tab or the palette **offline** works on first try (`shell.spec.js` covers
+  exactly that for the first two).
 - `scripts/check-assets.mjs` rebuilds fresh and diffs **every** artifact
   (entry + chunks), flags leftover `.chunk.js` files that the build no longer
   produces, and verifies all artifacts are in `SHELL_FILES`.
 
-Why only these two? The modules still hand off through `window.*` idempotent
-assignments at evaluation time; a lazy chunk that *reads* `window.Ui` or
-`window.AppState` at eval time (not call time) would break if it loads before
-the shared chunk. Only call-time-touching modules are safe candidates, and
-`wizard.js` + `waifuTab.js` (~47 KB bundled) are the only ones that qualify
-without rework. `settings.js` / `editor.js` would need a larger refactor
+Why only these three? A lazy chunk must not read another module at *evaluation*
+time — only inside a handler — or it breaks when it loads before the shared
+chunk. `wizard.js`, `waifuTab.js` and `commandPalette.js` are written that way
+(the palette in particular defers everything into handlers, including the
+`bootstrap.Modal` construction). `settings.js` / `editor.js` would need a larger refactor
 (their eval-time global reads) for a smaller gain.

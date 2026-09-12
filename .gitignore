@@ -7,6 +7,7 @@ Thumbs.db
 nul
 opencode.json
 agent_bug_hunt_report*.txt
+bugs_report.txt
 .freebuff/
 tmp/
 test-results/

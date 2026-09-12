@@ -1,3 +1,4 @@
+// @ts-check
 /* ============================================================
    exportUtils.js — PNG/JSON Export, CRC32, PNG Chunk Embedding
    ============================================================ */
@@ -8,6 +9,7 @@ import { Ui } from './ui.js';
 import { CardEngine } from './cardEngine.js';
 import { CardStorage } from './storage.js';
 import { Editor } from './editor.js';
+import { CardState } from './cardState.js';
 
 const ExportUtils = {
   EDITOR_CREDIT: 'Made using https://maxime-fleury.github.io/ST-cardEditor/',
@@ -21,7 +23,7 @@ const ExportUtils = {
   },
 
   async exportAsJSON() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     await Editor.syncEditorToCard();
     if (!activeCard.name) Ui.showToast(I18n.t('toast.noNameWarning'), 'warning');
@@ -32,13 +34,14 @@ const ExportUtils = {
   },
 
   async exportAsPNG() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) return;
     await Editor.syncEditorToCard();
     const clone = JSON.parse(JSON.stringify(activeCard));
     if (CardStorage.getInjectCopyright()) this.injectCopyright(clone);
     const json = CardEngine.toJSON(clone);
     try {
+      /** @type {Uint8Array | null} */
       let pngBytes = null;
       if (activeCard._imageBase64) {
         // Prefer the original bytes for PNG-sourced images: re-encoding via
@@ -73,13 +76,14 @@ const ExportUtils = {
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d');
+      // A canvas the app just created always yields a 2d context.
+      const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
       ctx.drawImage(img, 0, 0);
       return new Promise((resolve) => {
         canvas.toBlob((blob) => {
           if (!blob) return resolve(null);
           const reader = new FileReader();
-          reader.onload = () => resolve(new Uint8Array(reader.result));
+          reader.onload = () => resolve(new Uint8Array(/** @type {ArrayBuffer} */ (reader.result)));
           reader.readAsArrayBuffer(blob);
         }, 'image/png');
       });
@@ -124,7 +128,8 @@ const ExportUtils = {
   async createMinimalPNGBytes() {
     const canvas = document.createElement('canvas');
     canvas.width = 64; canvas.height = 64;
-    const ctx = canvas.getContext('2d');
+    // A canvas the app just created always yields a 2d context.
+    const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
     const g = ctx.createLinearGradient(0, 0, 64, 64);
     g.addColorStop(0, '#772ce8'); g.addColorStop(1, '#ec4899');
     ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
@@ -139,7 +144,7 @@ const ExportUtils = {
           // Fallback: render via dataURL
           try {
             const dataUrl = canvas.toDataURL('image/png');
-            const bin = atob(dataUrl.split(',')[1]);
+            const bin = atob(dataUrl.split(',')[1] || '');
             const out = new Uint8Array(bin.length);
             for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
             settle(out);
@@ -149,7 +154,7 @@ const ExportUtils = {
           return;
         }
         const reader = new FileReader();
-        reader.onload = () => settle(new Uint8Array(reader.result));
+        reader.onload = () => settle(new Uint8Array(/** @type {ArrayBuffer} */ (reader.result)));
         reader.onerror = () => settle(new Uint8Array(0));
         reader.readAsArrayBuffer(blob);
       }, 'image/png');
@@ -166,12 +171,15 @@ const ExportUtils = {
     while (offset + 12 <= bytes.length) {
       const length = CardEngine._readUint32(bytes, offset);
       if (offset + 12 + length > bytes.length) break;
-      const type = String.fromCharCode(bytes[offset+4], bytes[offset+5], bytes[offset+6], bytes[offset+7]);
+      const type = String.fromCharCode(bytes[offset+4] ?? 0, bytes[offset+5] ?? 0, bytes[offset+6] ?? 0, bytes[offset+7] ?? 0);
       if (type === 'IEND') { iendPos = offset; break; }
       const isCharaText = type === 'tEXt' && (() => {
         const nullIdx = bytes.indexOf(0, offset + 8);
         if (nullIdx < 0 || nullIdx > offset + 8 + 79) return false;
-        const kw = String.fromCharCode.apply(null, bytes.subarray(offset + 8, nullIdx));
+        // `apply` on a typed array: the overload wants number[], which a
+        // Uint8Array satisfies at runtime (and the range is bounded to the
+        // 79-byte keyword limit above).
+        const kw = String.fromCharCode.apply(null, /** @type {any} */ (bytes.subarray(offset + 8, nullIdx)));
         return kw === 'chara';
       })();
       if (!isCharaText) {
@@ -190,7 +198,7 @@ const ExportUtils = {
     let b64 = '';
     const CHUNK = 0x8000;
     for (let i = 0; i < jsonBytes.length; i += CHUNK) {
-      b64 += String.fromCharCode.apply(null, jsonBytes.subarray(i, i + CHUNK));
+      b64 += String.fromCharCode.apply(null, /** @type {any} */ (jsonBytes.subarray(i, i + CHUNK)));
     }
     b64 = btoa(b64);
     const textData = new TextEncoder().encode(keyword + '\0' + b64);

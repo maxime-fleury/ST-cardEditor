@@ -203,12 +203,23 @@ test('server sends CSP headers and gates the proxy by Origin', async ({ request 
   expect(evil.status()).toBe(403);
 });
 
-test('service worker serves the app shell offline with cached CDN', async ({ page, context }) => {
+test('service worker serves the vendored app shell offline', async ({ page, context }) => {
   const errors = collectErrors(page);
+  // Nothing but the typefaces may leave the origin: Bootstrap, icons, jsdiff,
+  // anime.js, marked and DOMPurify are all vendored and served same-origin,
+  // which is what makes the offline shell (and `script-src 'self'`) reliable.
+  // This is the regression guard for the CDN → vendored migration.
+  const external = [];
+  page.on('request', (req) => {
+    const url = req.url();
+    if (/^(http:\/\/localhost|data:|blob:)/.test(url)) return;
+    if (/^https:\/\/fonts\.(googleapis|gstatic)\.com/.test(url)) return;
+    external.push(url);
+  });
+
   await page.goto('/');
-  // Wait until the SW controls the page and has had time to runtime-cache the
-  // CDN assets (Bootstrap CSS/JS). Growing the list hides controls; this page
-  // is the default empty state but the navbar + sheets still load CDN.
+  // Wait until the SW controls the page and has had time to serve the shell
+  // (Bootstrap CSS/JS included) from its precache.
   await page.evaluate(() =>
     navigator.serviceWorker.ready.then(() =>
       navigator.serviceWorker.controller
@@ -216,12 +227,13 @@ test('service worker serves the app shell offline with cached CDN', async ({ pag
         : new Promise((res) => { navigator.serviceWorker.addEventListener('controllerchange', () => res(true), { once: true }); })
     ));
   await page.waitForTimeout(2000);
+  expect(external, 'no script or stylesheet may be fetched from another origin').toEqual([]);
 
   await context.setOffline(true);
   await page.reload();
   await expect(page.locator('#appContainer')).toBeVisible();
 
-  // Bootstrap CSS was cached by the SW, so the navbar is still sticky offline.
+  // The stylesheet came from the precache, so the navbar is still sticky offline.
   const sticky = await page.evaluate(() => getComputedStyle(document.querySelector('#topNav')).position);
   expect(sticky).toBe('sticky');
   // No JS errors; ignore cosmetic resource-load logs from uncached extras.

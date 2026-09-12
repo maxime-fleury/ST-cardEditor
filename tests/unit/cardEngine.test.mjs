@@ -12,6 +12,28 @@ beforeAll(async () => {
 
 const v2 = (data) => JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data });
 
+test('cardSignature groups identical content and ignores the artwork', () => {
+  const base = CardEngine.parseJSON(v2({ name: 'Aria', description: 'An elf.', tags: ['Fantasy', 'elf'] }), 'a.json');
+  const sameText = CardEngine.parseJSON(v2({ name: 'Aria', description: 'An elf.', tags: ['fantasy', ' elf '] }), 'a.json');
+  const otherArt = { ...base, _imageBase64: 'data:image/png;base64,AAAA' };
+  const otherText = { ...base, description: 'A dwarf.' };
+
+  // Tags are normalized and artwork excluded: same text, same signature — which
+  // is what duplicate-import detection and the version history both rely on.
+  expect(CardEngine.cardSignature(sameText)).toBe(CardEngine.cardSignature(base));
+  expect(CardEngine.cardSignature(otherArt)).toBe(CardEngine.cardSignature(base));
+  expect(CardEngine.cardSignature(otherText)).not.toBe(CardEngine.cardSignature(base));
+});
+
+test('cardSignature normalizes malformed tags instead of crashing', () => {
+  const base = { name: 'X', description: 'D' };
+  const c = CardEngine.cardSignature({ ...base, tags: [42, null, {}] });
+  const d = CardEngine.cardSignature({ ...base, tags: ['42', '[object Object]'] });
+
+  expect(c).toBe(d); // numeric/object tags are string-coerced identically
+  expect(c).not.toBe(CardEngine.cardSignature({ ...base, tags: [] }));
+});
+
 test('parseJSON normalizes a v2 card', () => {
   const card = CardEngine.parseJSON(v2({
     name: 'Aria',

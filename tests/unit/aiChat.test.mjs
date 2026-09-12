@@ -115,7 +115,8 @@ test('FIELD_DEFS exposes name as a selectable target', () => {
 
 test('_prepareApply applies a plain name response to the card name', () => {
   const activeCard = baseCard();
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
 
   const prep = AiChat._prepareApply('name', 'Elodie');
@@ -128,7 +129,8 @@ test('_prepareApply applies a plain name response to the card name', () => {
 
 test('_prepareApply extracts the name out of a full-card response', () => {
   const activeCard = baseCard();
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
 
   const prep = AiChat._prepareApply('name', elodieCard);
@@ -188,7 +190,8 @@ test('_fieldDisplayContent leaves non-card content untouched', () => {
 
 test('_prepareApply extracts the field from a full-card response instead of dumping JSON', () => {
   const activeCard = baseCard();
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
 
   const prep = AiChat._prepareApply('description', elodieCard);
@@ -204,7 +207,8 @@ test('_prepareApply extracts the field from a full-card response instead of dump
 test('_prepareApply does not rename when the card JSON proposes the current name', () => {
   const activeCard = baseCard();
   activeCard.name = 'Elodie'; // already the proposed name
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
 
   const prep = AiChat._prepareApply('first_mes', elodieCard);
@@ -215,7 +219,8 @@ test('_prepareApply does not rename when the card JSON proposes the current name
 
 test('_prepareApply extracts alternate_greetings from the card (not the first array in the JSON)', () => {
   const activeCard = baseCard();
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
 
   const prep = AiChat._prepareApply('alternate_greetings', elodieCard);
@@ -229,7 +234,8 @@ test('_prepareApply extracts alternate_greetings from the card (not the first ar
 
 test('_prepareApply tags branch prefers the card\'s tags over any array in the JSON', () => {
   const activeCard = baseCard();
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
 
   const prep = AiChat._prepareApply('tags', elodieCard);
@@ -241,7 +247,8 @@ test('_prepareApply tags branch prefers the card\'s tags over any array in the J
 
 test('_prepareApply keeps normal per-field responses unchanged', () => {
   const activeCard = baseCard();
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
 
   const prep = AiChat._prepareApply('description', 'Une nouvelle description.');
@@ -256,7 +263,8 @@ test('_prepareApply keeps normal per-field responses unchanged', () => {
 test('_prepareApply silent option suppresses the per-item success toast', () => {
   toasts.length = 0;
   const activeCard = baseCard();
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
 
   const prep = AiChat._prepareApply('description', elodieCard, { silent: true });
@@ -287,7 +295,8 @@ test('_nextUnappliedIndex skips already-applied changes', () => {
 test('_applyAllPending applies every remaining change, renames the card and shows one summary toast', () => {
   toasts.length = 0;
   const activeCard = baseCard();
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
   const hidden = { hidden: false };
   ChatState.applyQueue = [
@@ -312,7 +321,8 @@ test('_applyAllPending applies every remaining change, renames the card and show
 test('_applyAllPending handles items whose response cannot be prepared without crashing', () => {
   toasts.length = 0;
   const activeCard = baseCard();
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
   ChatState.applyQueue = [
     { el: null, field: 'description', content: elodieCard, applied: false },
@@ -343,7 +353,8 @@ test('_firstUnappliedIndex finds the first pending change', () => {
 test('_finalizeGroupedCard appends a ready-bar whose Apply-all applies every change', () => {
   toasts.length = 0;
   const activeCard = baseCard();
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
   const makeSection = () => ({
     dataset: {},
@@ -422,7 +433,8 @@ test('_inferFields returns nothing for empty or unrelated prompts', () => {
 
 test('_prepareApply normalizes {user} in field content before applying', () => {
   const activeCard = baseCard();
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
 
   const prep = AiChat._prepareApply('first_mes', 'Bonjour {user}, bienvenue chez moi.');
@@ -434,7 +446,8 @@ test('_prepareApply normalizes {user} in field content before applying', () => {
 test('_prepareApply full-card normalizes {user} in every text field', () => {
   toasts.length = 0;
   const activeCard = baseCard();
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
   stubs.CardEngine.parseJSON = (s) => { const p = JSON.parse(s); return { ...(p.data || p) }; };
   stubs.CardEngine.toJSON = (c) => JSON.stringify(c);
@@ -685,7 +698,8 @@ test('_repairStoredPlaceholders returns 0 for clean cards and non-objects', () =
 test('_prepareApply shows the unwrapped stored JSON as the diff oldVal', () => {
   const activeCard = baseCard();
   activeCard.description = elodieCard; // legacy damage already in the card
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
 
   const prep = AiChat._prepareApply('description', 'Nouvelle description propre.');
@@ -697,7 +711,8 @@ test('_prepareApply shows the unwrapped stored JSON as the diff oldVal', () => {
 test('buildSystemPrompt unwraps stored JSON before sending Current to the model', () => {
   const activeCard = baseCard();
   activeCard.description = elodieCard; // legacy damage
-  window.AppState = { activeCard, chatHistory: [], isAiLoading: false };
+  ChatState.history = [];
+  ChatState.isAiLoading = false;
   CardState.activeCard = activeCard;
   stubs.CardStorage.getPrompt = () => 'Rewrite the {field} field. Current: {current}';
   stubs.Settings.getDefaultPrompt = () => '';

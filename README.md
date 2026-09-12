@@ -2,12 +2,19 @@
 
 A web-based tool for editing, translating, and enhancing **SillyTavern character cards** with AI assistance. Drag & drop your cards, edit every field, generate characters with AI, and get reference images — all in one place.
 
+- **Find anything** — full-text search across every field *and* the lorebook, ranked by relevance, naming the field that matched and highlighting the hit in place.
+- **`Ctrl+K` does everything** — one command palette over your cards, the editor's fields and the actions already in the toolbar.
+- **Know before you ship** — a card health report (missing fields, macros the model would receive verbatim, lorebook entries that can never fire) plus a 20-state version history with diff and restore.
+- **No CDN, ever** — every third-party library is vendored, hashed and served same-origin, so offline works on the first try and `script-src` stays `'self'` only.
+
+**Jump to:** [Features](#features) · [Getting started](#getting-started) · [Usage](#usage) · [Project structure](#project-structure) · [Architecture](#architecture) · [Technical details](#technical-details) · [Keyboard shortcuts](#keyboard-shortcuts) · [Testing](#testing) · [CI/CD](#cicd)
+
 ### Try the live demos
 
 - **[Stable demo](https://maxime-fleury.github.io/ST-cardEditor/)** — the recommended current version
 - **[Beta demo](https://maxime-fleury.github.io/ST-cardEditor/dev/)** — the latest development build; features may change or break
 
-![Version](https://img.shields.io/badge/version-2.7.1-purple)
+![Version](https://img.shields.io/badge/version-2.8.0-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-000?logo=bun)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![Stable Demo](https://img.shields.io/badge/stable-demo-9147ff?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/)
@@ -32,7 +39,11 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 |:---:|:---:|
 | ![Settings](.github/screenshots/10-settings.png) | ![Full Dark](.github/screenshots/11-full-dark.png) |
 
-| Language Picker (21 languages) | Arabic — RTL layout |
+| Landing Page (Light) | Full View (Light) |
+|:---:|:---:|
+| ![Landing Light](.github/screenshots/02-landing-light.png) | ![Full Light](.github/screenshots/12-full-light.png) |
+
+| Language Picker (27 languages) | Arabic — RTL layout |
 |:---:|:---:|
 | ![Language Picker](.github/screenshots/13-lang-picker.png) | ![Arabic RTL](.github/screenshots/14-arabic-rtl.png) |
 
@@ -45,24 +56,32 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 - **Clipboard paste** — paste a PNG/JSON card from the clipboard to import it, or paste a plain image straight onto the active card's avatar
 - Automatic parsing of embedded card data from PNG/WebP files (`chara` and `ccv3` chunks)
 - Visual card library with avatars, names, creators, tags, and file size display
-- **Mini card preview** — an eye button on any card row opens a modal with the full markdown-rendered description and first message; hover tooltips show the card's real description
+- **Mini card preview** — an eye button on any card row opens a modal with the full markdown-rendered description, the first message, a **card health report** and the **version history**; hover tooltips show the card's real description
 - Stable card identification via content hashing
 - **3D tilt effect** on card hover (respects `prefers-reduced-motion`)
-- **Tag cloud** with click-to-filter across all cards (AND logic)
-- **6 sort modes:** name, newest/oldest, largest/smallest
-- **Batch operations:** multi-select for bulk delete, bulk JSON export, and **card comparison** (side-by-side JSON diff)
-- **Drag-to-reorder** cards in the library
+- **Tag cloud** with click/Enter-to-filter across all cards (AND logic)
+- **Restored view** — the active query, tag filters and collapsed letter groups survive a reload, together with the sort mode
+- **Full-text search** — matches any word in the name, creator, tags, every text field *and* the lorebook, names the field that matched, and highlights the hit in place. Diacritic-insensitive (`cafe` finds `café`), ranked by relevance
+- **Command palette** (`Ctrl+K`) — one input to open any card, jump to any editor field, or run any action
+- **7 sort modes:** name A→Z / Z→A, newest / oldest, largest / smallest, manual (the order drag-to-reorder writes to)
+- **Batch operations:** multi-select for bulk delete, bulk JSON export, and **card comparison** (side-by-side JSON diff). Bulk delete is undoable for 8 seconds and restores each card's text, avatar **and** chat history
+- **Version history** — the last 20 states of every card, recorded automatically on save; restore any of them, or diff one against the card as it is now (read-only). Restoring is itself a version, so it is reversible
+- **Card health** — the preview modal reports missing fields, unknown `{{macros}}` that would be sent to the model verbatim, unbalanced braces, a greeting budget over your token limit, and lorebook entries that can never trigger
+- **Drag-to-reorder** cards in the library (Manual sort), with a keyboard equivalent: focus a row's handle and press ↑/↓
 - **Workspace backup/restore** — export/import your entire card library and settings as a single file
 
 ### Full Card Editor
-Four tabbed panels covering every aspect of the **V2/V3 card spec**:
+Five tabbed panels covering every aspect of the **V2/V3 card spec**:
 
 | Tab | Fields |
 |-----|--------|
 | **Core** | Name, Description, First Message, Scenario, Creator, Version, Tags |
 | **Personality** | Personality Summary, Example Messages |
-| **Advanced** | System Prompt, Post-History Instructions, Creator Notes, Alternate Greetings |
+| **Advanced** | System Prompt, Post-History Instructions, Creator Notes, Alternate Greetings, Extensions (raw JSON) |
 | **Lorebook** | Full character lorebook entry management |
+| **Waifu Image** | Fetch reference art (waifu.im snapshots, AniList characters, a one-click balanced pack) or upload/remove the avatar |
+
+Lorebook activation rules (which entry fires, and when an entry can never fire) are documented in [`docs/LOREBOOK.md`](docs/LOREBOOK.md) — including the parts the health report deliberately approximates.
 
 - **Undo/Redo** per field (up to 50 snapshots)
 - **Collapsible field sections** across all tabs — fold Description, First Message, Scenario, Personality Summary, Example Messages, System Prompt, Post-History, Creator Notes, Greetings and Extensions; per-section state persists across reloads
@@ -138,37 +157,44 @@ Powered by [anime.js](https://animejs.com/) with full `prefers-reduced-motion` s
 
 ### Localization (i18n)
 
-Full interface translation across **27 languages** with **619** translation keys, one file per language in `js/i18n/`:
+The interface ships in **27 languages** — **670** keys, one file per language in `js/i18n/`:
 
-| Language | Key | Status |
-|----------|-----|--------|
-| English | `en` | Default |
-| French | `fr` | Complete |
-| Spanish | `es` | Complete |
-| German | `de` | Complete |
-| Portuguese (Brazil) | `pt` | Complete |
-| Japanese | `ja` | Complete |
-| Chinese (Simplified) | `zh` | Complete |
-| Korean | `ko` | Complete |
-| Greek | `el` | Complete |
-| Russian | `ru` | Complete |
-| Italian | `it` | Complete |
-| Polish | `pl` | Complete |
-| Turkish | `tr` | Complete |
-| Dutch | `nl` | Complete |
-| Ukrainian | `uk` | Complete |
-| Vietnamese | `vi` | Complete |
-| Indonesian | `id` | Complete |
-| Hindi | `hi` | Complete |
-| Arabic | `ar` | Complete |
-| Hebrew | `he` | Complete |
-| Persian | `fa` | Complete |
-| Romanian | `ro` | Complete |
-| Czech | `cs` | Complete |
-| Swedish | `sv` | Complete |
-| Thai | `th` | Complete |
-| Portuguese (Portugal) | `pt-pt` | Complete |
-| Filipino | `tl` | Complete |
+| Language | Key |
+|----------|-----|
+| English | `en` |
+| French | `fr` |
+| Spanish | `es` |
+| German | `de` |
+| Portuguese (Brazil) | `pt` |
+| Japanese | `ja` |
+| Chinese (Simplified) | `zh` |
+| Korean | `ko` |
+| Greek | `el` |
+| Russian | `ru` |
+| Italian | `it` |
+| Polish | `pl` |
+| Turkish | `tr` |
+| Dutch | `nl` |
+| Ukrainian | `uk` |
+| Vietnamese | `vi` |
+| Indonesian | `id` |
+| Hindi | `hi` |
+| Arabic | `ar` |
+| Hebrew | `he` |
+| Persian | `fa` |
+| Romanian | `ro` |
+| Czech | `cs` |
+| Swedish | `sv` |
+| Thai | `th` |
+| Portuguese (Portugal) | `pt-pt` |
+| Filipino | `tl` |
+
+Every locale ships **all 670 keys** — `check-i18n` fails on a missing one, because
+a missing key renders as the raw key to the user. Parity is not the same as
+translation, though: it also reports, per locale, how many strings are still
+English placeholders and what percentage that leaves translated. Ship a feature
+and those percentages dip until the strings are translated, which is exactly what
+`bun run i18n:add` (English placeholders) and a translation pass are for.
 
 - **Auto-detection** from browser language (`navigator.language`)
 - **Manual switch** via Settings modal — changes apply instantly
@@ -177,8 +203,25 @@ Full interface translation across **27 languages** with **619** translation keys
 - Covers: navbar, card library, editor tabs, AI chat, wizard, settings, toasts, modals, error messages
 - Formal/polite register for all languages (Japanese です/ます, German Sie-form, formal Korean, formal Russian, Italian Lei, Dutch u, Polish Pan/Pani, Turkish siz, Ukrainian Ви, Hindi आप)
 
+#### Adding a UI string
+
+`check-i18n` enforces strict key parity across all 27 locales, because a missing
+key renders as the raw key to the user. Add the English string to
+`js/i18n/en.js`, then run:
+
+```bash
+bun run i18n:add                      # append the key to the other 26 locales
+bun scripts/i18n-add.mjs --check      # CI: fail when a locale is missing a key
+bun run i18n:check                    # parity + coverage floor + placeholder sanity
+```
+
+New keys land as English placeholders and keep counting as *untranslated* until a
+human or an AI pass translates them, so the coverage report never pretends a
+string is done.
+
 ### Storage & Export
 - **Auto-save** to browser localStorage + IndexedDB with debounced writes
+- **Version history** — up to 20 previous states per card, in IndexedDB, deduplicated by content signature so an autosave that changes nothing records nothing
 - **Export as JSON** — clean, formatted card data
 - **Export as PNG** — embeds card data into a valid PNG (SillyTavern-compatible)
 - Auto-generated fallback avatar PNG for cards without images
@@ -191,7 +234,7 @@ Full interface translation across **27 languages** with **619** translation keys
 - Custom scrollbars, smooth transitions, and micro-interactions
 - Toast notifications for all actions with countdown timers
 - **Global error boundary** — catches unhandled errors and shows user-friendly toasts
-- **Keyboard shortcuts** (`Ctrl+S` save, `Ctrl+N` new card, `Ctrl+Z/Y` undo/redo)
+- **Keyboard shortcuts** (`Ctrl+K` palette, `Ctrl+S` save, `Ctrl+N` new card, `Ctrl+Z/Y` undo/redo, `Alt+F` focus mode, `Ctrl+\` toggle the AI panel)
 - **Modal focus traps** — keyboard navigation stays inside open modals
 - **Delete confirmation** — prevents accidental card deletion
 - Fully responsive layout (adapts to tablet and mobile)
@@ -199,7 +242,7 @@ Full interface translation across **27 languages** with **619** translation keys
 - **Offline support** via service worker (caches app shell for instant loading)
 - **Installable PWA** — web app manifest + icons, so the editor can be added to the home screen / installed as an app
 - **High-contrast UI** — readable text in both themes, including the AI diff modal navigation
-- Content-Security-Policy headers for production security
+- **Content-Security-Policy headers** — served by `server.js` and mirrored in `index.html`: `script-src 'self'` only (no third-party script origin, no `'unsafe-inline'`), with the remaining origins allowlisted for data (AI providers, image APIs) and Google Fonts
 
 ---
 
@@ -207,7 +250,7 @@ Full interface translation across **27 languages** with **619** translation keys
 
 ### Prerequisites
 
-- **[Bun](https://bun.sh)** runtime (v1.0+)
+- **[Bun](https://bun.sh)** 1.3+ — the exact version is pinned in [`.bun-version`](.bun-version), which is what makes the committed bundle byte-reproducible
 
 ### Installation
 
@@ -228,18 +271,23 @@ bun run start
 
 ### Building the bundle
 
-The app is distributed as **one built entry module** (`js/app.js`) produced by a
-Bun bundler pass — source files live under `js/*.js` and are wrapped into a
-single artifact so the browser loads exactly one versioned script, the service
-worker precaches exactly one JS file, and cache-busters stay uniform:
+The app ships as a **pre-built ESM bundle** produced by a Bun bundler pass.
+Source files live under `js/*.js`; the bundler emits a 24-byte entry
+(`js/app.js`), the shared chunk that carries the whole app
+(`js/app.chunk.js`), and one lazy chunk per deferred feature (wizard, waifu tab,
+command palette). All five artifacts are committed, precached by the service
+worker and share a single `?v=` cache-buster:
 
 ```bash
-bun run build   # -> js/app.js (bundle checked into the repo for the deploy flow)
+bun run build   # -> js/app.js + js/*.chunk.js (committed; the browser loads these)
 ```
 
-`bun scripts/check-assets.mjs` (run in CI) verifies the committed bundle is
-fresh (byte-identical to a rebuild from current sources), so a forgotten rebuild
-fails the check instead of shipping stale logic.
+The bundle is **minified** and **byte-reproducible**: `bun scripts/check-assets.mjs`
+(run in CI and in the pre-commit hook) rebuilds from the current sources and
+fails if the committed artifacts differ, so a forgotten rebuild cannot ship
+stale logic; it also checks that every artifact is precached by the service
+worker. The dev server gzips text responses, which is what actually keeps the
+first load small — ~346 KB instead of ~1.2 MB for the shared chunk.
 
 The app will be available at **http://localhost:8182**.
 
@@ -282,9 +330,19 @@ Or try it instantly on **GitHub Pages**:
 
 ### Editing
 1. Click a card in the library to select it
-2. Edit any field across the four tabs
+2. Edit any field across the five tabs
 3. Changes auto-save (debounced) — a "✓ Saved" indicator flashes on the Save button
 4. Use **JSON / PNG** export buttons to download the finished card
+
+### Finding a Card
+1. Type in the library search box — it looks inside every field *and* the lorebook, ranks by relevance, and each result names the field that matched with the hit highlighted
+2. Narrow further with the tag cloud (**Filter by tags**); the query and the tags combine (AND) and the header shows how many cards are left
+3. Or press **Ctrl+K** and just type: cards, editor fields (“scenario”) and actions (“export”, “theme”) all live in one list — ↑/↓ to move, Enter to run
+
+### Inspecting a Card
+1. Hover a row for its real description, or click the eye button for the full preview (markdown-rendered description + first message)
+2. The preview's **Card health** section lists what only bites later: missing fields, macros the model would receive verbatim, and lorebook entries that can never fire
+3. The **Version history** section lists the last 20 saves — **Compare with current** opens a read-only diff, **Restore** puts a version back (and restoring is itself recorded as a version)
 
 ### Creating a New Character
 1. Click the wizard button (star icon in navbar, or center button on empty state)
@@ -323,51 +381,78 @@ Click any suggestion chip to instantly:
 ```
 st-card-editor/
 ├── public/
-│   ├── index.html          # Main HTML with full UI layout
-│   ├── sw.js               # Service worker for offline app-shell caching
-│   └── css/                # Stylesheets (split by concern)
-│       ├── theme.css        # Design tokens, dark/light themes, backdrop
-│       ├── base.css         # Reset, scrollbars, navbar, animations, buttons
-│       ├── layout.css       # App container, panels, resizers
-│       ├── library.css      # Left panel: card list, drop zone, empty state
-│       ├── editor.css       # Editor fields, textareas, markdown preview
-│       ├── ai-assistant.css # AI chat panel and message bubbles
-│       ├── modal.css        # Modals, model list, credits
-│       ├── diff.css         # AI response diff viewer
-│       ├── wizard.css       # Card creation wizard
-│       ├── components.css   # Toasts, lorebook, greetings
-│       └── responsive.css   # Media queries and responsive rules
+│   ├── index.html          # Main HTML with the full UI layout
+│   ├── manifest.webmanifest# PWA manifest (standalone, icons, theme colors)
+│   ├── favicon.svg         # Browser tab icon
+│   ├── icons/              # PWA icons (180 / 192 / 512 px)
+│   ├── sw.js               # Service worker: app-shell + runtime caching
+│   ├── css/                # Stylesheets (split by concern)
+│   │   ├── theme.css        # Design tokens, dark/light themes, backdrop
+│   │   ├── base.css         # Reset, scrollbars, navbar, animations, buttons
+│   │   ├── layout.css       # App container, panels, resizers
+│   │   ├── library.css      # Left panel: card list, drop zone, empty state
+│   │   ├── editor.css       # Editor fields, textareas, markdown preview
+│   │   ├── ai-assistant.css # AI chat panel and message bubbles
+│   │   ├── modal.css        # Modals, model list, credits, card health
+│   │   ├── diff.css         # AI response diff viewer
+│   │   ├── wizard.css       # Card creation wizard
+│   │   ├── components.css   # Toasts, lorebook, greetings
+│   │   └── responsive.css   # Media queries and responsive rules
+│   └── vendor/             # Vendored third-party libraries + MANIFEST.txt (source URL + sha384)
+├── docs/
+│   ├── DEVELOPMENT.md      # Local workflow, gates, and the guards behind them
+│   └── LOREBOOK.md         # Lorebook activation rules modelled by the health report
 ├── js/
-│   ├── app.js              # BUILT single-entry bundle (bun run build) — what the browser loads
-│   ├── cardEngine.js       # Card parsing, normalization, PNG chunk embedding
+│   ├── app.js              # BUILT entry (bun run build) — what the browser loads
+│   ├── app.chunk.js        # BUILT shared chunk (the whole app)
+│   ├── *.chunk.js          # BUILT lazy chunks (wizard, waifu tab, command palette)
+│   ├── cardEngine.js       # Card parsing, normalization, content signature, PNG chunk embedding
 │   ├── aiService.js        # AI API client (7 providers + custom)
-│   ├── storage.js          # localStorage + IndexedDB persistence layer
+│   ├── storage.js          # localStorage + IndexedDB persistence (cards, images, version history)
 │   ├── exportUtils.js      # PNG/JSON export, CRC32, PNG chunk embedding
+│   ├── cardState.js        # Store: cards, active card, dirty flag, selection
+│   ├── chatState.js        # Store: chat history, sessions, models, loading state
+│   ├── cardSearch.js       # Full-text index over the library (ranked search + snippets)
+│   ├── cardHealth.js       # Card diagnostics + lorebook activation simulator (pure)
+│   ├── commandPalette.js   # Ctrl+K palette (lazy chunk)
+│   ├── intentLearner.js    # Self-learning intent classifier for chat prompts
 │   ├── editor.js           # Editor form, greetings, lorebook management
-│   ├── cardManager.js      # Card list, selection, CRUD, sorting, tag cloud, batch compare, 3D tilt
+│   ├── cardManager.js      # Card list, selection, CRUD, search, sorting, batch ops, version history
 │   ├── aiChat.js           # AI chat interface, streaming, diff, re-apply, quick actions
 │   ├── wizard.js           # 5-step character creation wizard, waifu.im integration
+│   ├── waifuTab.js         # Reference-image tab (lazy chunk)
 │   ├── settings.js         # Settings modal, model list, credits, provider config, workspace backup
-│   ├── tokenizer.js        # Token estimation (lazy-loaded BPE tokenizer)
+│   ├── tokenizer.js        # Token estimation (vendored BPE tokenizer, lazily fetched)
 │   ├── animations.js       # anime.js animation utilities (stagger, slide, pulse, etc.)
 │   ├── i18n.js             # I18n entry: imports js/i18n/<lang>.js, exposes I18n engine
-│   ├── i18n/               # One translation file per language (619 keys × 27 languages)
+│   ├── globals.d.ts        # Ambient types for window.* and the DOM-adjacent helpers
+│   ├── i18n/               # One translation file per language (670 keys × 27 languages)
 │   └── ui.js               # Main controller: utilities, init, event binding, error boundary
 ├── .github/
 │   ├── screenshots/        # README screenshots
 │   ├── dependabot.yml      # Automated dependency/action updates
 │   └── workflows/
-│       └── deploy.yml      # CI check + GitHub Pages CD
+│       ├── ci.yml          # Fast gate: unit tests, typecheck, lint, i18n, asset freshness
+│       └── deploy.yml      # Full gate (incl. Playwright) + GitHub Pages CD
 ├── tests/
-│   └── smoke.spec.js       # Playwright end-to-end smoke suite
+│   ├── *.spec.js           # Playwright end-to-end suite (boots the real app)
+│   ├── helpers.js          # Shared fixtures: card builders, import, error collector
+│   └── unit/               # Bun unit tests for the pure logic
 ├── playwright.config.js    # Playwright config (server boot, Chrome channel)
 ├── scripts/
-│   ├── build.mjs           # Bundles js/*.js into a code-split ESM bundle (entry + shared + lazy chunks)
+│   ├── build.mjs           # Bundles js/*.js into a minified code-split ESM bundle
 │   ├── app.js              # Bundle entry — imports every app module once
 │   ├── check-assets.mjs    # Asset / SW-shell / version / bundle-freshness guard
-│   └── check-i18n.mjs      # i18n key-parity guard
-├── server.js               # Bun static file server with OpenRouter API proxy + CSP headers
+│   ├── check-i18n.mjs      # i18n key-parity + coverage guard
+│   ├── i18n-add.mjs        # Propagates new en.js keys into all 26 other locales
+│   ├── vendor.mjs          # Downloads/verifies the vendored libraries + manifest
+│   └── release.mjs         # One command to bump every place the version lives
+├── server.js               # Bun static server: OpenRouter proxy, CSP headers, gzip
 ├── package.json            # Project metadata and scripts
+├── tsconfig.json           # tsc --noEmit over every // @ts-check module (+ js/globals.d.ts)
+├── eslint.config.js        # Lint rules; excludes the built bundle and vendored code
+├── .bun-version            # Pinned Bun version (the bundle's byte-stability depends on it)
+├── CHANGELOG.md            # Release notes (its [Unreleased] section is the staging area)
 └── README.md               # This file
 ```
 
@@ -377,17 +462,20 @@ The app is a **single-page application** built with vanilla JavaScript and **Boo
 
 - **`cardEngine.js`** — Parses SillyTavern card formats (V1 flat, V2/V3 spec), extracts embedded data from PNG/WebP files (`chara`/`ccv3` tEXt chunks), and handles stable ID generation via content hashing.
 - **`aiService.js`** — Wraps 7 AI providers (OpenRouter, NanoGPT, xAI, Z.AI, Chutes, DeepSeek, Custom) with a unified registry: lists models with pricing, sends chat completions (streaming and non-streaming) with context-aware system prompts, fetches account credit info, and includes request timeouts.
-- **`storage.js`** — Hybrid persistence: lightweight metadata in `localStorage` (namespaced `stce_*`), full card data and images in **IndexedDB** (`stce_data` database). Includes one-time migration from legacy localStorage-only format.
+- **`storage.js`** — Hybrid persistence: lightweight metadata in `localStorage` (namespaced `stce_*`), full card data, images and per-card version history in **IndexedDB** (`stce_data`, 3 stores). Every write funnels through `upsertCard`, which is what lets the version history be recorded automatically. Includes one-time migration from the legacy localStorage-only format. Deleted cards are captured whole (content, artwork, chat) so undo can restore them.
+- **`cardState.js` / `chatState.js`** — The two stores that hold all mutable app state. The old `window.AppState` global is gone (a build check fails if it reappears) because a single shared bag is how a stale active card or chat transcript used to outlive a card switch.
 - **`exportUtils.js`** — PNG/JSON export with CRC32 checksum calculation and `tEXt` chunk embedding for SillyTavern-compatible output.
 - **`editor.js`** — Two-way binding between editor form fields and the active card object, with debounced auto-save, undo/redo, alternate greetings, and lorebook entry management.
-- **`cardManager.js`** — Card library rendering, drag-and-drop file import, card selection with IndexedDB image loading, sorting, tag cloud filtering, batch operations (delete, export, compare), and 3D tilt hover effect.
+- **`cardSearch.js`** — In-memory full-text index, one entry per card, built idle-time after the first render and updated from the same `stce:card-saved` / `stce:card-deleted` events the tooltip cache uses. Normalizes diacritics on both sides so `cafe` matches `café`, and reports the matched field plus a snippet whose offsets are computed on the raw text (so the highlight survives the folding).
+- **`cardHealth.js`** — Pure diagnostics and the lorebook activation simulator: no DOM, no storage, no translations baked in. Issues carry an i18n key plus values, so the same report can be rendered in a modal or asserted in a test.
+- **`commandPalette.js`** — `Ctrl+K`: one input over cards (via `cardSearch`), editor fields and the actions the buttons already run — the palette calls the same entry points rather than reimplementing them.
 - **`aiChat.js`** — AI chat interface with streaming responses, side-by-side diff preview (via jsdiff), re-apply button for past responses, markdown rendering (via marked + DOMPurify), context-aware system prompts, multi-field parallel editing, and quick action presets.
 - **`wizard.js`** — 5-step guided character creation with chip-based multi-select inputs, summary review, waifu.im image fetching and selection, and AI generation with automatic thumbnail setup.
 - **`settings.js`** — Settings modal with provider selection (7 providers), API key management, model browsing/selection, credit tracking, storage usage display, language switching, and full workspace backup/restore.
 - **`tokenizer.js`** — Token estimation using lazy-loaded `gpt-tokenizer` BPE library with offline heuristic fallback.
 - **`animations.js`** — Reusable animation functions built on anime.js: stagger fade-in, slide transitions, pulse, shake, scale click, progress bounce, icon spin, skeleton reveal, toast entrance. All respect `prefers-reduced-motion`.
-- **`i18n.js`** — Internationalization entry: imports one translation file per language from `js/i18n/` (619 keys across 27 languages) and exposes the `I18n` engine — `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings, and automatic RTL layout for Arabic/Hebrew/Persian.
-- **`ui.js`** — Thin controller: shared state (`AppState`), utility functions (`escapeHtml`, `debounce`, `showToast`, `renderMarkdown`), initialization, I18n boot, global error boundary, markdown library lazy-loading, and all event binding.
+- **`i18n.js`** — Internationalization entry: imports one translation file per language from `js/i18n/` (670 keys across 27 languages) and exposes the `I18n` engine — `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings, and automatic RTL layout for Arabic/Hebrew/Persian.
+- **`ui.js`** — Thin controller: utility functions (`escapeHtml`, `debounce`, `showToast`, `renderMarkdown`), initialization, I18n boot, global error boundary, lazy chunk loading, keyboard shortcuts, and all event binding. State lives in the stores, not here.
 
 ---
 
@@ -406,7 +494,13 @@ PNG Signature → IHDR → ... → IDAT → tEXt (chara=JSON) → IEND
 - **V1 (flat)** — `{ name, description, personality, ... }` without `spec` field
 - **V2/V3** — `{ spec: "chara_card_v2", spec_version: "2.0", data: { ... } }`
 
-### CDN Libraries
+### Third-party libraries
+
+The app ships **zero runtime dependencies**: every third-party library is vendored
+under `public/vendor/` and served from the app's own origin. No CDN request is
+made at runtime, which is what makes the offline service worker reliable (a
+purged CDN cache used to break offline mode) and lets the CSP pin exactly one
+script origin.
 
 | Library | Purpose |
 |---------|---------|
@@ -414,7 +508,18 @@ PNG Signature → IHDR → ... → IDAT → tEXt (chara=JSON) → IEND
 | [DOMPurify](https://github.com/cure53/DOMPurify) | XSS sanitization of rendered HTML (lazy-loaded) |
 | [jsdiff](https://github.com/kpdecker/jsdiff) | Word-level diffing for AI response preview |
 | [anime.js](https://animejs.com/) | Animation library for micro-interactions |
-| [gpt-tokenizer](https://github.com/niieani/gpt-tokenizer) | BPE token counting (lazy-loaded) |
+| [gpt-tokenizer](https://github.com/niieani/gpt-tokenizer) | BPE token counting (lazy-loaded, fetched on first use) |
+| Bootstrap 5.3 + Bootstrap Icons | Layout, components and icons |
+| Inter / Plus Jakarta Sans / JetBrains Mono | Typefaces |
+
+`public/vendor/MANIFEST.txt` records the exact source URL and **sha384** of every
+vendored file, so the committed bytes are reproducible and reviewable.
+`bun run vendor:check` re-hashes them against a fresh download, and
+`check-assets` fails if `public/vendor/` holds a file the manifest does not list.
+(The same-origin `<script src="vendor/…">` tags carry no `integrity` attribute:
+the browser only checks that for cross-origin loads, which is precisely why the
+files are vendored.) `bun scripts/vendor.mjs` re-fetches the libraries and
+regenerates the manifest when one is upgraded.
 
 ### Theme System
 
@@ -430,8 +535,11 @@ Toggle with the button in the navbar. Theme persists in localStorage.
 
 | Shortcut | Action |
 |----------|--------|
+| `Ctrl+K` / `Cmd+K` | Command palette (cards, fields, actions) |
 | `Ctrl+S` / `Cmd+S` | Save current card |
 | `Ctrl+N` / `Cmd+N` | Create new blank card |
+| `Alt+F` | Toggle focus mode |
+| `Ctrl+\` | Toggle the AI panel |
 | `Ctrl+Z` / `Cmd+Z` | Undo last edit |
 | `Ctrl+Y` / `Ctrl+Shift+Z` | Redo |
 | `Enter` (in AI input) | Send message to AI |
@@ -450,31 +558,54 @@ Contributions are welcome! Feel free to open issues or submit pull requests for:
 - Theme customization
 - Additional languages
 
+Before opening a PR, run the gates above — or read
+[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md), which documents what each guard
+actually protects (and the pitfalls behind them, e.g. why unit tests need
+`--parallel` and why the bundle is compared against a fresh build).
+
 ---
 
 ## Testing
 
-An end-to-end **Playwright smoke suite** (`tests/`) boots the app and exercises the regression classes found by earlier bug hunts, so they can never silently ship again:
+Two suites, deliberately different in shape:
 
-- App boots with zero console errors
-- All 7 sort modes render (guards the Manual-sort crash)
-- Toast bursts don't throw (guards the Bootstrap `dispose()` race)
-- Lorebook renders for numeric `order` + malformed `keysecondary` + spec-named `keys`/`secondary_keys` entries
-- PNG export round-trips through the app's own parser (guards the dropped-signature bug)
-- Wizard blank-card creation
-- AI **Suggest tags** flow end-to-end (stubbed provider) with diff-modal apply
-- Chat history creates exactly one session per message
-- PWA manifest + icons are served
+**Unit tests** (`tests/unit/`, Bun) cover the pure logic — parsing and normalization,
+the content signature, the search index, the token estimate, the chat/AI stream
+parsing, the lorebook simulator and the version-history rules. They run in well
+under a second, with no browser and no network.
+
+**End-to-end tests** (`tests/*.spec.js`, Playwright) boot the real app in Chrome
+and drive it. They exist to pin the behaviour that only shows up once the pieces
+are wired together — every console error is a failure, and the suite covers the
+regression classes found by earlier bug hunts: imports and persistence, the
+full-text search, the command palette, keyboard reordering, version history,
+batch-delete undo, the loader/editor round-trip, the AI diff-apply flow against a
+scripted provider, offline service-worker serving, and the CSP headers.
 
 ```bash
 bun install
-bun test          # headless, uses installed Chrome locally
-bun run test:headed
+bun run test:unit     # fast, no browser, no network
+bun run test          # end-to-end, uses the installed Chrome
+bun run test:headed   # ...with a visible browser window
+
+# The rest of the gates (CI runs all of them)
+bun run typecheck     # tsc --noEmit over every // @ts-check module
+bun run lint          # eslint, bundle and vendored code excluded
+bun run check:assets  # SW shell, version drift, bundle freshness, vendor manifest
+bun run i18n:check    # key parity + coverage floor across 27 locales
+bun run vendor:check  # public/vendor/* still matches MANIFEST.txt
 ```
+
+A commit runs `lint`, `typecheck`, the i18n key check and `check:assets`
+(`simple-git-hooks` in `package.json`); the suites and the remaining gates run in
+CI, so a PR cannot merge with a failing one.
 
 ## CI/CD
 
-The [GitHub Actions workflow](.github/workflows/deploy.yml) runs a `check` job (compile-check all JS + the bundle, asset/version/freshness guard, i18n key parity, unit tests, Playwright smoke suite) on every push and pull request, and keeps a stable build and a development build available at the same time:
+Two workflows, both wired to pushes and pull requests:
+
+- [`ci.yml`](.github/workflows/ci.yml) is the fast gate — unit tests, typecheck, lint, i18n parity/coverage, and the asset + bundle-freshness guard.
+- [`deploy.yml`](.github/workflows/deploy.yml) runs the full `check` job (everything above **plus** the Playwright end-to-end suite) and then publishes a stable and a development build:
 
 - **Stable (default):** [maxime-fleury.github.io/ST-cardEditor/](https://maxime-fleury.github.io/ST-cardEditor/), deployed from `master`
 - **Development:** [maxime-fleury.github.io/ST-cardEditor/dev/](https://maxime-fleury.github.io/ST-cardEditor/dev/), deployed from `dev`

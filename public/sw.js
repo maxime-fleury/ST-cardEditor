@@ -6,7 +6,7 @@
    ============================================================ */
 
 const BASE_PATH = new URL('.', self.location.href).pathname;
-const CACHE_PREFIX = 'stce-v2.7.1';
+const CACHE_PREFIX = 'stce-v2.8.0';
 const CACHE_NAME = `${CACHE_PREFIX}:${BASE_PATH}`;
 const DEV_PATH = BASE_PATH.endsWith('/dev/')
   ? BASE_PATH
@@ -28,26 +28,54 @@ const SHELL_FILES = [
   'css/wizard.css',
   'css/components.css',
   'css/responsive.css',
+  // Vendored third-party assets (see scripts/vendor.mjs): Bootstrap CSS/JS,
+  // bootstrap-icons + its fonts, jsdiff, anime.js and the lazily-loaded
+  // markdown libs. They are same-origin now, so the offline shell can precache
+  // them instead of relying on a runtime CDN round-trip.
+  'vendor/bootstrap.min.css',
+  'vendor/bootstrap.rtl.min.css',
+  'vendor/bootstrap.bundle.min.js',
+  'vendor/bootstrap-icons.css',
+  'vendor/fonts/bootstrap-icons.woff2',
+  'vendor/fonts/bootstrap-icons.woff',
+  'vendor/diff.min.js',
+  'vendor/anime.min.js',
+  'vendor/marked.min.js',
+  'vendor/purify.min.js',
   // App JS is built by `bun run build` into a code-split ESM bundle: a tiny
   // entry (js/app.js), one shared chunk (js/app.chunk.js), and one lazy chunk
-  // per deferred module (js/wizard.chunk.js, js/waifuTab.chunk.js). All four
-  // are precached so the app — and the wizard/waifu tab on first open — work
-  // offline. check-assets verifies this list matches the build output.
+  // per deferred module (js/wizard.chunk.js, js/waifuTab.chunk.js,
+  // js/commandPalette.chunk.js). All are precached so the app — and the lazy
+  // surfaces on first open — work offline. check-assets verifies this list
+  // matches the build output.
   'js/app.js',
   'js/app.chunk.js',
   'js/wizard.chunk.js',
   'js/waifuTab.chunk.js',
+  'js/commandPalette.chunk.js',
 ];
 
 const shellUrl = (file) => new URL(file || './', self.location.href).toString();
 const shellPaths = new Set(SHELL_FILES.map(file => new URL(file || './', self.location.href).pathname));
 
-// Third-party CDN origins the UI depends on (Bootstrap CSS/JS, bootstrap-icons
-// font, Google Fonts, anime.js, jsdiff, and the lazy-loaded markdown/tokenizer
-// libs). They're cross-origin, so the shell list above cannot precache them;
-// cache them at runtime (stale-while-revalidate) so the app truly works offline.
-const CDN_HOSTS = new Set(['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com']);
-const CDN_CACHE = 'stce-cdn-v2.7.1';
+// Google Fonts is the only third-party origin left in the UI (fonts are pure
+// data, no code): its stylesheet and the woff2 files it points at are
+// cross-origin, so the shell list above cannot precache them. They are cached
+// at runtime (stale-while-revalidate) so typography survives offline.
+const FONT_HOSTS = new Set(['fonts.googleapis.com', 'fonts.gstatic.com']);
+// Named for what it holds. It used to be CDN_CACHE ('stce-cdn-…') back when
+// Bootstrap/jsdiff/anime/marked came from jsdelivr; those are vendored now, so
+// the only cross-origin requests left are these fonts.
+const FONT_CACHE = 'stce-fonts-v2.8.0';
+
+// Same-origin assets that are deliberately NOT in the precached shell because
+// of their size, but should still work offline after their first successful
+// fetch (the vendored BPE tokenizer, ~2.7 MB). Caching on demand keeps the
+// install cheap while preserving the "used it once → works offline" property.
+const RUNTIME_FILES = ['vendor/gpt-tokenizer.js'].map(
+  (file) => new URL(file, self.location.href).pathname
+);
+const runtimePaths = new Set(RUNTIME_FILES);
 
 // Install: cache the app shell. Precaching is done per-file so one missing
 // asset (404) degrades offline coverage instead of aborting the whole install.
@@ -72,11 +100,11 @@ self.addEventListener('activate', (event) => {
       keys.filter((key) => {
         const separator = key.indexOf(':');
         const cachePath = separator >= 0 ? key.slice(separator + 1) : '';
-        // The CDN cache is deliberately global (cross-path) and must survive
+        // The font cache is deliberately global (cross-path) and must survive
         // activation: its name contains no ':', so without this exemption it
         // would be classified as a legacy cache and deleted on every update,
-        // leaving the app offline right after an upgrade.
-        if (key === CDN_CACHE || key.startsWith('stce-cdn-')) return false;
+        // leaving typography unstyled right after an upgrade.
+        if (key === FONT_CACHE || key.startsWith('stce-fonts-')) return false;
         // Keys without a ':' are legacy caches (pre-path-scoping, e.g.
         // "stce-v2.2"). They carry no path, so they can't be matched to any
         // deployment and must be removed rather than leaked forever.
@@ -93,14 +121,14 @@ self.addEventListener('activate', (event) => {
 // Network-first means a freshly deployed index.html (with its new ?v= busters)
 // is always served online; the cache only matters when offline.
 const staleWhileRevalidate = (request) =>
-  caches.open(CDN_CACHE).then((cache) =>
+  caches.open(FONT_CACHE).then((cache) =>
     cache.match(request, { ignoreVary: true }).then((cached) => {
       // Revalidate in the background (and prewarm the cache on first hit).
       fetch(request)
         .then((response) => {
           if (response.ok) {
             const copy = response.clone();
-            caches.open(CDN_CACHE).then((c) => c.put(request, copy));
+            caches.open(FONT_CACHE).then((c) => c.put(request, copy));
           }
         })
         .catch(() => {});
@@ -112,8 +140,8 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
-  // Third-party CDN assets: serve stale-from-cache first, refresh in background.
-  if (CDN_HOSTS.has(url.hostname)) {
+  // Cross-origin font assets: serve stale-from-cache first, refresh in background.
+  if (FONT_HOSTS.has(url.hostname)) {
     event.respondWith(staleWhileRevalidate(event.request));
     return;
   }
@@ -123,18 +151,21 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin || url.pathname.startsWith(`${BASE_PATH}api/`)
       || (!BASE_PATH.endsWith('/dev/') && url.pathname.startsWith(DEV_PATH))) return;
 
+  // Shell files (and the handful of opted-in runtime files above) are cached
+  // under their bare path (query strings stripped) so a ?v= bump still hits the
+  // cached copy when offline.
+  const isShellFile = shellPaths.has(url.pathname);
+  const isRuntimeFile = runtimePaths.has(url.pathname);
+
   const store = (request, response) => {
-    // Only clairvoyaged shell assets belong in the app cache. Caching every
-    // same-origin GET would grow the cache without bound (#35); shell files are
-    // the only assets the offline UI needs. Keep writes inside waitUntil so the
-    // worker doesn't die mid-write.
-    if (!isShellFile) return;
+    // Only the shell assets and the recorded runtime opt-ins belong in the app
+    // cache. Caching every same-origin GET would grow the cache without bound
+    // (#35); these are the only assets the offline UI needs. Keep writes inside
+    // waitUntil so the worker doesn't die mid-write.
+    if (!isShellFile && !isRuntimeFile) return;
     event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(request, response)));
   };
 
-  // Shell files are cached under their bare path (query strings stripped) so a
-  // ?v= bump still hits the cached copy when offline.
-  const isShellFile = shellPaths.has(url.pathname);
   const cacheKey = isShellFile ? new Request(url.pathname) : event.request;
   const fallbackUrl = isShellFile
     ? event.request

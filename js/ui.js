@@ -14,23 +14,13 @@ import { ExportUtils } from './exportUtils.js';
 import { Settings } from './settings.js';
 import { AiChat } from './aiChat.js';
 import { CardState } from './cardState.js';
+import { ChatState } from './chatState.js';
 
 // ─── Shared State ───────────────────────────────────────
-// Guarded so the module is importable in non-browser runtimes (unit tests);
-// in the browser this always runs and is what the other modules read as
-// `window.AppState` at call time. cards/activeCard/_dirty now live in
-// CardState (see cardState.js); the fields below delegate to it so legacy
-// callers and the e2e suite keep a single source of truth. The remaining
-// fields (models, chatHistory, isAiLoading) stay here for now.
-if (typeof window !== 'undefined') window.AppState = {
-  get cards() { return CardState.cards; },
-  set cards(v) { CardState.cards = v; },
-  get activeCard() { return CardState.activeCard; },
-  set activeCard(v) { CardState.activeCard = v; },
-  get _dirty() { return CardState.dirty; },
-  set _dirty(v) { CardState.dirty = v; },
-  models: [], chatHistory: [], isAiLoading: false,
-};
+// There is no app-wide state global anymore: the card collection lives in
+// CardState and the AI chat's runtime state (transcript, model list, loading
+// flag) in ChatState. Both are real ES modules, so every reader imports the
+// store it needs and a stale copy can no longer outlive a card switch.
 
 // ─── Utilities ──────────────────────────────────────────
 const Ui = {
@@ -38,6 +28,38 @@ const Ui = {
   $$(sel) { return document.querySelectorAll(sel); },
   /** Non-null querySelector for static shell elements (navbar, panels). */
   $el(sel) { const el = document.querySelector(sel); if (!el) throw new Error('ui: missing element ' + sel); return el; },
+
+  /**
+   * Flip the light/dark theme: persist it, swap the accent + glass tokens and
+   * spin the navbar icon. Extracted from the navbar button handler so the
+   * command palette runs exactly the same path (a second implementation would
+   * drift — the accent cleanup below is easy to get subtly wrong).
+   */
+  toggleTheme() {
+    const root = document.documentElement;
+    const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    root.setAttribute('data-theme', next);
+    const accent = CardStorage.getAccent(next);
+    if (accent) Settings.applyAccent(next, accent);
+    else {
+      // No saved accent for the target theme: clear the inline accent custom
+      // properties (they outrank stylesheet rules) and the flag.
+      ['--accent-300', '--accent-400', '--accent-500', '--accent-600', '--accent-700',
+        '--accent-glow', '--accent-glow-strong', '--accent-text'].forEach(name =>
+        root.style.removeProperty(name));
+      root.removeAttribute('data-accent-custom');
+    }
+    localStorage.setItem(CardStorage.PREFIX + 'theme', next);
+    // Re-apply appearance so the glass colors match the newly-selected theme.
+    Settings.applyAppearance();
+    const toggle = document.querySelector('#btnThemeToggle');
+    if (!toggle) return;
+    // Swap the icon FIRST, then spin it: animating the outgoing one and
+    // replacing the HTML in the same tick discards the animation, so the
+    // documented "360° icon spin on switch" never actually showed.
+    toggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
+    Anims.iconSpin(toggle.querySelector('i'));
+  },
 
   showToast(msg, type) {
     type = type || 'info';
@@ -332,10 +354,15 @@ const Ui = {
     if (this._pendingRemoteTouched) this._pendingRemoteTouched.add(field);
   },
 
+  // Markdown libs are vendored (vendor/marked.min.js, vendor/purify.min.js) and
+  // precached with the app shell, so this load is same-origin and works offline
+  // on the first try instead of depending on a network round-trip.
+  _markdownLibs: ['vendor/marked.min.js', 'vendor/purify.min.js'],
+
   _ensureMarkdownLibs() {
     if (this._markdownReady) return;
     if (this._markdownLoading) return;
-    // Back-off after a failed CDN load instead of re-injecting <script> tags
+    // Back-off after a failed load instead of re-injecting <script> tags
     // on every subsequent render call forever while offline (#31).
     if (Date.now() < this._markdownRetryAfter) return;
     this._markdownLoading = true;
@@ -350,8 +377,8 @@ const Ui = {
           this._markdownReady = true;
           this._markdownRetryAfter = 0;
           // Re-render any content that fell back to escaped plaintext while
-          // the CDN libs were loading (e.g. a Preview toggle triggered during
-          // a cold load) (#78).
+          // the markdown libs were loading (e.g. a Preview toggle triggered
+          // during a cold load) (#78).
           const pendingItems = this._markdownPending;
           this._markdownPending = [];
           pendingItems.forEach(item => {
@@ -360,29 +387,22 @@ const Ui = {
             }
           });
         } else {
-          // Wait 30s before trying the CDN again.
+          // Wait 30s before trying the vendored libs again.
           this._markdownRetryAfter = Date.now() + 30000;
         }
       }
     };
-    if (typeof marked === 'undefined') {
+    const loadOne = (src, isLoaded) => {
+      if (isLoaded()) { checkReady(); return; }
       const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+      // Resolved against the document so the path also works under /dev/.
+      s.src = new URL(src, document.baseURI).href;
       s.onload = checkReady;
       s.onerror = () => { failed = true; checkReady(); };
       document.head.appendChild(s);
-    } else {
-      checkReady();
-    }
-    if (typeof DOMPurify === 'undefined') {
-      const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js';
-      s.onload = checkReady;
-      s.onerror = () => { failed = true; checkReady(); };
-      document.head.appendChild(s);
-    } else {
-      checkReady();
-    }
+    };
+    loadOne(this._markdownLibs[0] || '', () => typeof marked !== 'undefined');
+    loadOne(this._markdownLibs[1] || '', () => typeof DOMPurify !== 'undefined');
   },
 
   renderMarkdown(text, target) {
@@ -525,7 +545,7 @@ async function init() {
   await CardStorage._unlockKeys();
 
   CardState.cards = CardStorage.getCards();
-  window.AppState.chatHistory = [];
+  ChatState.history = [];
   const apiKey = CardStorage.getApiKey();
 
   // If a stored key could not be decrypted (e.g. the server moved to a new
@@ -579,7 +599,17 @@ async function init() {
     }
   }
 
+  // Restore the persisted library view (query, tag filters, collapsed groups)
+  // and mirror the query into the input, so a filtered library is never a
+  // mystery on reload.
+  CardManager.restoreLibraryView();
+  const restoredSearch = document.querySelector('#cardSearchInput');
+  if (restoredSearch && CardManager._searchQuery) restoredSearch.value = CardManager._searchQuery;
+
   CardManager.renderCardList();
+  // Index the library in the background so the first search returns full-text
+  // results without waiting on a cold index.
+  CardManager.primeSearchIndex();
   AiChat.renderChatHistory();
 
   const activeId = CardStorage.getActiveCardId();
@@ -705,8 +735,8 @@ function setupErrorBoundary() {
       setTimeout(() => { window._errorThrottled = false; }, 5000);
     }
     // Reset AI loading state on error to prevent UI lockup
-    if (window.AppState.isAiLoading) {
-      window.AppState.isAiLoading = false;
+    if (ChatState.isAiLoading) {
+      ChatState.isAiLoading = false;
       AiChat.updateSendButton();
     }
   });
@@ -719,8 +749,8 @@ function setupErrorBoundary() {
       Ui.showToast(I18n.t ? I18n.t('error.requestFailed', { message: msg }) : ('Request failed: ' + msg), 'danger');
       setTimeout(() => { window._errorThrottled = false; }, 5000);
     }
-    if (window.AppState.isAiLoading) {
-      window.AppState.isAiLoading = false;
+    if (ChatState.isAiLoading) {
+      ChatState.isAiLoading = false;
       AiChat.updateSendButton();
     }
   });
@@ -1090,7 +1120,7 @@ function bindEvents(settingsModal) {
   const stopBtn = $('#btnAiStop');
   if (stopBtn) stopBtn.addEventListener('click', () => {
     AiChat._abortAll();
-    window.AppState.isAiLoading = false;
+    ChatState.isAiLoading = false;
     AiChat.updateSendButton();
   });
 
@@ -1195,26 +1225,7 @@ function bindEvents(settingsModal) {
   Settings.applyAppearance();
   if (themeToggle) {
     themeToggle.innerHTML = savedTheme === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
-    themeToggle.addEventListener('click', () => {
-      const current = document.documentElement.getAttribute('data-theme');
-      const next = current === 'light' ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', next);
-      const accent = CardStorage.getAccent(next);
-      if (accent) Settings.applyAccent(next, accent);
-      else {
-        // No saved accent for the target theme: clear the inline accent
-        // custom properties (they outrank stylesheet rules) and the flag.
-        ['--accent-300','--accent-400','--accent-500','--accent-600','--accent-700',
-         '--accent-glow','--accent-glow-strong','--accent-text'].forEach(name =>
-          document.documentElement.style.removeProperty(name));
-        document.documentElement.removeAttribute('data-accent-custom');
-      }
-      localStorage.setItem(CardStorage.PREFIX + 'theme', next);
-      // Re-apply appearance so the glass colors match the newly-selected theme.
-      Settings.applyAppearance();
-      Anims.iconSpin(themeToggle.querySelector('i'));
-      themeToggle.innerHTML = next === 'light' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-fill"></i>';
-    });
+    themeToggle.addEventListener('click', () => Ui.toggleTheme());
   }
 
   // Brand icon float
@@ -1401,10 +1412,25 @@ function bindEvents(settingsModal) {
 
 // ─── KEYBOARD SHORTCUTS ───────────────────────────────
 
+// Loaded on first use (lazy chunk, see scripts/app.js) — the palette is not part
+// of the boot path.
+async function openCommandPalette() {
+  const { CommandPalette } = await import('./commandPalette.js');
+  CommandPalette.show();
+}
+
 function handleKeyboardShortcuts(e) {
   const inField = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable;
   const mod = e.ctrlKey || e.metaKey;
   const key = (e.key || '').toLowerCase();
+
+  // Ctrl/Cmd+K works from anywhere — including inside a text field, which is
+  // where "go to another field / card" is most useful.
+  if (mod && key === 'k') {
+    e.preventDefault();
+    openCommandPalette();
+    return;
+  }
 
   // Inside a text field: only intercept Save; let native undo/redo work.
   if (inField) {
@@ -1465,6 +1491,10 @@ async function handleStorageChange(e) {
   if (!isCardData) return;
   CardState.cards = CardStorage.getCards();
   CardManager.renderCardList();
+  // The other tab's write also invalidated this tab's full-text index (the
+  // `cardIndex` key names no card), so rebuild it — debounced, since a busy
+  // other tab can fire this on every autosave.
+  CardManager.refreshSearchIndex();
   if (CardState.activeCard) {
     const active = /** @type {HTMLElement | null} */ (document.activeElement);
     if (CardState.dirty) {

@@ -7,10 +7,11 @@
  *   1. package.json            — "version"
  *   2. public/index.html       — js cache-buster (?v=N) and navbar badge (vX.Y.Z)
  *   3. README.md               — shields version badge (and its changelog link)
- *   4. public/sw.js            — CACHE_PREFIX (app shell) and CDN_CACHE
- *   5. CHANGELOG.md            — [Unreleased] becomes [X.Y.Z] - date, fresh
- *                                [Unreleased] section added on top, link refs
- *                                rewritten so old links keep resolving
+ *   4. public/sw.js            — CACHE_PREFIX (app shell) and FONT_CACHE
+ *   5. CHANGELOG.md            — the notes staged under [Unreleased] move under
+ *                                a dated [X.Y.Z] heading, a fresh [Unreleased]
+ *                                stays on top, and the link refs are rewritten
+ *                                so old links keep resolving
  *
  * Then runs `bun scripts/check-assets.mjs` to prove nothing drifted.
  *
@@ -107,21 +108,22 @@ readme = readme.replace(badgeRe, `$1${newVersion}$2`);
 if (!dryRun) write("README.md", readme);
 plan("README.md", `version badge → ${newVersion}`);
 
-// 4. public/sw.js — CACHE_PREFIX + CDN_CACHE
+// 4. public/sw.js — CACHE_PREFIX + FONT_CACHE
 let swJs = read("public/sw.js");
 const prefixRe = /(CACHE_PREFIX\s*=\s*')(stce-v[\d.]+)(')/;
-const cdnRe = /(CDN_CACHE\s*=\s*')(stce-cdn-v[\d.]+)(')/;
-if (!prefixRe.test(swJs) || !cdnRe.test(swJs)) {
-  console.error("release: CACHE_PREFIX or CDN_CACHE not found in public/sw.js.");
+const fontRe = /(FONT_CACHE\s*=\s*')(stce-fonts-v[\d.]+)(')/;
+if (!prefixRe.test(swJs) || !fontRe.test(swJs)) {
+  console.error("release: CACHE_PREFIX or FONT_CACHE not found in public/sw.js.");
   process.exit(1);
 }
 swJs = swJs.replace(prefixRe, `$1stce-v${newVersion}$3`);
-swJs = swJs.replace(cdnRe, `$1stce-cdn-v${newVersion}$3`);
+swJs = swJs.replace(fontRe, `$1stce-fonts-v${newVersion}$3`);
 if (!dryRun) write("public/sw.js", swJs);
-plan("public/sw.js", `CACHE_PREFIX → stce-v${newVersion}, CDN_CACHE → stce-cdn-v${newVersion}`);
+plan("public/sw.js", `CACHE_PREFIX → stce-v${newVersion}, FONT_CACHE → stce-fonts-v${newVersion}`);
 
-// 5. CHANGELOG.md — insert a dated [X.Y.Z] entry under [Unreleased], then
-//    rewrite the version-link block at the bottom (old links keep resolving).
+// 5. CHANGELOG.md — the notes staged under [Unreleased] become the dated
+//    [X.Y.Z] section, leaving a fresh, empty [Unreleased] on top; the
+//    version-link block at the bottom is rewritten so old links keep resolving.
 let changelog = read("CHANGELOG.md");
 // Keep a Changelog order: [Unreleased] stays on top, and the newly-dated
 // release entry goes right below it (above the previous release).
@@ -136,9 +138,20 @@ if (firstReleaseIdx === -1) {
   console.error("release: no \"## [X.Y.Z]\" release section after [Unreleased] in CHANGELOG.md — fix by hand first.");
   process.exit(1);
 }
-const entry = `## [${newVersion}] - ${today}\n\n`;
-changelog = changelog.slice(0, firstReleaseIdx)
-  + entry
+// The staged notes are everything between the [Unreleased] heading and the next
+// release heading. They must MOVE under the new version, not be leapfrogged: an
+// empty dated section with the notes still sitting under [Unreleased] is exactly
+// the failure this script exists to prevent.
+const unreleasedBody = changelog.slice(afterUnreleased, firstReleaseIdx);
+if (!/\n### /.test(unreleasedBody)) {
+  console.error(`release: [Unreleased] has no "### Added/Changed/Fixed" notes — write them before releasing ${newVersion}.`);
+  process.exit(1);
+}
+// trimStart() drops the blank lines that used to sit under [Unreleased], so the
+// dated section is followed by exactly one (the file's own style).
+changelog = changelog.slice(0, afterUnreleased)
+  + `\n\n## [${newVersion}] - ${today}\n\n`
+  + unreleasedBody.trimStart()
   + changelog.slice(firstReleaseIdx);
 const refsRe = /(\[Unreleased\]: https:\/\/github\.com\/[^\n]+compare\/v[\d.]+(?:\.\.\.HEAD|\+?\.\.\.HEAD))\n((?:\[[\d.]+\]: https:\/\/github\.com\/[^\n]+\n?)+)/;
 const refsM = refsRe.exec(changelog);
@@ -152,7 +165,7 @@ if (refsM) {
   );
 }
 if (!dryRun) write("CHANGELOG.md", changelog);
-plan("CHANGELOG.md", `dated [${newVersion}] entry under [Unreleased], link refs rewritten`);
+plan("CHANGELOG.md", `[Unreleased] notes moved under a dated [${newVersion}] heading, link refs rewritten`);
 
 // ─── Verify ───────────────────────────────────────────────────────────────
 if (dryRun) {

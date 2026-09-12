@@ -49,6 +49,8 @@
   gap: 0.2rem;
   padding: 0.15rem 0.5rem;
   font-size: 0.68rem;
+  font-family: inherit;
+  line-height: 1.5;
   border-radius: 100px;
   border: 1px solid var(--surface-border);
   background: var(--bg-surface);
@@ -71,6 +73,10 @@
 .tag-chip .tag-count {
   opacity: 0.6;
   font-size: 0.6rem;
+}
+.tag-chip:focus-visible {
+  outline: 2px solid var(--purple-500);
+  outline-offset: 2px;
 }
 
 /* ============================================================
@@ -251,6 +257,52 @@
   font-size: 0.6rem;
 }
 
+/* Full-text search result: which field matched, and the surrounding text. */
+.card-list-match {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  min-width: 0;
+}
+.card-list-match .card-match-field {
+  flex: 0 0 auto;
+  padding: 0 0.3rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--purple-500) 22%, transparent);
+  color: var(--text);
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.card-list-match .card-match-snippet {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.card-list-match mark {
+  background: color-mix(in srgb, var(--purple-500) 45%, transparent);
+  color: inherit;
+  padding: 0 0.1rem;
+  border-radius: 0.15rem;
+}
+
+/* Notice shown when a query has more matches than the list renders. */
+.search-notice {
+  padding: 0.3rem 0.5rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  border: 1px dashed color-mix(in srgb, var(--purple-500) 40%, transparent);
+  border-radius: 0.4rem;
+  text-align: center;
+}
+
 .card-list-badge {
   font-size: 0.65rem;
   padding: 0.15em 0.45em;
@@ -279,6 +331,9 @@
 .card-batch-check:checked { opacity: 1; }
 .card-drag-handle { cursor: grab; color: var(--text-muted); font-size: 0.8rem; padding: 2px 4px; opacity: 0; transition: opacity var(--transition-fast); }
 .card-list-item:hover .card-drag-handle { opacity: 1; }
+/* The handle starts invisible and only appears on hover, so a keyboard user
+   tabbing onto it must be able to see it. */
+.card-drag-handle:focus-visible { opacity: 1; outline: 2px solid var(--purple-500); outline-offset: 1px; border-radius: 3px; }
 .card-list-item.drag-over { border-top: 2px solid var(--purple-500); transition: border-top 150ms ease, transform 150ms ease; }
 .card-preview-tooltip {
   display: none; position: absolute; inset-inline-start: 105%; top: 0; width: 260px;

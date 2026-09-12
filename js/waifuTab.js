@@ -1,3 +1,4 @@
+// @ts-check
 /* ============================================================
    waifuTab.js — "Waifu Image" editor tab
    Fetch a card image from:
@@ -14,16 +15,19 @@ import { I18n } from './i18n.js';
 import { Ui } from './ui.js';
 import { CardStorage } from './storage.js';
 import { Editor } from './editor.js';
+import { CardState } from './cardState.js';
 
 const WaifuTab = {
-  _fetched: [],        // [{ blob, url, objUrl, tags }]
+  /** @type {{ blob: Blob, url?: string, objUrl?: string, tags?: string }[]} */
+  _fetched: [],
   _selected: -1,
   _fetching: false,
   _source: 'snapshot', // 'snapshot' | 'character'
   _gender: 'all',      // 'all' | 'female' | 'male' (character source)
   _mode: 'source',     // 'source' | 'mixed' (mixed = the 3f+3m pack)
   _preloaded: false,   // auto-loaded the default pack once per app session
-  _lastRun: null,      // last executed intent, so Regenerate can re-roll it
+  /** @type {Record<string, unknown> | null} last executed intent, so Regenerate can re-roll it */
+  _lastRun: null,
 
   init() {
     const on = (sel, event, fn) => {
@@ -37,13 +41,16 @@ const WaifuTab = {
     on('#waifuBtnUse', 'click', () => this._useSelected());
     on('#waifuBtnRemove', 'click', () => this._removeCurrent());
     on('#waifuBtnUpload', 'click', () => {
-      const inp = document.querySelector('#waifuUploadInput');
+      // `click()` lives on HTMLElement, so the lookup is narrowed here rather
+      // than widening the global `Element` for every other consumer.
+      const inp = /** @type {HTMLInputElement | null} */ (document.querySelector('#waifuUploadInput'));
       if (inp) inp.click();
     });
     on('#waifuUploadInput', 'change', (e) => {
-      const f = e.target.files && e.target.files[0];
+      const input = /** @type {HTMLInputElement} */ (e.target);
+      const f = input.files && input.files[0];
       if (f) Editor.setAvatar(f);
-      e.target.value = '';
+      input.value = '';
     });
     on('#waifuSourceSelect', 'change', () => this._onSourceChange());
 
@@ -51,7 +58,7 @@ const WaifuTab = {
     const chipsWrap = document.querySelector('#waifuGenderChips');
     if (chipsWrap) {
       chipsWrap.addEventListener('click', (e) => {
-        const chip = e.target.closest('.waifu-chip');
+        const chip = /** @type {HTMLElement} */ (e.target).closest('.waifu-chip');
         if (!chip || !chip.dataset.gender) return;
         this._gender = chip.dataset.gender;
         chipsWrap.querySelectorAll('.waifu-chip').forEach(c => {
@@ -63,7 +70,7 @@ const WaifuTab = {
     const search = document.querySelector('#waifuTagSearch');
     if (search) {
       search.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); this._fetch(); }
+        if (/** @type {KeyboardEvent} */ (e).key === 'Enter') { e.preventDefault(); this._fetch(); }
       });
     }
 
@@ -366,7 +373,9 @@ const WaifuTab = {
   // ─── RENDER / APPLY / REMOVE ────────────────────────────────
   _render() {
     const wrap = document.querySelector('#waifuResults');
-    const btnUse = document.querySelector('#waifuBtnUse');
+    // `hidden` lives on HTMLElement, not Element, so the dynamic lookup is
+    // narrowed once here instead of at each use.
+    const btnUse = /** @type {HTMLElement | null} */ (document.querySelector('#waifuBtnUse'));
     if (!wrap) return;
 
     if (!this._fetched.length) {
@@ -383,7 +392,7 @@ const WaifuTab = {
 
     wrap.querySelectorAll('.waifu-card').forEach(card => {
       card.addEventListener('click', () => {
-        this._selected = +card.dataset.idx;
+        this._selected = Number(card.dataset.idx || 0);
         this._render();
       });
     });
@@ -392,15 +401,16 @@ const WaifuTab = {
   },
 
   async _useSelected() {
-    if (this._selected < 0 || !this._fetched[this._selected]) return;
-    const { activeCard } = window.AppState;
+    const slot = this._fetched[this._selected];
+    if (this._selected < 0 || !slot) return;
+    const { activeCard } = CardState;
     if (!activeCard) { Ui.showToast(I18n.t('toast.createCardFirst'), 'warning'); return; }
-    await Editor.setAvatar(this._fetched[this._selected].blob);
+    await Editor.setAvatar(slot.blob);
     this._refreshPreview();
   },
 
   async _removeCurrent() {
-    const { activeCard } = window.AppState;
+    const { activeCard } = CardState;
     if (!activeCard) { Ui.showToast(I18n.t('toast.selectCard'), 'warning'); return; }
     if (!activeCard._hasImage && !activeCard._imageBase64) {
       Ui.showToast(I18n.t('toast.noImage'), 'warning');
@@ -413,7 +423,7 @@ const WaifuTab = {
     if (activeCard._id) {
       try { await CardStorage.deleteImage(activeCard._id); } catch (_) {}
     }
-    const img = document.querySelector('#charAvatarImg');
+    const img = /** @type {HTMLImageElement | null} */ (document.querySelector('#charAvatarImg'));
     if (img) { img.src = ''; img.hidden = true; }
     const ph = document.querySelector('#avatarPlaceholder');
     if (ph) ph.style.display = '';
@@ -423,8 +433,8 @@ const WaifuTab = {
   },
 
   _refreshPreview() {
-    const { activeCard } = window.AppState;
-    const img = document.querySelector('#waifuCurrentImg');
+    const { activeCard } = CardState;
+    const img = /** @type {HTMLImageElement | null} */ (document.querySelector('#waifuCurrentImg'));
     const noImg = document.querySelector('#waifuNoImage');
     if (!img || !noImg) return;
     if (activeCard && (activeCard._imageBase64 || activeCard._hasImage)) {

@@ -7,6 +7,7 @@
 import { I18n } from './i18n.js';
 import { CardStorage } from './storage.js';
 import { Tokenizer } from './tokenizer.js';
+import { ChatState } from './chatState.js';
 
 const AIService = {
   DEFAULT_TEMPERATURE: 0.7,
@@ -622,8 +623,8 @@ const AIService = {
     } catch (_) { inputTokens = 0; }
     if (!inputTokens && messages?.length) {
       inputTokens = (messages || []).reduce((sum, m) => {
-        // Shared estimator: real BPE once the CDN lib is loaded (even when the
-        // async count above failed), heuristic before — same number the
+        // Shared estimator: real BPE once the vendored tokenizer is loaded (even
+        // when the async count above failed), heuristic before — same number the
         // context bar and editor counters would compute. syncCount degrades
         // to the heuristic internally, so no guard is needed here.
         return sum + Tokenizer.syncCount(m.content || '');
@@ -634,8 +635,8 @@ const AIService = {
     const available = Math.max(512, ctxLength - inputTokens - safetyMargin);
 
     let maxTokens = this.DEFAULT_MAX_TOKENS;
-    if (modelId && window.AppState.models) {
-      const m = window.AppState.models.find(x => x.id === modelId);
+    if (modelId && ChatState.models) {
+      const m = ChatState.models.find(x => x.id === modelId);
       if (m && m.max_output_tokens && m.max_output_tokens > 0) maxTokens = m.max_output_tokens;
     }
 
@@ -653,8 +654,8 @@ const AIService = {
    * Get context length for a model.
    */
   _getContextLength(modelId) {
-    if (modelId && window.AppState.models) {
-      const m = window.AppState.models.find(x => x.id === modelId);
+    if (modelId && ChatState.models) {
+      const m = ChatState.models.find(x => x.id === modelId);
       const ctx = m && m.context_length;
       if (ctx && ctx > 0) return ctx;
     }

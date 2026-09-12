@@ -1,22 +1,40 @@
+// @ts-check
 /* ============================================================
    tokenizer.js — Token estimation with a real BPE tokenizer
    ------------------------------------------------------------
-   Uses gpt-tokenizer (cl100k_base) loaded lazily from a CDN.
-   Falls back to a multilingual heuristic if the network/CDN
-   is unavailable, so the UI never blocks on this.
+   Uses gpt-tokenizer (cl100k_base), vendored under public/vendor/ and fetched
+   lazily on first use (~2.7 MB — deliberately NOT part of the precached app
+   shell; the service worker caches it at runtime instead). Falls back to a
+   multilingual heuristic until it arrives, so the UI never blocks on this.
    ============================================================ */
 
 const Tokenizer = {
+  /** @type {((text: string) => number) | null} */
   _lib: null,
+  /** @type {Promise<((text: string) => number) | null> | null} */
   _loading: null,
   _lastFail: 0,
-  _cdnUrl: 'https://esm.sh/gpt-tokenizer@3.0.1',
+  // Relative to the document (not the bundle) so /dev/ deployments resolve it
+  // too; see _resolveUrl().
+  _libUrl: 'vendor/gpt-tokenizer.js',
+
+  /** Absolute URL of the vendored tokenizer, resolved against the document. */
+  _resolveUrl() {
+    const base = (typeof document !== 'undefined' && document.baseURI)
+      ? document.baseURI
+      : (typeof location !== 'undefined' ? location.href : '');
+    try { return new URL(this._libUrl, base).href; } catch (_) { return this._libUrl; }
+  },
 
   async _load() {
     if (this._lib !== null) return this._lib;
     if (this._loading) return this._loading;
     if (this._lastFail && Date.now() - this._lastFail < 300000) return null;
-    this._loading = import(this._cdnUrl)
+    // A computed specifier on purpose: a literal import('vendor/…') is resolved
+    // relative to THIS module (js/), and a static string would tempt the bundler
+    // into pulling the 2.7 MB library into the app chunk the browser parses on
+    // boot (scripts/build.mjs). _resolveUrl() resolves against the document.
+    this._loading = import(this._resolveUrl())
       .then(mod => {
         const fn = mod.countTokens
           || (mod.default && mod.default.countTokens)
@@ -26,7 +44,7 @@ const Tokenizer = {
         // a success: without this, `_loading` stays cached forever, the backoff
         // never engages and the real tokenizer is never retried (only a reload
         // would clear it).
-        if (!fn) throw new Error('tokenizer module has no countTokens/encode');
+        if (typeof fn !== 'function') throw new Error('tokenizer module has no countTokens/encode');
         return fn;
       })
       .catch(() => { this._lastFail = Date.now(); this._loading = null; return null; });
@@ -60,8 +78,8 @@ const Tokenizer = {
   /**
    * Synchronous count that uses the real BPE tokenizer once it has loaded and
    * the heuristic before then. Per-field char counters call this so they agree
-   * with the (async) context-bar budget instead of diverging once the CDN lib
-   * arrives.
+   * with the (async) context-bar budget instead of diverging once the real
+   * tokenizer arrives.
    */
   syncCount(text) {
     return this._countWith(this._lib, text);

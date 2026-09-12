@@ -28,12 +28,12 @@ test('greetings: add, reorder, set default, delete, undo/redo', async ({ page })
   // Undo restores it; redo deletes again.
   await page.evaluate(() => window.Editor.undo());
   await page.waitForTimeout(300);
-  expect(await page.evaluate(() => window.AppState.activeCard.alternate_greetings.length)).toBe(2);
+  expect(await page.evaluate(() => window.CardState.activeCard.alternate_greetings.length)).toBe(2);
   await page.evaluate(() => window.Editor.redo());
   await page.waitForTimeout(300);
-  expect(await page.evaluate(() => window.AppState.activeCard.alternate_greetings.length)).toBe(1);
+  expect(await page.evaluate(() => window.CardState.activeCard.alternate_greetings.length)).toBe(1);
 
-  const state = await page.evaluate(() => window.AppState.activeCard);
+  const state = await page.evaluate(() => window.CardState.activeCard);
   expect(state.alternate_greetings[0]).toBe('greet two'); // reorder stuck
   expect(state.first_mes).toBe('greet two'); // default stuck
   expect(errors, 'greetings flow must not throw').toEqual([]);
@@ -69,7 +69,7 @@ test('lorebook: add, edit, live-search filter, delete', async ({ page }) => {
   await page.waitForTimeout(400);
   await page.locator('.lorebook-accordion-item').first().locator('.lorebook-delete-btn').click();
   await page.waitForTimeout(300);
-  expect(await page.evaluate(() => window.AppState.activeCard.character_book.entries.length)).toBe(0);
+  expect(await page.evaluate(() => window.CardState.activeCard.character_book.entries.length)).toBe(0);
   expect(errors, 'lorebook flow must not throw').toEqual([]);
 });
 
@@ -83,8 +83,8 @@ test('avatar: set, persist across reload, remove, persist removal', async ({ pag
   await page.locator('#avatarInput').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: TINY_PNG });
   await page.waitForTimeout(500);
   const afterSet = await page.evaluate(() => ({
-    base64: window.AppState.activeCard._imageBase64,
-    hasImage: window.AppState.activeCard._hasImage,
+    base64: window.CardState.activeCard._imageBase64,
+    hasImage: window.CardState.activeCard._hasImage,
     src: document.querySelector('#charAvatarImg').getAttribute('src'),
   }));
   expect(afterSet.base64).toContain('data:image/png');
@@ -96,8 +96,8 @@ test('avatar: set, persist across reload, remove, persist removal', async ({ pag
   await page.locator('.card-list-item').first().click();
   await page.waitForTimeout(200);
   const afterReload = await page.evaluate(() => ({
-    base64: window.AppState.activeCard._imageBase64,
-    hasImage: window.AppState.activeCard._hasImage,
+    base64: window.CardState.activeCard._imageBase64,
+    hasImage: window.CardState.activeCard._hasImage,
   }));
   expect(afterReload.base64).toContain('data:image/png');
   expect(afterReload.hasImage).toBe(true);
@@ -108,8 +108,8 @@ test('avatar: set, persist across reload, remove, persist removal', async ({ pag
   await page.locator('#waifuBtnRemove').click();
   await page.waitForTimeout(300);
   const afterRemove = await page.evaluate(() => ({
-    base64: window.AppState.activeCard._imageBase64 ?? null,
-    hasImage: window.AppState.activeCard._hasImage,
+    base64: window.CardState.activeCard._imageBase64 ?? null,
+    hasImage: window.CardState.activeCard._hasImage,
     imgHidden: document.querySelector('#charAvatarImg').hidden,
   }));
   expect(afterRemove.base64).toBe(null);
@@ -120,8 +120,8 @@ test('avatar: set, persist across reload, remove, persist removal', async ({ pag
   await page.locator('.card-list-item').first().click();
   await page.waitForTimeout(200);
   const afterRemoveReload = await page.evaluate(() => ({
-    base64: window.AppState.activeCard._imageBase64 ?? null,
-    hasImage: window.AppState.activeCard._hasImage,
+    base64: window.CardState.activeCard._imageBase64 ?? null,
+    hasImage: window.CardState.activeCard._hasImage,
   }));
   expect(afterRemoveReload.base64).toBe(null);
   expect(afterRemoveReload.hasImage).toBe(false);
@@ -143,7 +143,7 @@ test('extensions editor: persist valid, reject invalid, undo, round-trip', async
   // Valid JSON persists after the 600ms debounce.
   await extTa.fill('{\n  "project": "st",\n  "nums": [1,2,3]\n}');
   await page.waitForTimeout(1300);
-  let ext = await page.evaluate(() => window.AppState.activeCard.extensions);
+  let ext = await page.evaluate(() => window.CardState.activeCard.extensions);
   expect(ext.project).toBe('st');
   expect(ext.nums).toEqual([1, 2, 3]);
   await expect(extTa).not.toHaveClass(/is-invalid-json/);
@@ -151,7 +151,7 @@ test('extensions editor: persist valid, reject invalid, undo, round-trip', async
   // Invalid JSON is rejected, the old value kept, and the field flagged.
   await extTa.fill('{ "broken": ');
   await page.waitForTimeout(1300);
-  ext = await page.evaluate(() => window.AppState.activeCard.extensions);
+  ext = await page.evaluate(() => window.CardState.activeCard.extensions);
   expect(ext.project).toBe('st');
   await expect(extTa).toHaveClass(/is-invalid-json/);
   await expect(status).toHaveText(/Invalid JSON/);
@@ -164,7 +164,7 @@ test('extensions editor: persist valid, reject invalid, undo, round-trip', async
   await page.waitForTimeout(1300);
   await page.evaluate(() => window.Editor.undo());
   await page.waitForTimeout(300);
-  ext = await page.evaluate(() => window.AppState.activeCard.extensions);
+  ext = await page.evaluate(() => window.CardState.activeCard.extensions);
   expect(ext.project).toBe('st');
   expect(await extTa.inputValue()).toContain('"project"');
 
@@ -172,7 +172,7 @@ test('extensions editor: persist valid, reject invalid, undo, round-trip', async
   await page.reload();
   await page.locator('.card-list-item', { hasText: 'ExHam' }).click();
   await page.waitForTimeout(300);
-  ext = await page.evaluate(() => window.AppState.activeCard.extensions);
+  ext = await page.evaluate(() => window.CardState.activeCard.extensions);
   expect(ext.project).toBe('st');
   expect(errors, 'extensions flow must not throw').toEqual([]);
 });
@@ -260,18 +260,27 @@ test('2.5.3: preview-mode chips, token-insert undo, persisted collapse, invalid-
   await page.waitForTimeout(350);
   expect(await field.inputValue()).toBe('Hello, adventurer.');
 
-  // 3) A collapsed letter-group survives a re-render driven by library search.
+  // 3) A collapsed letter-group survives a re-render.
   await page.locator('#cardSortSelect').selectOption('name-asc');
   await page.locator('#cardSortSelect').dispatchEvent('change');
   await page.waitForTimeout(300);
   await page.locator('.card-group-header[data-letter="A"]').click();
   await page.waitForTimeout(150);
   await expect(page.locator('.card-list-group[data-letter="A"] .card-list-item').first()).toBeHidden();
+  await page.evaluate(() => window.CardManager.renderCardList());
+  await page.waitForTimeout(200);
+  await expect(page.locator('.card-group-header[data-letter="A"]')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.card-list-group[data-letter="A"] .card-list-item').first()).toBeHidden();
+  // A search re-renders too, but as a flat list ranked by relevance: letter
+  // groups (and their collapse state) do not apply to results, and the collapse
+  // must still be there once the query is cleared.
   await page.locator('#cardSearchInput').fill('a');
+  await page.waitForTimeout(400);
+  await expect(page.locator('.card-group-header')).toHaveCount(0);
+  await page.locator('#cardSearchInput').fill('');
   await page.waitForTimeout(400);
   await expect(page.locator('.card-group-header[data-letter="A"]')).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('.card-list-group[data-letter="A"] .card-list-item').first()).toBeHidden();
-  await page.locator('#cardSearchInput').fill('');
 
   // 4) Invalid Extensions JSON must not inflate the budget badge.
   const badge = page.locator('#metaTokens');

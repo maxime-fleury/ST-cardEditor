@@ -62,8 +62,10 @@ if (existsSync(bunPinPath)) {
 const indexHtml = read("public/index.html");
 const swJs = read("public/sw.js");
 
-// 1 + 3. Scripts and styles referenced by index.html.
-const assetRe = /(?:src|href)="((?:js|css)\/[^"?#]+)(?:\?v=(\d+))?"/g;
+// 1 + 3. Scripts and styles referenced by index.html. `vendor/` is included so
+// a vendored asset that is deleted or renamed fails here instead of 404-ing in
+// production (these are the files that replaced the CDN <script> tags).
+const assetRe = /(?:src|href)="((?:js|css|vendor)\/[^"?#]+)(?:\?v=(\d+))?"/g;
 const assets = [];
 let m;
 while ((m = assetRe.exec(indexHtml))) assets.push({ path: m[1], buster: m[2] });
@@ -102,6 +104,24 @@ if (shellMisses.length) {
   fail(`assets missing from public/sw.js SHELL_FILES: ${shellMisses.join(", ")}`);
 } else {
   ok(`all ${seen.size} js/css assets are present in the service-worker shell.`);
+}
+
+// 2b. The vendored BPE tokenizer (~2.7 MB) must stay OUT of the install-time
+//     shell and IN the runtime list: precaching it would add megabytes to every
+//     install, while dropping it from RUNTIME_FILES would break offline token
+//     counting. An index.html scan cannot see it (js/tokenizer.js imports it
+//     dynamically), so read the two arrays out of sw.js by name.
+const swList = (name) => {
+  const array = new RegExp(`${name}\\s*=\\s*\\[([\\s\\S]*?)\\]`).exec(swJs);
+  return array ? [...array[1].matchAll(/'([^']+)'/g)].map((x) => x[1]) : [];
+};
+const LAZY_TOKENIZER = "vendor/gpt-tokenizer.js";
+if (swList("SHELL_FILES").includes(LAZY_TOKENIZER)) {
+  fail(`${LAZY_TOKENIZER} is in SHELL_FILES — it is ~2.7 MB and must stay lazily cached (move it to RUNTIME_FILES).`);
+} else if (!swList("RUNTIME_FILES").includes(LAZY_TOKENIZER)) {
+  fail(`${LAZY_TOKENIZER} is missing from public/sw.js RUNTIME_FILES — the token count would stop working offline.`);
+} else {
+  ok(`${LAZY_TOKENIZER} is runtime-cached, not part of the install shell.`);
 }
 
 // 4a. Navbar version badge (full version, e.g. "v2.5.5").
@@ -190,6 +210,38 @@ if (freshArtifacts) {
   }
 }
 
+// 5c. public/vendor must match its provenance manifest exactly: every manifest
+//     entry present on disk, and no unlisted file (a hand-edited or stray
+//     vendored asset would ship unverified bytes).
+const vendorDir = join(root, "public", "vendor");
+const manifestFile = join(vendorDir, "MANIFEST.txt");
+if (!existsSync(manifestFile)) {
+  fail("public/vendor/MANIFEST.txt is missing — run `bun scripts/vendor.mjs`.");
+} else {
+  const listed = new Set();
+  for (const line of readFileSync(manifestFile, "utf8").split("\n")) {
+    if (!line.startsWith("  ")) continue;
+    const rel = line.trim().split(/\s+/)[0];
+    if (rel) listed.add(rel);
+  }
+  const listedMissing = [...listed].filter((rel) => !existsSync(join(vendorDir, rel)));
+  if (listedMissing.length) {
+    fail(`vendored asset(s) missing from public/vendor: ${listedMissing.join(", ")} — run \`bun scripts/vendor.mjs\`.`);
+  }
+  const walk = (dir, prefix = "") => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) return walk(join(dir, entry.name), rel);
+    return [rel];
+  });
+  const unlisted = walk(vendorDir).filter((rel) => rel !== "MANIFEST.txt" && !listed.has(rel));
+  if (unlisted.length) {
+    fail(`unlisted file(s) in public/vendor: ${unlisted.join(", ")} — add them to scripts/vendor.mjs or delete them.`);
+  }
+  if (!listedMissing.length && !unlisted.length) {
+    ok(`${listed.size} vendored asset(s) match public/vendor/MANIFEST.txt.`);
+  }
+}
+
 // 6. GitHub Actions workflow files must survive GitHub's strict YAML parser.
 //    A plain (unquoted) scalar cannot contain ": " — a step name like
 //    `- name: Typecheck (@ts-check files: ...)` is a syntax error for GitHub
@@ -271,6 +323,34 @@ for (const file of jsModules) {
 }
 if (couplingIssues === 0) {
   ok(`${jsModules.length} js modules have no dead window.* coupling (imports are the only entry point).`);
+}
+
+// 7b. Every hand-written module carries `// @ts-check`. Without the pragma the
+//     file is still parsed by tsc but reported on not at all, so a new module —
+//     or a rewritten one — silently opts out of the typecheck gate that
+//     docs/DEVELOPMENT.md says covers all of them.
+const untyped = jsModules.filter((file) => !read(`js/${file}`).includes("@ts-check"));
+if (untyped.length) {
+  fail(`missing \`// @ts-check\`: ${untyped.map((f) => `js/${f}`).join(", ")} — add it so the module is type-checked.`);
+} else {
+  ok(`all ${jsModules.length} hand-written modules are @ts-check'd.`);
+}
+
+// 8. Mutable app state lives in exactly two stores (CardState, ChatState) — and
+//    nowhere else. The old AppState global is how a stale activeCard, apply
+//    queue or chat transcript outlived a card switch (#2/#4/#21/#24), so its
+//    reappearance must fail the build. The scan matches the full `window.AppState`
+//    spelling — including in prose — while leaving historical explanations free
+//    to name the removed global (`AppState`) without tripping it.
+let appStateRefs = 0;
+for (const file of jsModules) {
+  if (read(`js/${file}`).includes("window.AppState")) {
+    fail(`js/${file}: references window.AppState — app state lives in CardState (cards/activeCard/dirty) and ChatState (history/models/isAiLoading) only.`);
+    appStateRefs++;
+  }
+}
+if (appStateRefs === 0) {
+  ok("no module reintroduces the window.AppState global (state stays in the two stores).");
 }
 
 if (failures) {

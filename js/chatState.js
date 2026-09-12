@@ -11,7 +11,14 @@
 
    DOM elements are still referenced (applyElMap keys, queue item `.el`) — the
    store keeps them so the review modal can badge the source message — but the
-   *state* (indexes, flags, queues) lives here and only here. */
+   *state* (indexes, flags, queues) lives here and only here.
+
+   This store also absorbed the three fields that stayed on the old AppState
+   global after the first migration pass (history, models, isAiLoading): they
+   are the same kind of runtime state — reset on card switch, read by six
+   modules — and keeping them on a second global is what let a stale transcript
+   survive a switch (#2/#4). That global is gone; this store and CardState are
+   the only homes for mutable app state. */
 
 // @ts-check
 
@@ -31,6 +38,12 @@ let gen = 0;
 let contextBarGen = 0;
 /** @type {AbortController[]} per-field controllers for parallel requests */
 let abortControllers = [];
+/** @type {boolean} true while a chat request is in flight (drives the send/stop buttons) */
+let isAiLoading = false;
+/** @type {ChatMessage[]} in-memory transcript of the active card's session */
+let history = [];
+/** @type {ModelInfo[]} models listed by the last Refresh Models run */
+let models = [];
 
 /** @type {ApplyItem[]} every pending apply-able response { el, field, content, applied } */
 let applyQueue = [];
@@ -57,6 +70,14 @@ const ChatState = {
   set contextBarGen(v) { contextBarGen = v; },
   get abortControllers() { return abortControllers; },
   set abortControllers(v) { abortControllers = v; },
+
+  // ── Request state, transcript & model list ──────────────
+  get isAiLoading() { return isAiLoading; },
+  set isAiLoading(v) { isAiLoading = v; },
+  get history() { return history; },
+  set history(v) { history = v; },
+  get models() { return models; },
+  set models(v) { models = v; },
 
   // ── Apply queue ─────────────────────────────────────────
   get applyQueue() { return applyQueue; },

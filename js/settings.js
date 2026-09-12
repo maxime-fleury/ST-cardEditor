@@ -14,6 +14,7 @@ import { CardManager } from './cardManager.js';
 import { Editor } from './editor.js';
 import { AiChat } from './aiChat.js';
 import { CardState } from './cardState.js';
+import { ChatState } from './chatState.js';
 
 const Settings = {
   // Canonical order of editable AI prompts. Drives auto-building the Settings
@@ -398,7 +399,7 @@ const Settings = {
     try {
       const models = await AIService.fetchModels();
       if (myToken !== this._modelReqToken) return; // a newer refresh superseded us
-      window.AppState.models = models;
+      ChatState.models = models;
       this.populateModelSelects();
       this.renderModelList();
     } catch (err) {
@@ -421,7 +422,7 @@ const Settings = {
     // own price/context ordering); hundreds of OpenRouter models are much
     // easier to scan sorted by name. The model list may not be fetched yet
     // (models is optional) — fall back to an empty list.
-    const models = window.AppState.models || [];
+    const models = ChatState.models || [];
     const sorted = [...models].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: 'base' }));
     let h = sorted.map(m => '<option value="' + Ui.escapeAttr(m.id) + '"' + (m.id === d ? ' selected' : '') + '>' + Ui.escapeHtml(m.name) + (m.is_free ? ' [' + I18n.t('gen.free') + ']' : '') + '</option>').join('');
     // Always surface the saved default model, even when the fetch failed or
@@ -441,7 +442,7 @@ const Settings = {
     filter = (filter || '').toLowerCase();
     if (resetPage) this._modelPage = 1;
     const container = $('#modelList');
-    const filtered = (window.AppState.models || []).filter(m => {
+    const filtered = (ChatState.models || []).filter(m => {
       // A compatible third-party endpoint may omit name/id/provider; normalize
       // before .toLowerCase() so one blank field can't blank the whole browser (#86).
       const name = String(m.name || m.id || ''); const id = String(m.id || ''); const prov = String(m.provider || ''); const desc = String(m.description || '');
@@ -510,8 +511,8 @@ const Settings = {
     await CardStorage.clearAll();
     CardState.cards = [];
     CardState.activeCard = null;
-    window.AppState.chatHistory = [];
-    window.AppState.models = [];
+    ChatState.history = [];
+    ChatState.models = [];
     // Wipe the AI chat's in-memory runtime state too: apply queue, current
     // session, field selection and in-flight requests would otherwise survive
     // the storage wipe — old responses staying applicable to new cards, and a

@@ -15,7 +15,7 @@ test('AI suggest-tags quick action merges tags via the diff modal', async ({ pag
 
   // Existing tag "test" is kept; suggested tags are merged in (dedupe).
   await expect(page.locator('#editTags')).toHaveValue(/test, fantasy, warrior, elf/);
-  const tags = await page.evaluate(() => window.AppState.activeCard.tags);
+  const tags = await page.evaluate(() => window.CardState.activeCard.tags);
   expect(tags).toEqual(expect.arrayContaining(['test', 'fantasy', 'warrior', 'elf', 'cyberpunk']));
   expect(errors, 'tag suggestion flow must not throw').toEqual([]);
 });

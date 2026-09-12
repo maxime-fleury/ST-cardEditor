@@ -56,6 +56,10 @@ export default [
       // code-split chunks (shared + one per lazy module).
       'js/app.js',
       'js/*.chunk.js',
+      // Vendored third-party bundles (scripts/vendor.mjs). They are minified
+      // upstream code, not ours to lint; check-assets verifies their provenance
+      // against public/vendor/MANIFEST.txt instead.
+      'public/vendor/**',
       'node_modules/**',
       'playwright-report/**',
       'test-results/**',
@@ -76,7 +80,8 @@ export default [
         ...globals.browser,
         bootstrap: 'readonly', // loaded via <script> tag (bootstrap bundle)
         Diff: 'readonly',      // loaded via <script> tag (jsdiff)
-        // CDN script-tag globals (lazy-loaded, guarded with typeof checks).
+        // Vendored script-tag globals (lazy-loaded or classic, guarded with
+        // typeof checks).
         anime: 'readonly',
         marked: 'readonly',
         DOMPurify: 'readonly',

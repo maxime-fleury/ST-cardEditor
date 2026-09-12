@@ -34,27 +34,41 @@ function getMimeType(path) {
   return MIME_TYPES[extname(path).toLowerCase()] || "application/octet-stream";
 }
 
-async function serveStatic(filePath, fallbackPath) {
+// Text assets worth compressing on the wire. The app bundle is ~1.1 MB raw and
+// ~300 KB gzipped, so an uncompressed dev server ships 4x more bytes than it
+// needs to (GitHub Pages compresses the deployed copy; this server did not).
+const COMPRESSIBLE = /^(text\/|application\/(javascript|json|manifest\+json)|image\/svg)/;
+const COMPRESSION_MIN_BYTES = 1024;
+
+async function serveStatic(filePath, fallbackPath, acceptEncoding = '') {
   const file = Bun.file(filePath);
   // Bun.file(filename) has size 0 for a *missing* file, so distinguish a real
   // zero-byte asset from "not found" via exists() (#46).
   if (await file.exists()) {
     const content = await file.arrayBuffer();
     const mimeType = getMimeType(filePath);
-    return new Response(content, {
+    const gzip = content.byteLength >= COMPRESSION_MIN_BYTES
+      && COMPRESSIBLE.test(mimeType)
+      && /\bgzip\b/.test(acceptEncoding);
+    return new Response(gzip ? Bun.gzipSync(new Uint8Array(content)) : content, {
       headers: {
         "Content-Type": mimeType,
+        ...(gzip ? { "Content-Encoding": "gzip" } : {}),
+        // The response body depends on accept-encoding, so caches must key on it.
+        Vary: "Accept-Encoding",
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        // CSP: dedupe script hosts; connect-src must allow loopback APIs
+        // CSP: script-src is 'self' only — every script (Bootstrap, jsdiff,
+        // anime.js, marked, DOMPurify, the BPE tokenizer) is vendored under
+        // vendor/ and committed (scripts/vendor.mjs), so no third-party origin
+        // may execute code in this page. It also omits 'unsafe-inline' to block
+        // inline-script injection via XSS. connect-src must allow loopback APIs
         // (LM Studio, Ollama, etc.) used by the Custom provider.
-        // script-src intentionally omits 'unsafe-inline' (all app/CDN scripts are
-        // loaded via external src) to block inline-script injection via XSS.
         // connect-src allows any http: origin (not just localhost) because the
         // Custom provider's whole purpose is reaching OpenAI-compatible servers
         // on local/LAN/WAN addresses (LM Studio, Ollama, vLLM...). https: stays
         // host-allowlisted; CUSTOM_LLM_ORIGINS adds further hosts (e.g. https).
         // cdn.waifu.im is where the wizard blob-fetches image bytes.
-        "Content-Security-Policy": "default-src 'self'; script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com esm.sh; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' cdn.jsdelivr.net fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co" + (EXTRA_CONNECT_SRC ? " " + EXTRA_CONNECT_SRC : "") + ";",
+        "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co" + (EXTRA_CONNECT_SRC ? " " + EXTRA_CONNECT_SRC : "") + ";",
       },
     });
   }
@@ -178,7 +192,7 @@ Bun.serve({
     // instead of silently returning HTML with a 200.
     const isAsset = extname(pathname) !== "";
     const fallback = isAsset ? null : join(PUBLIC_DIR, "index.html");
-    return serveStatic(filePath, fallback);
+    return serveStatic(filePath, fallback, req.headers.get("accept-encoding") || "");
   },
 });
 
