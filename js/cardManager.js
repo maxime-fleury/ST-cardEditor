@@ -868,8 +868,15 @@ const CardManager = {
     Ui.setDirty(false);
     Ui.updateUIState();
     AiChat.updateContextBar();
-    // Autofocus the AI input for quick editing workflow
+    // Autofocus the AI input for the quick editing workflow — but only if the
+    // user has not moved on in the meantime. The delay makes this a real race:
+    // this runs 100 ms after the switch, so clicking an editor field in that
+    // window used to lose the caret mid-typing (and the field's own click was
+    // silently undone). Clicking a card row does not focus anything (the rows
+    // are not focusable), so the normal path still lands focus on the AI input.
     setTimeout(() => {
+      const focused = document.activeElement;
+      if (focused && focused !== document.body && focused !== document.documentElement) return;
       const aiInput = document.querySelector('#aiInput');
       if (aiInput) aiInput.focus();
     }, 100);

@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Switching cards no longer steals the caret** — selecting a card schedules an
+  autofocus of the AI input 100 ms later (the quick-editing workflow). Clicking
+  an editor field inside that window lost focus mid-typing, and the click was
+  silently undone. The autofocus now yields when something else already has
+  focus; selecting a card with nothing focused still parks the caret in the AI
+  input as before.
+
 ## [2.8.0] - 2026-09-12
 
 ### Added

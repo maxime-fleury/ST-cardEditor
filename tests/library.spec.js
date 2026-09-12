@@ -246,6 +246,29 @@ test('selecting a card repairs {user}/{char} placeholders into {{user}}/{{char}}
   expect(errors, 'placeholder repair must not throw').toEqual([]);
 });
 
+test('switching cards focuses the AI input until the user moves on', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await importCards(page, [v2Card('FocusA'), v2Card('FocusB')]);
+
+  // The quick-editing workflow: selecting a card parks the caret in the AI
+  // input so a prompt can be typed immediately.
+  await page.locator('.card-list-item', { hasText: 'FocusA' }).click();
+  await expect(page.locator('#aiInput')).toBeFocused();
+
+  // ...but that autofocus is a 100 ms timeout, so it must never override a field
+  // the user has already clicked into — it used to steal the caret mid-typing.
+  await page.locator('.card-list-item', { hasText: 'FocusB' }).click();
+  await page.locator('#editDescription').click();
+  await page.locator('#editDescription').pressSequentially('typed right after the switch');
+  await page.waitForTimeout(300); // outlive the autofocus timer
+  await expect(page.locator('#editDescription')).toBeFocused();
+  // The keystrokes must have landed in THIS field (inserted at the caret), which
+  // is what proves focus was never taken away mid-typing.
+  await expect(page.locator('#editDescription')).toHaveValue(/typed right after the switch/);
+  expect(errors, 'a card switch must not steal focus').toEqual([]);
+});
+
 test('tag chips and card reordering work from the keyboard', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/');
