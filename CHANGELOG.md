@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.8.1] - 2026-09-12
+
 ### Fixed
 - **Switching cards no longer steals the caret** — selecting a card schedules an
   autofocus of the AI input 100 ms later (the quick-editing workflow). Clicking
@@ -367,7 +369,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   with a white popup in dark mode — fixed via `color-scheme` plus dark
   `form-select`/`option` styling across all browsers.
 
-[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.8.0...HEAD
+[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.8.1...HEAD
+[2.8.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.8.1
 [2.8.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.8.0
 [2.7.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.7.1
 [2.7.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.7.0

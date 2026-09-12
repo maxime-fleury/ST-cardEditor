@@ -6,7 +6,7 @@
    ============================================================ */
 
 const BASE_PATH = new URL('.', self.location.href).pathname;
-const CACHE_PREFIX = 'stce-v2.8.0';
+const CACHE_PREFIX = 'stce-v2.8.1';
 const CACHE_NAME = `${CACHE_PREFIX}:${BASE_PATH}`;
 const DEV_PATH = BASE_PATH.endsWith('/dev/')
   ? BASE_PATH
@@ -66,7 +66,7 @@ const FONT_HOSTS = new Set(['fonts.googleapis.com', 'fonts.gstatic.com']);
 // Named for what it holds. It used to be CDN_CACHE ('stce-cdn-…') back when
 // Bootstrap/jsdiff/anime/marked came from jsdelivr; those are vendored now, so
 // the only cross-origin requests left are these fonts.
-const FONT_CACHE = 'stce-fonts-v2.8.0';
+const FONT_CACHE = 'stce-fonts-v2.8.1';
 
 // Same-origin assets that are deliberately NOT in the precached shell because
 // of their size, but should still work offline after their first successful
