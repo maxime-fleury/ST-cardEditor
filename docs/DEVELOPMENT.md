@@ -8,13 +8,15 @@ comfortably in CI on every push/PR (`ci.yml`) and locally before committing.
 
 | Gate | Command | What it checks |
 | --- | --- | --- |
-| Typecheck | `bun run typecheck` | `tsc --noEmit` on **every** hand-written module under `js/` (all 20 carry `// @ts-check`, plus `js/globals.d.ts`). Types only — see below. `check-assets` fails on a module that is missing the pragma, since a file without it is reported on not at all. |
+| Typecheck | `bun run typecheck` | `tsc --noEmit` on **every** hand-written module under `js/` (all 21 carry `// @ts-check`, plus `js/globals.d.ts`). Types only — see below. `check-assets` fails on a module that is missing the pragma, since a file without it is reported on not at all. |
 | Lint | `bun run lint` | ESLint (flat config, `eslint.config.js`). Style + static bugs: unused vars, dead code, undeclared globals, complexity… |
 | Unit tests | `bun run test:unit` | Bun tests across `tests/unit/` (the count is deliberately not written down here — it changes with every test). One file per module, plus `cardSearch` (index + ranking + snippets), `cardHealth` (diagnostics + the lorebook simulator) and `storage` (the version-history rules). Runs with `--parallel` (see the module-isolation note). |
+| Coverage | `bun run test:coverage` | Runs the unit suite under `--coverage`, prints a per-file table, and enforces two floors: a global ratchet (only ever raised) and a per-module floor for the pure-logic modules listed in `scripts/check-coverage.mjs`. A module in that list that no test imports is a failure, not a skip — lcov only lists files that were loaded, so otherwise a brand-new module would be invisible. |
 | Vendored assets | `bun scripts/vendor.mjs --check` | `public/vendor/*` matches `public/vendor/MANIFEST.txt` (sha384 per file). `check-assets` also asserts the directory has no unlisted file and that the 2.7 MB tokenizer stays out of the precached shell. |
 | Bundle freshness | `bun scripts/check-assets.mjs` | The five committed build artifacts match a fresh `bun run build`; also checks the SW shell and that the lazy tokenizer stays out of it, the `?v=` cache-busters, the navbar/README/`CACHE_PREFIX` versions, the vendor manifest, and that no module reintroduces `window.AppState`. |
-| i18n parity | `bun run i18n:check` | All 27 `js/i18n/*.js` files stay in sync with `en.js` (same keys, no single-brace placeholders, ≥ 70 % coverage). |
-| i18n completeness | `bun scripts/i18n-add.mjs --check` | No locale is missing a key that `en.js` has. New keys are appended by `bun run i18n:add` as English placeholders rather than typed 26 times. |
+| i18n parity | `bun run i18n:check` | All 27 `js/i18n/*.js` files stay in sync with `en.js`: same keys, no single-brace placeholders, **no `{{var}}` that differs from English**, ≥ 70 % coverage, and every claim in `scripts/i18n-copyover.mjs`'s `ALWAYS_ENGLISH` still true. Only English is bundled statically, so the check asks `loadAllLocales()` for the other 26 — reading `translations` directly would compare English against English and pass. |
+| i18n completeness | `bun scripts/i18n-add.mjs --check` | No locale is missing a key that `en.js` has. New keys are appended by `bun run i18n:add` as English placeholders rather than typed 26 times. Those placeholders are what `i18n:check` counts as untranslated — the script never pretends a string is translated. |
+| i18n translations | `bun scripts/i18n-translate.mjs --list <lang>` | The translation work order: prints the keys still holding English as a JSON patch to fill in, and `--apply <lang> <patch>` writes it back into `js/i18n/<lang>.js`. `--list-all` dumps every locale. A patch is validated in full (empty values, unchanged English, placeholder parity, clobber protection) before the file is touched, and re-running one is a no-op, not a failure. Every locale is at zero today, so `--list` is how you start the next language feature, not a backlog. Before applying a patch, diff its key set against the same `--list` output — a key that only *looks* untranslated is refused file-wide, and finding it first costs one command instead of one round trip. |
 | e2e | `bunx playwright test` | Playwright suite in `tests/*.spec.js`. The config picks a free port automatically (8300 on Windows where 8182 is OS-reserved, 8182 elsewhere) and starts a scripted OpenAI-compatible mock server for the live-model suite — no ports to juggle by hand. |
 
 > **Note on the typecheck scope.** Every hand-written module carries
@@ -155,6 +157,69 @@ rule with hundreds of hits just teaches everyone to ignore lint output.
   prefix, the `?v=NNN` cache-busters and inserts the `CHANGELOG.md` entry.
   Then tag + GitHub release as documented in the changelog workflow.
 
+### Only English is bundled: the language packs are fetched on demand
+
+Every locale used to be a static import in `js/i18n.js`. Minified, those 27
+dictionaries are **845 KB of the 1 194 KB** shared chunk — **71% of the JavaScript
+every user downloaded so that each user could read one of 27 languages**, plus
+845 KB of string tables to parse on every load.
+
+Now `js/i18n.js` statically imports English alone (the fallback every key resolves
+through) and fetches the rest from `js/i18n/<lang>.js`. Three things are worth
+knowing about how:
+
+- **The dictionaries are not bundled at all.** They have no imports of their own,
+  so the bundler has nothing to do with them, and the build keeps its five
+  artifacts. The specifier is computed (`localeUrl()`), resolved against the
+  document so it also works under `/dev/`.
+- **That computed specifier is load-bearing, not a style choice.** With 26 literal
+  `import('./i18n/fr.js')` specifiers the bundler emits 26 chunks *plus* a shared
+  runtime chunk, and under the stable hash-free naming `public/sw.js` precaches by
+  they collide: the build fails outright with *"Multiple files share the same
+  output path ./js/app.chunk.js"*. `naming.chunk` only accepts a string, so there
+  is no template that separates them by name — and adding `[hash]` would make
+  every source change rename files that `sw.js` lists.
+- **Offline reach is the price.** A dictionary is cached by the service worker the
+  first time its language is selected (`RUNTIME_FILES` in `public/sw.js`), so a
+  language works offline once it has been used online once. Loading a
+  never-fetched language while offline falls back to English and says so —
+  `init()` returns the language actually in use, and both the switch handler and
+  the boot compare it with `getLang()` to show `toast.langOffline`. The choice is
+  still persisted, so the next online load translates the UI by itself.
+
+Three guards keep this from silently regressing (`scripts/check-assets.mjs`), and
+each one was verified by breaking it:
+
+- no dictionary may appear inside the committed `js/app.chunk.js` (each locale is
+  matched by a string of its own, so one leaked dictionary cannot hide behind the
+  others);
+- every non-English locale must be in `RUNTIME_FILES` and in none of `SHELL_FILES`
+  — precaching all of them would put the 845 KB back into the install;
+- `check-i18n` cross-checks `SUPPORTED` against the files in `js/i18n/`, and
+  `loadAllLocales()` is what its script and `i18n-add` read: with the dictionaries
+  lazy, `import { translations }` gave them a one-entry object, and `i18n-add`
+  reported "nothing to add" while every locale was missing the new keys.
+
+### Cache-busting the bundle's internal imports
+
+`index.html` loads `js/app.js?v=281`, but that artifact is a 24-byte re-export:
+the code is `js/app.chunk.js`, which it imports with a relative specifier that has
+no query of its own. So the buster used to protect the stub while the browser was
+free to keep serving the previous `app.chunk.js` / `wizard.chunk.js` / … from its
+HTTP cache for as long as the host's `max-age` allowed — a fresh entry in front of
+stale code, and a lazy chunk that no longer matched the module graph it was built
+against. `scripts/build.mjs` therefore rewrites every `.chunk.js` specifier *inside
+the artifacts* to carry the same `?v=`; the service worker precaches on the
+**pathname**, so the query is invisible to the offline shell. `check-assets`
+asserts the committed artifacts carry the buster, and that its value matches the
+version.
+
+`server.js` memoizes the gzipped form of each static file per `(path, mtime,
+size)`: the gzip pass is the expensive part of a request (`gzipSync` on the 1.1 MB
+shared chunk blocks the event loop for a few milliseconds) and the bytes of a given
+file do not change between requests. An edited file is recompressed on the next
+request, and the map is bounded by the number of distinct files served.
+
 ### Bundle layout & code splitting (implemented)
 
 The app is built as a **code-split ESM bundle** (`bun run build`, see
@@ -162,12 +227,13 @@ The app is built as a **code-split ESM bundle** (`bun run build`, see
 
 | Artifact | Size | Role |
 | --- | --- | --- |
-| `js/app.js` | ~24 B | ESM entry — imports the shared chunk. |
-| `js/app.chunk.js` | ~1.1 MB | Minified shared code — every module except the lazy three. |
+| `js/app.js` | ~30 B | ESM entry — imports the shared chunk. |
+| `js/app.chunk.js` | ~242 KB | Minified shared code — every module except the lazy three, and **English only**. |
+| `js/i18n/*.js` (26, not built) | ~845 KB total | The other dictionaries, fetched one at a time by `js/i18n.js`. |
 | `js/wizard.chunk.js` | ~22 KB | Card-creation wizard — `import()`ed on first open. |
 | `js/waifuTab.chunk.js` | ~9 KB | Waifu Image tab — `import()`ed on first open. |
 | `js/commandPalette.chunk.js` | ~7 KB | `Ctrl+K` palette — `import()`ed on the first keypress. |
-| `public/vendor/*` (11 files) | ~3.7 MB | Pinned third-party assets, precached except `gpt-tokenizer.js`. |
+| `public/vendor/*` (29 files) | ~4.1 MB | Pinned third-party assets, precached except `gpt-tokenizer.js`. |
 
 ### Third-party code is vendored, not fetched from a CDN
 
@@ -182,8 +248,15 @@ pinned, hashed, committed under `public/vendor/` and served same-origin:
 - The shell precaches all of them except `vendor/gpt-tokenizer.js` (~2.7 MB),
   which stays a lazy fetch emitted on first token count and cached at runtime
   (`RUNTIME_FILES` in public/sw.js) so "used once → works offline" still holds.
-- Google Fonts is the single remaining cross-origin dependency (fonts are data,
-  not code); its stylesheet also depends on the CDN runtime cache.
+- **Google Fonts is vendored too**, which is what finally made the CSP `'self'`
+  end to end. `scripts/vendor.mjs` fetches the CSS API once, downloads every
+  `woff2` it names and rewrites the `src` URLs, so `public/vendor/fonts.css` is a
+  generated file (never edit it by hand) and the 17 unicode subsets ship with the
+  shell. There is no cross-origin cache left in the service worker at all:
+  `FONT_HOSTS`, `FONT_CACHE` and the stale-while-revalidate branch are gone, and
+  `stce-fonts-*` / `stce-cdn-*` are reclaimed as legacy keys on activation.
+- The remaining third-party origins in `connect-src` (model APIs) and `img-src`
+  (cover art) are data, not code, and are deliberately not vendored.
 
 Names are **deterministic** (no content hashes), so the committed artifacts
 are diffable against a fresh build and the service worker precaches the exact

@@ -156,6 +156,13 @@ interface Element {
 declare const I18n: {
   t(key: string, vars?: Record<string, unknown>): string;
   getLang(): string;
+  /** Boot: loads the detected language's lazy chunk before translating. */
+  init(): Promise<string>;
+  /** Fetches the detected language's pack without applying it (boot overlap). */
+  preload(): Promise<boolean>;
+  /** Resolves false when the pack could not be loaded (offline, never fetched). */
+  setLanguage(lang: string): Promise<boolean>;
+  translateDOM(): void;
   [k: string]: unknown;
 };
 

@@ -14,7 +14,7 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 - **[Stable demo](https://maxime-fleury.github.io/ST-cardEditor/)** — the recommended current version
 - **[Beta demo](https://maxime-fleury.github.io/ST-cardEditor/dev/)** — the latest development build; features may change or break
 
-![Version](https://img.shields.io/badge/version-2.8.1-purple)
+![Version](https://img.shields.io/badge/version-2.9.0-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-000?logo=bun)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![Stable Demo](https://img.shields.io/badge/stable-demo-9147ff?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/)
@@ -157,7 +157,10 @@ Powered by [anime.js](https://animejs.com/) with full `prefers-reduced-motion` s
 
 ### Localization (i18n)
 
-The interface ships in **27 languages** — **670** keys, one file per language in `js/i18n/`:
+The interface ships in **27 languages** — **672** keys, one file per language in `js/i18n/`.
+English is compiled into the app; every other language is a small pack fetched
+when it is selected (see _Building the bundle_), so `js/i18n/<lang>.js` is a real
+runtime URL, not only a build input:
 
 | Language | Key |
 |----------|-----|
@@ -189,7 +192,7 @@ The interface ships in **27 languages** — **670** keys, one file per language 
 | Portuguese (Portugal) | `pt-pt` |
 | Filipino | `tl` |
 
-Every locale ships **all 670 keys** — `check-i18n` fails on a missing one, because
+Every locale ships **all 672 keys** — `check-i18n` fails on a missing one, because
 a missing key renders as the raw key to the user. Parity is not the same as
 translation, though: it also reports, per locale, how many strings are still
 English placeholders and what percentage that leaves translated. Ship a feature
@@ -213,11 +216,13 @@ key renders as the raw key to the user. Add the English string to
 bun run i18n:add                      # append the key to the other 26 locales
 bun scripts/i18n-add.mjs --check      # CI: fail when a locale is missing a key
 bun run i18n:check                    # parity + coverage floor + placeholder sanity
-```
-
-New keys land as English placeholders and keep counting as *untranslated* until a
+```New keys land as English placeholders and keep counting as *untranslated* until a
 human or an AI pass translates them, so the coverage report never pretends a
-string is done.
+string is done. All 26 non-English locales are currently at zero; the handful of
+words a language genuinely spells the same way as English (Dutch *Scenario*,
+German *Tags*, the genre names) are recorded per key in `scripts/i18n-copyover.mjs`
+rather than translated into something wrong.
+
 
 ### Storage & Export
 - **Auto-save** to browser localStorage + IndexedDB with debounced writes
@@ -242,7 +247,7 @@ string is done.
 - **Offline support** via service worker (caches app shell for instant loading)
 - **Installable PWA** — web app manifest + icons, so the editor can be added to the home screen / installed as an app
 - **High-contrast UI** — readable text in both themes, including the AI diff modal navigation
-- **Content-Security-Policy headers** — served by `server.js` and mirrored in `index.html`: `script-src 'self'` only (no third-party script origin, no `'unsafe-inline'`), with the remaining origins allowlisted for data (AI providers, image APIs) and Google Fonts
+- **Content-Security-Policy headers** — served by `server.js` and mirrored in `index.html`: `script-src 'self'` only (no third-party script origin, no `'unsafe-inline'`), and `style-src`/`font-src` are `'self'` too — the only allowlisted origins are the data endpoints (AI providers, image APIs)
 
 ---
 
@@ -272,11 +277,21 @@ bun run start
 ### Building the bundle
 
 The app ships as a **pre-built ESM bundle** produced by a Bun bundler pass.
-Source files live under `js/*.js`; the bundler emits a 24-byte entry
+Source files live under `js/*.js`; the bundler emits a 30-byte entry
 (`js/app.js`), the shared chunk that carries the whole app
 (`js/app.chunk.js`), and one lazy chunk per deferred feature (wizard, waifu tab,
 command palette). All five artifacts are committed, precached by the service
-worker and share a single `?v=` cache-buster:
+worker and share a single `?v=` cache-buster.
+
+Only **English** is inside that bundle. The other 26 dictionaries are
+fetched on demand from `js/i18n/<lang>.js` — they are dependency-free data
+modules, so the bundler has nothing to do with them, and serving them as-is keeps
+the boot chunk at ~242 KB instead of ~1.2 MB. They used to be static imports:
+845 KB, or 71% of the JavaScript every user downloaded so that each user could
+read one of 27 languages. A dictionary is cached by the service worker the first
+time its language is selected, so a language works offline once it has been used
+online once; picking a never-fetched language while offline falls back to English
+and says why.
 
 ```bash
 bun run build   # -> js/app.js + js/*.chunk.js (committed; the browser loads these)
@@ -286,8 +301,9 @@ The bundle is **minified** and **byte-reproducible**: `bun scripts/check-assets.
 (run in CI and in the pre-commit hook) rebuilds from the current sources and
 fails if the committed artifacts differ, so a forgotten rebuild cannot ship
 stale logic; it also checks that every artifact is precached by the service
-worker. The dev server gzips text responses, which is what actually keeps the
-first load small — ~346 KB instead of ~1.2 MB for the shared chunk.
+worker. The dev server gzips text responses (and memoizes the result), which is
+what actually keeps the first load small — the shared chunk is ~71 KB gzipped
+instead of ~355 KB before the dictionaries stopped being bundled.
 
 The app will be available at **http://localhost:8182**.
 
@@ -414,6 +430,7 @@ st-card-editor/
 │   ├── chatState.js        # Store: chat history, sessions, models, loading state
 │   ├── cardSearch.js       # Full-text index over the library (ranked search + snippets)
 │   ├── cardHealth.js       # Card diagnostics + lorebook activation simulator (pure)
+│   ├── textFold.js         # Diacritic-insensitive folding, shared by search/palette/learner (pure)
 │   ├── commandPalette.js   # Ctrl+K palette (lazy chunk)
 │   ├── intentLearner.js    # Self-learning intent classifier for chat prompts
 │   ├── editor.js           # Editor form, greetings, lorebook management
@@ -424,9 +441,9 @@ st-card-editor/
 │   ├── settings.js         # Settings modal, model list, credits, provider config, workspace backup
 │   ├── tokenizer.js        # Token estimation (vendored BPE tokenizer, lazily fetched)
 │   ├── animations.js       # anime.js animation utilities (stagger, slide, pulse, etc.)
-│   ├── i18n.js             # I18n entry: imports js/i18n/<lang>.js, exposes I18n engine
+│   ├── i18n.js             # I18n entry: bundles English, fetches the other packs on demand
 │   ├── globals.d.ts        # Ambient types for window.* and the DOM-adjacent helpers
-│   ├── i18n/               # One translation file per language (670 keys × 27 languages)
+│   ├── i18n/               # One translation file per language (672 keys × 27; 26 fetched at runtime)
 │   └── ui.js               # Main controller: utilities, init, event binding, error boundary
 ├── .github/
 │   ├── screenshots/        # README screenshots
@@ -474,7 +491,7 @@ The app is a **single-page application** built with vanilla JavaScript and **Boo
 - **`settings.js`** — Settings modal with provider selection (7 providers), API key management, model browsing/selection, credit tracking, storage usage display, language switching, and full workspace backup/restore.
 - **`tokenizer.js`** — Token estimation using lazy-loaded `gpt-tokenizer` BPE library with offline heuristic fallback.
 - **`animations.js`** — Reusable animation functions built on anime.js: stagger fade-in, slide transitions, pulse, shake, scale click, progress bounce, icon spin, skeleton reveal, toast entrance. All respect `prefers-reduced-motion`.
-- **`i18n.js`** — Internationalization entry: imports one translation file per language from `js/i18n/` (670 keys across 27 languages) and exposes the `I18n` engine — `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings, and automatic RTL layout for Arabic/Hebrew/Persian.
+- **`i18n.js`** — Internationalization entry: bundles English, fetches any other language as a lazy pack from `js/i18n/` (672 keys across 27 languages), and exposes the `I18n` engine — `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings, and automatic RTL layout for Arabic/Hebrew/Persian.
 - **`ui.js`** — Thin controller: utility functions (`escapeHtml`, `debounce`, `showToast`, `renderMarkdown`), initialization, I18n boot, global error boundary, lazy chunk loading, keyboard shortcuts, and all event binding. State lives in the stores, not here.
 
 ---
@@ -510,7 +527,13 @@ script origin.
 | [anime.js](https://animejs.com/) | Animation library for micro-interactions |
 | [gpt-tokenizer](https://github.com/niieani/gpt-tokenizer) | BPE token counting (lazy-loaded, fetched on first use) |
 | Bootstrap 5.3 + Bootstrap Icons | Layout, components and icons |
-| Inter / Plus Jakarta Sans / JetBrains Mono | Typefaces |
+| Inter / Plus Jakarta Sans / JetBrains Mono | Typefaces (Google Fonts, self-hosted) |
+
+Fonts are vendored like everything else: `scripts/vendor.mjs` fetches Google's
+stylesheet once, downloads all 17 unicode-subset `woff2` files it references and
+rewrites the `src` URLs to them. The committed `vendor/fonts.css` is therefore a
+build product of a pinned fetch — never hand-edited — and the browser only
+downloads the subsets it actually needs, all of which are in the offline shell.
 
 `public/vendor/MANIFEST.txt` records the exact source URL and **sha384** of every
 vendored file, so the committed bytes are reproducible and reviewable.
@@ -572,7 +595,10 @@ Two suites, deliberately different in shape:
 **Unit tests** (`tests/unit/`, Bun) cover the pure logic — parsing and normalization,
 the content signature, the search index, the token estimate, the chat/AI stream
 parsing, the lorebook simulator and the version-history rules. They run in well
-under a second, with no browser and no network.
+under a second, with no browser and no network, and they run a second time under
+coverage: `bun run test:coverage` prints a per-file table and enforces a global
+ratchet plus per-module floors for the pure-logic modules, so a suite that stops
+exercising a module shows up as a number rather than as silence.
 
 **End-to-end tests** (`tests/*.spec.js`, Playwright) boot the real app in Chrome
 and drive it. They exist to pin the behaviour that only shows up once the pieces
@@ -585,6 +611,7 @@ scripted provider, offline service-worker serving, and the CSP headers.
 ```bash
 bun install
 bun run test:unit     # fast, no browser, no network
+bun run test:coverage # ...again under lcov, and enforce the coverage floors
 bun run test          # end-to-end, uses the installed Chrome
 bun run test:headed   # ...with a visible browser window
 
@@ -604,7 +631,7 @@ CI, so a PR cannot merge with a failing one.
 
 Two workflows, both wired to pushes and pull requests:
 
-- [`ci.yml`](.github/workflows/ci.yml) is the fast gate — unit tests, typecheck, lint, i18n parity/coverage, and the asset + bundle-freshness guard.
+- [`ci.yml`](.github/workflows/ci.yml) is the fast gate — unit tests + coverage floors, typecheck, lint, i18n parity/coverage, and the asset, vendor-manifest and bundle-freshness guards.
 - [`deploy.yml`](.github/workflows/deploy.yml) runs the full `check` job (everything above **plus** the Playwright end-to-end suite) and then publishes a stable and a development build:
 
 - **Stable (default):** [maxime-fleury.github.io/ST-cardEditor/](https://maxime-fleury.github.io/ST-cardEditor/), deployed from `master`

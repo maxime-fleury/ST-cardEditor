@@ -7,7 +7,7 @@
  *   1. package.json            — "version"
  *   2. public/index.html       — js cache-buster (?v=N) and navbar badge (vX.Y.Z)
  *   3. README.md               — shields version badge (and its changelog link)
- *   4. public/sw.js            — CACHE_PREFIX (app shell) and FONT_CACHE
+ *   4. public/sw.js            — CACHE_PREFIX (app shell)
  *   5. CHANGELOG.md            — the notes staged under [Unreleased] move under
  *                                a dated [X.Y.Z] heading, a fresh [Unreleased]
  *                                stays on top, and the link refs are rewritten
@@ -108,18 +108,18 @@ readme = readme.replace(badgeRe, `$1${newVersion}$2`);
 if (!dryRun) write("README.md", readme);
 plan("README.md", `version badge → ${newVersion}`);
 
-// 4. public/sw.js — CACHE_PREFIX + FONT_CACHE
+// 4. public/sw.js — CACHE_PREFIX (the only cache name left: fonts are vendored
+//    same-origin and precached with the shell, so there is no separate
+//    cross-origin font cache to bump any more).
 let swJs = read("public/sw.js");
 const prefixRe = /(CACHE_PREFIX\s*=\s*')(stce-v[\d.]+)(')/;
-const fontRe = /(FONT_CACHE\s*=\s*')(stce-fonts-v[\d.]+)(')/;
-if (!prefixRe.test(swJs) || !fontRe.test(swJs)) {
-  console.error("release: CACHE_PREFIX or FONT_CACHE not found in public/sw.js.");
+if (!prefixRe.test(swJs)) {
+  console.error("release: CACHE_PREFIX not found in public/sw.js.");
   process.exit(1);
 }
 swJs = swJs.replace(prefixRe, `$1stce-v${newVersion}$3`);
-swJs = swJs.replace(fontRe, `$1stce-fonts-v${newVersion}$3`);
 if (!dryRun) write("public/sw.js", swJs);
-plan("public/sw.js", `CACHE_PREFIX → stce-v${newVersion}, FONT_CACHE → stce-fonts-v${newVersion}`);
+plan("public/sw.js", `CACHE_PREFIX → stce-v${newVersion}`);
 
 // 5. CHANGELOG.md — the notes staged under [Unreleased] become the dated
 //    [X.Y.Z] section, leaving a fresh, empty [Unreleased] on top; the

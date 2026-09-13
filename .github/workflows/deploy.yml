@@ -77,11 +77,17 @@ jobs:
       - name: Asset / SW-shell / version drift check
         run: bun scripts/check-assets.mjs
 
+      - name: Vendored assets match public/vendor/MANIFEST.txt
+        run: bun run vendor:check
+
       # Runs through the same `test:unit` script as ci.yml: bun shares one
       # module registry per process, so the mock.module stubs leak between
       # files unless --parallel (one worker per file) is used.
       - name: Unit tests (tests/unit — every hand-written module under js/)
         run: bun run test:unit
+
+      - name: Unit coverage floors
+        run: bun run test:coverage
 
       - name: Typecheck (@ts-check on every hand-written module under js/)
         run: bun run typecheck

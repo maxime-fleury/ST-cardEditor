@@ -62,19 +62,25 @@ test('activate purges this deployment’s old shells, not the other one', async 
   expect(deleted.sort()).toEqual(['stce-v2.2', OLD_SHELL].sort());
 });
 
-test('activate never purges the font cache (it carries no deployment path)', async () => {
-  await activate([
-    CURRENT_SHELL,
-    `stce-fonts-v${version}`,    // shared by every path, so it must survive
-    'stce-fonts-v2.6.0',         // an older font cache — still shared, still keep
-  ]);
-  expect(deleted).toEqual([]);
+test('activate deletes the retired cross-origin caches', async () => {
+  // Two names that must not survive: 'stce-cdn-*' (Bootstrap/jsdiff/anime/marked
+  // while they came from jsdelivr) and 'stce-fonts-*' (Google Fonts while it was
+  // cross-origin and runtime-cached). Both were exempt once; now that every asset
+  // is vendored same-origin and precached with the shell, they are unreachable
+  // leftovers, and the legacy branch is what reclaims them.
+  await activate([CURRENT_SHELL, `stce-fonts-v${version}`, `stce-cdn-v${version}`, OLD_SHELL]);
+  expect(deleted.sort()).toEqual([`stce-cdn-v${version}`, `stce-fonts-v${version}`, OLD_SHELL].sort());
 });
 
-test('activate cleans up the pre-vendoring CDN cache', async () => {
-  // The font cache used to be named stce-cdn-* while Bootstrap, jsdiff, anime
-  // and marked still came from jsdelivr. That name is no longer exempt, so the
-  // leftover entry is removed by the legacy branch instead of leaking forever.
-  await activate([`stce-fonts-v${version}`, `stce-cdn-v${version}`, OLD_SHELL]);
-  expect(deleted.sort()).toEqual([`stce-cdn-v${version}`, OLD_SHELL].sort());
+// The shell is now the only place assets can be cached from, so it must list
+// every face of the vendored fonts: a missing woff2 is a cross-origin fetch or
+// an unstyled offline page, and neither shows up as a test failure elsewhere.
+test('the shell precaches the vendored fonts and their stylesheet', async () => {
+  const sw = readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf8');
+  const shell = [...(/SHELL_FILES\s*=\s*\[([\s\S]*?)\]/.exec(sw)?.[1] || "").matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  const css = readFileSync(new URL('../../public/vendor/fonts.css', import.meta.url), 'utf8');
+  const faces = new Set([...css.matchAll(/url\(([^)]+\.woff2)\)/g)].map((m) => `vendor/${m[1]}`));
+  expect(faces.size).toBeGreaterThan(0);
+  expect(shell).toContain('vendor/fonts.css');
+  expect([...faces].filter((f) => !shell.includes(f))).toEqual([]);
 });

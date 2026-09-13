@@ -3,52 +3,125 @@
  * ST Card Editor - Internationalization Module
  * Supports: en, fr, es, de, pt, ja, zh, ko, el, ru, it, pl, tr, nl, uk, vi, id, hi, ar, he, fa, ro, cs, sv, th, pt-pt, tl
  *
- * One translation file per language lives in js/i18n/<lang>.js; this module
- * assembles them into the `translations` map and exposes the I18n engine.
+ * One translation file per language lives in js/i18n/<lang>.js. Only English is
+ * imported statically — it is the dictionary every key falls back through, so it
+ * has to be there before the first `t()` call. The other 26 are fetched on demand
+ * (see LOADERS): together they were ~845 KB of the ~1.2 MB bundle, i.e. 71% of
+ * the JavaScript every user downloaded so that each user could read one of them,
+ * and 845 KB of string tables to parse on every load.
+ *
+ * What that costs: a language works offline once it has been loaded once, since
+ * the service worker caches its chunk on the way through (public/sw.js). Loading
+ * a language that has never been used while offline therefore falls back to
+ * English and says so (see setLanguage) instead of failing.
  */
 'use strict';
 
 import en from './i18n/en.js';
-import fr from './i18n/fr.js';
-import es from './i18n/es.js';
-import de from './i18n/de.js';
-import pt from './i18n/pt.js';
-import ja from './i18n/ja.js';
-import zh from './i18n/zh.js';
-import ko from './i18n/ko.js';
-import elGr from './i18n/el.js';
-import ru from './i18n/ru.js';
-import it from './i18n/it.js';
-import pl from './i18n/pl.js';
-import tr from './i18n/tr.js';
-import nl from './i18n/nl.js';
-import uk from './i18n/uk.js';
-import vi from './i18n/vi.js';
-import id from './i18n/id.js';
-import hi from './i18n/hi.js';
-import ar from './i18n/ar.js';
-import he from './i18n/he.js';
-import fa from './i18n/fa.js';
-import ro from './i18n/ro.js';
-import cs from './i18n/cs.js';
-import sv from './i18n/sv.js';
-import th from './i18n/th.js';
-import ptPt from './i18n/pt-pt.js';
-import tl from './i18n/tl.js';
 
 const STORAGE_KEY = 'stce_lang';
 const SUPPORTED = ['en','fr','es','de','pt','ja','zh','ko','el','ru','it','pl','tr','nl','uk','vi','id','hi','ar','he','fa','ro','cs','sv','th','pt-pt','tl'];
 const RTL_LANGS = ['ar','he','fa'];
 
-const translations = {
-  // `el: elGr` — the import is aliased (elGr) so the *key* must be spelled out.
-  // Registered as the shorthand `elGr` instead, the whole Greek dictionary was
-  // unreachable: `t()` looked up translations['el'], found nothing and fell
-  // back to English, so choosing Ελληνικά silently showed English. The parity
-  // check passed because it only compares the dictionaries that exist.
-  en, fr, es, de, pt, ja, zh, ko, el: elGr, ru, it, pl, tr, nl, uk, vi, id, hi, ar, he, fa,
-  ro, cs, sv, th, 'pt-pt': ptPt, tl
-};
+/**
+ * Absolute URL of a locale dictionary.
+ *
+ * In a browser it is resolved against the document, so the path is also right
+ * under /dev/ where the app is served from a subdirectory. Off-browser — the
+ * build-time scripts (check-i18n, i18n-add) call loadAllLocales() — it is
+ * resolved against this module's own URL instead, which is the same file tree
+ * from a different root: 'js/i18n/x.js' from the document, './i18n/x.js' from
+ * here. Both land on js/i18n/<lang>.js, and the third branch is only a last
+ * resort so a missing URL base cannot throw at module scope.
+ * @param {string} lang
+ * @returns {string}
+ */
+function localeUrl(lang) {
+  if (typeof document !== 'undefined' && document.baseURI) {
+    try { return new URL('js/i18n/' + lang + '.js', document.baseURI).href; } catch (_) { /* fall through */ }
+  }
+  try { return new URL('./i18n/' + lang + '.js', import.meta.url).href; } catch (_) { return 'js/i18n/' + lang + '.js'; }
+}
+
+/**
+ * Fetch one dictionary. A dictionary is a dependency-free data module
+ * (`export default { … }`), so there is nothing for a bundler to do with it: it
+ * is served as-is from js/i18n/, exactly like the vendored tokenizer.
+ *
+ * The specifier is computed, and that is load-bearing. A literal
+ * `import('./i18n/fr.js')` is a specifier the bundler must honour, and 26 of them
+ * make it emit 26 chunks *plus* a shared runtime chunk whose name collides with
+ * the entry's own chunk under the stable, hash-free naming that public/sw.js
+ * precaches by — the build fails outright with "Multiple files share the same
+ * output path ./js/app.chunk.js". js/tokenizer.js computes its specifier for the
+ * same reason (there, to keep 2.7 MB out of the boot chunk).
+ * @param {string} lang
+ * @returns {Promise<{ default: Record<string, string> }>}
+ */
+function loadDict(lang) {
+  return import(localeUrl(lang));
+}
+
+/**
+ * One loader per supported code, keyed by the exact code the UI switches to.
+ * Derived from SUPPORTED so the two cannot disagree, and that list is what
+ * check-i18n cross-checks against the files in js/i18n/.
+ *
+ * Keyed lookups also delete a whole bug class. The dictionaries used to be
+ * imported as named bindings, and `import elGr from './i18n/el.js'` registered
+ * Greek under `elGr` — so choosing Ελληνικά looked up `translations['el']`, found
+ * nothing, and silently rendered English while the parity check passed (it only
+ * compared the dictionaries that existed). Here the key *is* the file name.
+ * @type {Record<string, () => Promise<{ default: Record<string, string> }>>}
+ */
+const LOADERS = {};
+for (const lang of SUPPORTED) {
+  LOADERS[lang] = lang === 'en'
+    ? () => Promise.resolve({ default: en })
+    : () => loadDict(lang);
+}
+
+/** Loaded dictionaries, filled in by the loaders. English is always present. */
+const translations = { en };
+
+/**
+ * Load and register one locale. A no-op for English and for an already-loaded
+ * language, so it is safe to call on every boot and every switch.
+ * @param {string} lang
+ * @returns {Promise<boolean>} false when the pack is unavailable (offline, never fetched)
+ */
+async function loadLocale(lang) {
+  if (translations[lang]) return true;
+  const load = LOADERS[lang];
+  if (!load) return false;
+  try {
+    translations[lang] = (await load()).default;
+    return true;
+  } catch (err) {
+    // Deliberately swallowed: a missing language pack must never break the boot,
+    // and `t()` already falls back to English. The caller turns `false` into one
+    // message for the user (see the language switch in ui.js).
+    console.warn('[i18n] language pack unavailable: ' + lang, err);
+    return false;
+  }
+}
+
+/**
+ * Every dictionary at once. For the build-time scripts (check-i18n, i18n-add),
+ * which compare all locales against English — the browser only ever loads the
+ * active one.
+ * @returns {Promise<Record<string, Record<string, string>>>}
+ */
+async function loadAllLocales() {
+  const all = { ...translations };
+  for (const lang of Object.keys(LOADERS)) {
+    if (all[lang]) continue;
+    await loadLocale(lang);
+    const dict = translations[lang];
+    if (dict) all[lang] = dict;
+  }
+  return all;
+}
 
 const I18n = {
   _lang: 'en',
@@ -71,15 +144,36 @@ const I18n = {
     return SUPPORTED.includes(short) ? short : 'en';
   },
 
-  init() {
+  /**
+   * Boot: detect the language, load its pack, then translate. Async because the
+   * first paint must already be in the right language — translating in English
+   * and swapping a moment later is the flash the split would otherwise add.
+   * @returns {Promise<string>} the language actually in use. It is 'en' when the
+   *   detected pack could not be loaded — the caller compares it with getLang()
+   *   and tells the user, instead of leaving them to wonder why their chosen
+   *   language renders English.
+   */
+  async init() {
     this._lang = this._detectLanguage();
     document.documentElement.lang = this._lang;
     document.documentElement.dir = RTL_LANGS.includes(this._lang) ? 'rtl' : 'ltr';
     this._applyBootstrapDir();
+    const loaded = await loadLocale(this._lang);
     document.title = this.t('app.title');
     const langSel = document.getElementById('languageSelect');
     if (langSel) langSel.value = this._lang;
     this.translateDOM();
+    return loaded ? this._lang : 'en';
+  },
+
+  /**
+   * Fetch the detected language's pack without applying anything. The boot in
+   * ui.js starts this before its storage reads so the one network round-trip of
+   * the boot overlaps them instead of queueing behind them.
+   * @returns {Promise<boolean>}
+   */
+  preload() {
+    return loadLocale(this._detectLanguage());
   },
 
   t(key, vars) {
@@ -99,8 +193,22 @@ const I18n = {
     return str;
   },
 
-  setLanguage(lang) {
-    if (!SUPPORTED.includes(lang)) return;
+  /**
+   * Switch language. Async because the pack may still have to be fetched: the UI
+   * is re-translated only once it is available, so a switch is one update rather
+   * than an English flash followed by the real language.
+   *
+   * Returns false when the pack could not be loaded (offline, never fetched).
+   * The choice is persisted anyway and `_lang` still changes, which keeps the app
+   * self-healing — the next online boot fetches it and the UI is translated then.
+   * Until that happens every key resolves through the English fallback in `t()`,
+   * and the caller tells the user rather than leaving it to be noticed.
+   * @param {string} lang
+   * @returns {Promise<boolean>}
+   */
+  async setLanguage(lang) {
+    if (!SUPPORTED.includes(lang)) return false;
+    const loaded = await loadLocale(lang);
     this._lang = lang;
     localStorage.setItem(STORAGE_KEY, lang);
     document.documentElement.lang = lang;
@@ -113,6 +221,7 @@ const I18n = {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('stce:language-changed', { detail: { lang } }));
     }
+    return loaded;
   },
 
   _applyBootstrapDir() {
@@ -150,8 +259,17 @@ const I18n = {
       const translated = self.t(key);
       if (translated) node.innerHTML = translated;
     });
+  },
+
+  // Test hooks (see tests/unit/i18n.test.mjs). The offline fallback lives in a
+  // catch block that no browsing test can reach — a pack only fails to load when
+  // it is missing from the cache, which the unit test reproduces by swapping a
+  // loader for one that rejects.
+  _loaders: LOADERS,
+  _loadedLanguages() {
+    return Object.keys(translations);
   }
 };
 
-export { I18n, translations, SUPPORTED };
+export { I18n, translations, SUPPORTED, loadLocale, loadAllLocales };
 if (typeof window !== 'undefined') window.I18n = I18n;

@@ -27,6 +27,37 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENTRY = join(root, "scripts", "app.js");
 
+/**
+ * The release cache-buster, derived from package.json exactly as check-assets
+ * derives the one it expects in index.html (2.8.1 -> 281). Shared rather than
+ * duplicated so the stub's `?v=` and the artifacts' cannot disagree.
+ */
+export function bundleBuster() {
+  const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const match = /^(\d+)\.(\d+)(?:\.(\d+))?/.exec(version || "");
+  if (!match) throw new Error(`build: cannot derive a cache-buster from version ${JSON.stringify(version)}.`);
+  const [, major, minor, patch = "0"] = match;
+  return String(Number(major) * 100 + Number(minor) * 10 + Number(patch));
+}
+
+/**
+ * Append the buster to the imports BETWEEN the artifacts.
+ *
+ * index.html loads `js/app.js?v=281`, but that file is a 24-byte re-export: the
+ * app is `js/app.chunk.js`, which it imports with a relative specifier carrying
+ * no query of its own. So the buster busted a stub — after a deploy a browser
+ * could keep serving the previous app.chunk.js, wizard.chunk.js, … from its HTTP
+ * cache for as long as the host's max-age allows, i.e. a fresh entry stub in
+ * front of stale code (and a lazy chunk that no longer matches the module graph
+ * it was built against). Rewriting the specifiers here is what makes one `?v=`
+ * cover every artifact. The service worker matches precache entries on the
+ * *pathname*, so the query is invisible to it.
+ */
+const bustImports = (text, buster) => text.replace(
+  /(["'])\.\/([A-Za-z0-9_-]+\.chunk\.js)\1/g,
+  (match, quote, name) => `${quote}./${name}?v=${buster}${quote}`,
+);
+
 // Deterministic, code-split, browser-targeted ESM.
 //
 // minify:true is what ships: the shared chunk is the single largest asset the
@@ -56,26 +87,32 @@ async function buildTo(outdir) {
     for (const log of result.logs) console.error(log.message);
     throw new Error("Bundle build failed");
   }
-  return result;
-}
-
-/**
- * Freshly-built artifacts as [{ relPath, text }] (entry first, then chunks by
- * path). Built into a scratch dir so checking never touches the repo.
- */
-export async function bundleArtifacts() {
-  const scratch = join(tmpdir(), `stce-build-${process.pid}-${Date.now()}`);
-  const result = await buildTo(scratch);
+  // Post-process in place, then re-read from disk so the "committed === fresh
+  // build" comparison in check-assets compares the bytes that actually ship.
+  // Only the build's own outputs are considered — the repo's js/ directory also
+  // holds the hand-written sources.
+  const buster = bundleBuster();
+  /** @type {{ relPath: string, text: string }[]} */
   const artifacts = [];
   for (const out of result.outputs) {
-    const text = new TextDecoder().decode(await out.arrayBuffer());
+    const busted = bustImports(await out.text(), buster);
+    await Bun.write(out.path, busted);
     artifacts.push({
-      relPath: relative(scratch, out.path).replace(/\\/g, "/"),
-      text,
+      relPath: relative(outdir, out.path).replace(/\\/g, "/"),
+      text: readFileSync(out.path, "utf8"),
     });
   }
   artifacts.sort((a, b) => a.relPath.localeCompare(b.relPath));
   return artifacts;
+}
+
+/**
+ * Freshly-built artifacts as [{ relPath, text }], read back from disk. Built into
+ * a scratch dir so checking never touches the repo.
+ */
+export async function bundleArtifacts() {
+  const scratch = join(tmpdir(), `stce-build-${process.pid}-${Date.now()}`);
+  return buildTo(scratch);
 }
 
 async function main() {
@@ -92,15 +129,17 @@ async function main() {
       process.exit(1);
     }
   }
-  const result = await buildTo(root);
+  const artifacts = await buildTo(root);
   let total = 0;
-  for (const out of result.outputs) {
-    const text = new TextDecoder().decode(await out.arrayBuffer());
-    total += text.length;
-    const rel = relative(root, out.path).replace(/\\/g, "/");
-    console.log(`  ↳ ${rel} (${(text.length / 1024).toFixed(1)} KB)`);
+  for (const { relPath, text } of artifacts) {
+    // Bytes, not `text.length`: these files carry accented and CJK strings, so a
+    // character count under-reports the transfer size by ~4% and quietly
+    // disagreed with the size the server actually sends.
+    const bytes = Buffer.byteLength(text);
+    total += bytes;
+    console.log(`  ↳ ${relPath} (${(bytes / 1024).toFixed(1)} KB)`);
   }
-  console.log(`✓ Bundled ${ENTRY.replace(root, ".")} -> ${result.outputs.length} artifacts (${(total / 1024).toFixed(1)} KB total)`);
+  console.log(`✓ Bundled ${ENTRY.replace(root, ".")} -> ${artifacts.length} artifacts (${(total / 1024).toFixed(1)} KB total, imports busted with ?v=${bundleBuster()})`);
 }
 
 if (import.meta.main) {

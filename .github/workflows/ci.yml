@@ -2,9 +2,10 @@
 #
 # Fast, PR-visible feedback independent of the deploy pipeline (deploy.yml also
 # runs these inside its `check` job, but this workflow surfaces them on every
-# push/PR without tying the result to a deployment). Runs `bun test tests/unit`
-# (8 files) and the asset/version drift guard, which includes the
-# bundle-freshness diff of js/app.js against a fresh `bun run build`.
+# push/PR without tying the result to a deployment). Runs the unit suite under a
+# coverage floor, the typecheck/lint/i18n gates, and the asset + vendor drift
+# guards, which include the bundle-freshness diff of js/app.js against a fresh
+# `bun run build`.
 
 # The end-to-end Playwright suite runs in deploy.yml, which is also wired to
 # pull_request — the two workflows are deliberately split so PRs get both
@@ -48,6 +49,12 @@ jobs:
       - name: Unit tests (tests/unit — every hand-written module under js/)
         run: bun run test:unit
 
+      # "N tests pass" says nothing about what they touch, so the suite is run a
+      # second time under coverage with a global ratchet plus per-module floors
+      # for the pure-logic modules (see scripts/check-coverage.mjs).
+      - name: Unit coverage floors
+        run: bun run test:coverage
+
       - name: Typecheck (@ts-check on every hand-written module under js/)
         run: bun run typecheck
 
@@ -65,3 +72,8 @@ jobs:
 
       - name: Asset / SW-shell / version drift + bundle freshness check
         run: bun scripts/check-assets.mjs
+
+      # The vendored bytes are what the browser executes, so the manifest hash is
+      # the provenance record; nothing else in CI ever re-read it.
+      - name: Vendored assets match public/vendor/MANIFEST.txt
+        run: bun run vendor:check

@@ -1825,6 +1825,26 @@ const AiChat = {
     Anims.staggerFadeIn(container.querySelectorAll('.quick-action'), { stagger: 40, duration: 180 });
   },
 
+  /**
+   * Rebuild what this module rendered with I18n.t() at render time, after a
+   * language change.
+   *
+   * The welcome screen — title, text and the twelve quick actions — is HTML
+   * this file generates, so it carries no data-i18n attributes and
+   * `I18n.translateDOM()` cannot reach it; without this it kept whatever
+   * language was active when it was first drawn, until the next reload.
+   *
+   * The transcript is deliberately left alone: it is a record of what was
+   * actually said, and its Apply/Retry buttons are wired to the in-memory
+   * apply queue, so rebuilding it would trade a stale label for a lost action.
+   */
+  refreshLanguage() {
+    const $ = Ui.$;
+    if ($('#aiChatMessages .ai-welcome')) this._showWelcome();
+    const historyPanel = $('#aiHistoryPanel');
+    if (historyPanel && historyPanel.classList.contains('open')) this._renderHistoryList();
+  },
+
   _loadSession(sessionId) {
     const cardId = CardState.activeCard?._id || 'global';
     const sessions = CardStorage.getChatSessions(cardId);

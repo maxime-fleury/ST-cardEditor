@@ -16,15 +16,21 @@
        vendor/ and committed (see scripts/vendor.mjs), so no third-party origin
        may execute code in this page. The remaining remote origins are data
        (AI providers, waifu.im/anilist images) plus Google Fonts stylesheets. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co;">
   
   <!-- Bootstrap 5.3 CSS -->
   <link href="vendor/bootstrap.min.css" rel="stylesheet" id="bootstrapLtr">
   <link href="vendor/bootstrap.rtl.min.css" rel="stylesheet" id="bootstrapRtl" disabled>
   <!-- Bootstrap Icons -->
   <link href="vendor/bootstrap-icons.css" rel="stylesheet">
-  <!-- Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Google Fonts (vendored: same-origin, precached, no CDN — see scripts/vendor.mjs).
+       One stylesheet, 17 woff2 subsets; the browser fetches only the subsets whose
+       unicode-range it actually needs, and all of them are in the offline shell.
+       The Latin faces are deliberately NOT <link rel=preload>ed: measured, it made
+       Chrome request those two files twice (the @font-face fetch did not reuse the
+       preload), which costs more than the earlier start saves. tests/shell.spec.js
+       asserts one fetch per face so a preload cannot be reintroduced unnoticed. -->
+  <link href="vendor/fonts.css" rel="stylesheet">
   
   <!-- App CSS (split for maintainability) -->
   <link rel="stylesheet" href="css/theme.css">
@@ -49,7 +55,7 @@
           <i class="bi bi-stars"></i>
         </div>
         <span class="brand-text" data-i18n="nav.brand">ST Card Editor</span>
-        <span class="badge bg-purple ms-2">v2.8.1</span>
+        <span class="badge bg-purple ms-2">v2.9.0</span>
       </a>
       
       <div class="d-flex align-items-center gap-2">
@@ -1476,7 +1482,7 @@
                  role="combobox" aria-expanded="true" aria-controls="paletteResults" aria-autocomplete="list"
                  data-i18n-placeholder="palette.placeholder" placeholder="Search cards, fields, or run a command…">
         </div>
-        <div class="palette-results" id="paletteResults" role="listbox" aria-label="Results"></div>
+        <div class="palette-results" id="paletteResults" role="listbox"></div>
         <div class="palette-footer"><span data-i18n="palette.hint">↑↓ navigate · Enter to run · Esc to close</span></div>
       </div>
     </div>
@@ -1550,6 +1556,6 @@
   <!-- App bundle -- one entry module built by `bun run build` (scripts/build.mjs).
        Replaces the 13 individual <script type="module"> tags; a single ?v= buster
        (derived from package.json version by check-assets) invalidates the cache.) -->
-  <script type="module" src="js/app.js?v=281"></script>
+  <script type="module" src="js/app.js?v=290"></script>
 </body>
 </html>

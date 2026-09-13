@@ -6,7 +6,7 @@
    ============================================================ */
 
 const BASE_PATH = new URL('.', self.location.href).pathname;
-const CACHE_PREFIX = 'stce-v2.8.1';
+const CACHE_PREFIX = 'stce-v2.9.0';
 const CACHE_NAME = `${CACHE_PREFIX}:${BASE_PATH}`;
 const DEV_PATH = BASE_PATH.endsWith('/dev/')
   ? BASE_PATH
@@ -38,6 +38,28 @@ const SHELL_FILES = [
   'vendor/bootstrap-icons.css',
   'vendor/fonts/bootstrap-icons.woff2',
   'vendor/fonts/bootstrap-icons.woff',
+  // Google Fonts (Inter / Plus Jakarta Sans / JetBrains Mono), vendored by
+  // scripts/vendor.mjs: the stylesheet plus the 17 woff2 subsets it names.
+  // They used to be the one cross-origin dependency left in the UI, cached at
+  // runtime; same-origin now, so offline typography is part of the install.
+  'vendor/fonts.css',
+  'vendor/fonts/inter-latin.woff2',
+  'vendor/fonts/inter-latin-ext.woff2',
+  'vendor/fonts/inter-cyrillic.woff2',
+  'vendor/fonts/inter-cyrillic-ext.woff2',
+  'vendor/fonts/inter-greek.woff2',
+  'vendor/fonts/inter-greek-ext.woff2',
+  'vendor/fonts/inter-vietnamese.woff2',
+  'vendor/fonts/plus-jakarta-sans-latin.woff2',
+  'vendor/fonts/plus-jakarta-sans-latin-ext.woff2',
+  'vendor/fonts/plus-jakarta-sans-cyrillic-ext.woff2',
+  'vendor/fonts/plus-jakarta-sans-vietnamese.woff2',
+  'vendor/fonts/jetbrains-mono-latin.woff2',
+  'vendor/fonts/jetbrains-mono-latin-ext.woff2',
+  'vendor/fonts/jetbrains-mono-cyrillic.woff2',
+  'vendor/fonts/jetbrains-mono-cyrillic-ext.woff2',
+  'vendor/fonts/jetbrains-mono-greek.woff2',
+  'vendor/fonts/jetbrains-mono-vietnamese.woff2',
   'vendor/diff.min.js',
   'vendor/anime.min.js',
   'vendor/marked.min.js',
@@ -58,23 +80,51 @@ const SHELL_FILES = [
 const shellUrl = (file) => new URL(file || './', self.location.href).toString();
 const shellPaths = new Set(SHELL_FILES.map(file => new URL(file || './', self.location.href).pathname));
 
-// Google Fonts is the only third-party origin left in the UI (fonts are pure
-// data, no code): its stylesheet and the woff2 files it points at are
-// cross-origin, so the shell list above cannot precache them. They are cached
-// at runtime (stale-while-revalidate) so typography survives offline.
-const FONT_HOSTS = new Set(['fonts.googleapis.com', 'fonts.gstatic.com']);
-// Named for what it holds. It used to be CDN_CACHE ('stce-cdn-…') back when
-// Bootstrap/jsdiff/anime/marked came from jsdelivr; those are vendored now, so
-// the only cross-origin requests left are these fonts.
-const FONT_CACHE = 'stce-fonts-v2.8.1';
+// NOTE: there is no cross-origin cache any more. Every asset the UI loads —
+// scripts, styles, icons and fonts — is same-origin and listed in the shell
+// above, so nothing needs a stale-while-revalidate path keyed on a hostname.
 
-// Same-origin assets that are deliberately NOT in the precached shell because
-// of their size, but should still work offline after their first successful
-// fetch (the vendored BPE tokenizer, ~2.7 MB). Caching on demand keeps the
-// install cheap while preserving the "used it once → works offline" property.
-const RUNTIME_FILES = ['vendor/gpt-tokenizer.js'].map(
-  (file) => new URL(file, self.location.href).pathname
-);
+// Same-origin assets that are deliberately NOT part of the install-time shell,
+// but should still work offline after their first successful fetch. Caching on
+// demand keeps the install cheap while preserving the "used it once → works
+// offline" property:
+//   - the vendored BPE tokenizer (~2.7 MB, fetched on the first token count);
+//   - the 26 language dictionaries. Only English ships inside the boot chunk:
+//     the other 26 were ~845 KB of the ~1.2 MB it used to be, i.e. 71% of the
+//     JavaScript every user downloaded so that each user could read one of them.
+//     A dictionary is fetched when its language is selected and cached here, so
+//     a language works offline once it has been used online once. Switching to
+//     a never-fetched language while offline falls back to English and says so
+//     (js/i18n.js). check-assets fails if this list and js/i18n.js disagree.
+const RUNTIME_FILES = [
+  'vendor/gpt-tokenizer.js',
+  'js/i18n/fr.js',
+  'js/i18n/es.js',
+  'js/i18n/de.js',
+  'js/i18n/pt.js',
+  'js/i18n/ja.js',
+  'js/i18n/zh.js',
+  'js/i18n/ko.js',
+  'js/i18n/el.js',
+  'js/i18n/ru.js',
+  'js/i18n/it.js',
+  'js/i18n/pl.js',
+  'js/i18n/tr.js',
+  'js/i18n/nl.js',
+  'js/i18n/uk.js',
+  'js/i18n/vi.js',
+  'js/i18n/id.js',
+  'js/i18n/hi.js',
+  'js/i18n/ar.js',
+  'js/i18n/he.js',
+  'js/i18n/fa.js',
+  'js/i18n/ro.js',
+  'js/i18n/cs.js',
+  'js/i18n/sv.js',
+  'js/i18n/th.js',
+  'js/i18n/pt-pt.js',
+  'js/i18n/tl.js',
+].map((file) => new URL(file, self.location.href).pathname);
 const runtimePaths = new Set(RUNTIME_FILES);
 
 // Install: cache the app shell. Precaching is done per-file so one missing
@@ -100,14 +150,10 @@ self.addEventListener('activate', (event) => {
       keys.filter((key) => {
         const separator = key.indexOf(':');
         const cachePath = separator >= 0 ? key.slice(separator + 1) : '';
-        // The font cache is deliberately global (cross-path) and must survive
-        // activation: its name contains no ':', so without this exemption it
-        // would be classified as a legacy cache and deleted on every update,
-        // leaving typography unstyled right after an upgrade.
-        if (key === FONT_CACHE || key.startsWith('stce-fonts-')) return false;
         // Keys without a ':' are legacy caches (pre-path-scoping, e.g.
-        // "stce-v2.2"). They carry no path, so they can't be matched to any
-        // deployment and must be removed rather than leaked forever.
+        // "stce-v2.2") or the retired cross-origin font cache
+        // ("stce-fonts-…"); neither carries a path, so they can't be matched to
+        // any deployment and must be removed rather than leaked forever.
         return key.startsWith('stce-') && key !== CACHE_NAME &&
           (cachePath === BASE_PATH || cachePath === '');
       })
@@ -120,31 +166,9 @@ self.addEventListener('activate', (event) => {
 // Fetch: network-first for everything, cache as fallback (and offline cache).
 // Network-first means a freshly deployed index.html (with its new ?v= busters)
 // is always served online; the cache only matters when offline.
-const staleWhileRevalidate = (request) =>
-  caches.open(FONT_CACHE).then((cache) =>
-    cache.match(request, { ignoreVary: true }).then((cached) => {
-      // Revalidate in the background (and prewarm the cache on first hit).
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(FONT_CACHE).then((c) => c.put(request, copy));
-          }
-        })
-        .catch(() => {});
-      return cached || fetch(request);
-    })
-  );
-
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
-
-  // Cross-origin font assets: serve stale-from-cache first, refresh in background.
-  if (FONT_HOSTS.has(url.hostname)) {
-    event.respondWith(staleWhileRevalidate(event.request));
-    return;
-  }
 
   // The stable worker's scope includes /dev/, but it must not serve or cache
   // development requests. The /dev/ worker owns those requests instead.

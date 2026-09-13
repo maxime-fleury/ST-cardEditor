@@ -220,6 +220,51 @@ test('a huge lorebook cannot blow the per-card memory budget', () => {
   expect(CardSearch.search(suffix).length).toBeLessThanOrEqual(1);
   // ...and a field far past the budget is dropped rather than kept in memory.
   expect(CardSearch.search('sentinel399')).toEqual([]);
+
+  // The bound is now asserted on the real retained size, not inferred from the
+  // cap constants: CARD_CAP of normalized text plus at most RAW_CAP per field.
+  const stats = CardSearch.stats();
+  expect(stats.entries).toBe(1);
+  expect(stats.chars).toBeLessThanOrEqual(48_000 + CardSearch._fields.length * 2_000);
+});
+
+test('each indexed field retains exactly two strings (norm + raw)', () => {
+  // Regression: the index used to also keep a same-length folded copy of every
+  // field's raw text — a derived string that cost as much again as the raw copy
+  // and was only ever read when building a snippet. It is computed on demand
+  // now, and the count of retained strings is what pins that down: three per
+  // field means the copy is back.
+  CardSearch.reset();
+  CardSearch.remember({
+    _id: 'full',
+    name: 'Ada', creator: 'me', tags: ['t'], character_version: '1',
+    description: 'd', personality: 'p', scenario: 's', first_mes: 'f',
+    alternate_greetings: ['g'], mes_example: 'm', system_prompt: 'sp',
+    post_history_instructions: 'phi', creator_notes: 'cn',
+    character_book: { entries: [{ key: ['k'], content: 'c' }] },
+  });
+
+  const { entries, keys } = CardSearch.stats();
+  expect(entries).toBe(1);
+  expect(keys).toBe(CardSearch._fields.length * 2);
+});
+
+test('snippets are built only for the returned hits', () => {
+  // Same saving on the search path: ranking is cheap and runs over everything,
+  // but the folded-text snippet is only cut for what survives the limit.
+  CardSearch.reset();
+  CardState.cards = [];
+  for (let i = 0; i < 40; i++) {
+    // The name deliberately does NOT contain the query, so every hit's snippet
+    // comes from the description (a name hit outranks it and would be returned
+    // instead).
+    CardSearch.remember(card({ _id: `card-${i}`, name: `Card ${i}`, description: 'needle '.repeat(50) }));
+    CardState.cards.push({ _id: `card-${i}` });
+  }
+
+  const hits = CardSearch.search('needle', { limit: 3 });
+  expect(hits).toHaveLength(3);
+  for (const hit of hits) expect(hit.snippet).toContain('needle');
 });
 
 test('tolerates malformed cards (null fields, numeric tags, missing ids)', () => {

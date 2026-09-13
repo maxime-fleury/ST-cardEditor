@@ -18,6 +18,8 @@
 
 // @ts-check
 
+import { foldWords } from './textFold.js';
+
 const STORE_KEY = 'stce.intentLearner.v1';
 const MIN_WORD_LEN = 4;
 const MAX_KEYWORDS = 300;
@@ -40,14 +42,9 @@ const STOPWORDS = new Set([
 /** @type {Record<string, Record<string, number>> | null} in-memory cache of the store */
 let mem = null;
 
-/** Lowercase, strip diacritics, split on non-letters, drop stopwords/short words. */
+/** Fold (js/textFold.js), split, then drop stopwords and too-short words. */
 function normalize(text) {
-  if (!text || typeof text !== 'string') return [];
-  return (text.toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .split(/[^a-z0-9]+/))
-    .filter(w => w.length >= MIN_WORD_LEN && !STOPWORDS.has(w));
+  return foldWords(text, MIN_WORD_LEN).filter(w => !STOPWORDS.has(w));
 }
 
 /** @returns {Record<string, Record<string, number>>} */

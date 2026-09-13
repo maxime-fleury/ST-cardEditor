@@ -546,6 +546,11 @@ const CardManager = {
     });
   },
 
+  /** Is a query or a tag filter narrowing the list right now? */
+  _filterActive() {
+    return !!this._searchQuery || this._activeTagFilters.size > 0;
+  },
+
   renderCardList() {
     const $ = Ui.$;
     const { cards, activeCard } = CardState;
@@ -554,8 +559,12 @@ const CardManager = {
     const searchWrap = $('#cardSearchWrap');
     const controlsWrap = $('#libraryControls');
 
-    if (searchWrap) searchWrap.style.display = cards.length > 3 ? '' : 'none';
-    if (controlsWrap) controlsWrap.style.display = cards.length > 3 ? '' : 'none';
+    // Show the search box and the sort/tag controls as soon as there is a card.
+    // The old 4-card threshold predates the full-text index: it hid a search
+    // that now indexes every field, and it hid *sorting* for no reason at all.
+    const hasCards = cards.length > 0;
+    if (searchWrap) searchWrap.style.display = hasCards ? '' : 'none';
+    if (controlsWrap) controlsWrap.style.display = hasCards ? '' : 'none';
 
     this._renderTagCloud();
     this._renderTagChipStrip();
@@ -598,7 +607,7 @@ const CardManager = {
     // The count has to describe what is on screen: with a query or a tag filter
     // active, the whole-library total is simply wrong (and now that both persist
     // across reloads, it would be wrong on first paint).
-    $('#cardCount').textContent = (this._searchQuery || this._activeTagFilters.size > 0)
+    $('#cardCount').textContent = this._filterActive()
       ? I18n.t('search.results', { count: filtered.length })
       : I18n.t('left.cards', { count: cards.length });
 
@@ -702,16 +711,14 @@ const CardManager = {
       });
       const searchInput = $('#cardSearchInput');
       if (searchInput) {
-        searchInput.addEventListener('input', Ui.debounce(() => {
+        searchInput.addEventListener('input', Ui.debounce(async () => {
           this._searchQuery = searchInput.value.trim();
           this._persistLibraryView();
+          // Fill the index BEFORE rendering: the index may still be cold (first
+          // search of the session) or hold a card that was just imported, and
+          // rendering cold-then-warm animated the whole result set twice.
+          try { await CardSearch.ensure((id) => CardStorage.getCard(id)); } catch (_) { /* render what we have */ }
           this.renderCardList();
-          // The index may still be cold (first search of the session) or hold a
-          // card that was just imported: fill the gaps, then re-render so the
-          // results are complete rather than partially populated.
-          CardSearch.ensure((id) => CardStorage.getCard(id))
-            .then((indexed) => { if (indexed > 0) this.renderCardList(); })
-            .catch(() => {});
         }, DEBOUNCE_SEARCH_MS));
       }
 
@@ -1110,7 +1117,10 @@ const CardManager = {
     this._bindCardEvents();
     const run = () => {
       CardSearch.ensure((id) => CardStorage.getCard(id))
-        .then((indexed) => { if (indexed > 0) this.renderCardList(); })
+        // Only re-render when the index is actually on screen: with no query and
+        // no tag filter the indexed text is invisible, and re-rendering the
+        // freshly painted library replayed its entrance animation on every load.
+        .then((indexed) => { if (indexed > 0 && this._filterActive()) this.renderCardList(); })
         .catch(() => {});
     };
     if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run);

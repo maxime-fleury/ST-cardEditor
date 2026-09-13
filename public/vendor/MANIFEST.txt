@@ -7,6 +7,24 @@
 #
 # <file> <sha384> <bytes> <source>
 
+  fonts/inter-cyrillic-ext.woff2 sha384-swBecAL27qLsDDPbdyf4m+eOb3hVqthbGOSWWsQAWGQRrC7Mv26pPhoNQD/pG+fc 25960 https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7SUc.woff2
+  fonts/inter-cyrillic.woff2 sha384-0TIui+vzWhVZMl7iUvLEvfLe0BvgafwfPJsBipXepNH7XIVkp1kGdXEZmLw5x82g 18748 https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa0ZL7SUc.woff2
+  fonts/inter-greek-ext.woff2 sha384-932mXjo6nQfddER8hP3Xid6Vo+B58AGIF2P8Budgaa2Sufgv0r1MA6Mktb9jLPbt 11232 https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2ZL7SUc.woff2
+  fonts/inter-greek.woff2 sha384-JIq1RpVIyHblvpj3nIzOJN4M1Rpvmej5lX/2ofexSTmh6hYB7ir+QOlIf6IJUzqh 18996 https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1pL7SUc.woff2
+  fonts/inter-latin-ext.woff2 sha384-r0EoKgCx3XyQjhJdTJ6FDE+8mEZrV95dM7cWvqLDUVdqzM44cq76qdOaYiA3sebS 85068 https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7SUc.woff2
+  fonts/inter-latin.woff2 sha384-l0ql7Q1zqvX5klAVRwYjcMVCkCxg5dMTdghsIlC3pYkX6wwEHerh2bP/4yAao3Im 48256 https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2
+  fonts/inter-vietnamese.woff2 sha384-Add/AMGDcvhLuCRrQsVxY4SzrdqLkUv2MC9f/lB3IYYM5dCHI0PdX2L2YQmKtcb0 10252 https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7SUc.woff2
+  fonts/jetbrains-mono-cyrillic-ext.woff2 sha384-n8V/X1dbgF5MQgoHcq9pM5WpLLD28OYQqDJ/bhi6lSgnkU7cz/e2QI+7EQR1SiTL 1640 https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx3cwhsk.woff2
+  fonts/jetbrains-mono-cyrillic.woff2 sha384-hHQuxymYssvWq6zjEFy4bE2M60rWOhBm99VVSjkHkq5Zi85efaeUxP9U03Gopaib 8872 https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxTcwhsk.woff2
+  fonts/jetbrains-mono-greek.woff2 sha384-vR5cbM1qQK0waN6msRkGCWjQ7GQIF5cDHmqNrDdyLcWYxPjeNi6KHgS90KlTwxQ0 6836 https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxPcwhsk.woff2
+  fonts/jetbrains-mono-latin-ext.woff2 sha384-md7lI+WpzcaSgfuu+hCajR6cBH9KQiGR2BEnokGhah1MOLT+PY8Tb5r5PUYGeiuQ 11624 https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx7cwhsk.woff2
+  fonts/jetbrains-mono-latin.woff2 sha384-9wWypBPwJyfsOnJFplExHD+Wz+6/I6+rtL7ITgA/6wSPgpj+tnQovOLWM9j2rhOF 31432 https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2
+  fonts/jetbrains-mono-vietnamese.woff2 sha384-ZWZfojQTC8jA1q77FRMlg9ESbS8s8w3cNfHzSIgYnq9pipymhbxDMKH5q0vHioGn 5888 https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx_cwhsk.woff2
+  fonts/plus-jakarta-sans-cyrillic-ext.woff2 sha384-UfYyNHpZ2rCbugNuGG1SLFIpO+K+l0KYdMAAFqBOWmZMQYv4Are1swpjO+mLeTRS 1716 https://fonts.gstatic.com/s/plusjakartasans/v12/LDIoaomQNQcsA88c7O9yZ4KMCoOg4Ko70yyygA.woff2
+  fonts/plus-jakarta-sans-latin-ext.woff2 sha384-YEgChAoYNVoWusG3QRillTHqLx/4d4yiobHamK1BGpCrERveCLISj8XaL4z3SWhb 21728 https://fonts.gstatic.com/s/plusjakartasans/v12/LDIoaomQNQcsA88c7O9yZ4KMCoOg4Ko40yyygA.woff2
+  fonts/plus-jakarta-sans-latin.woff2 sha384-PLr9Pw5Kj/wYLXprEoC4H+A67gWdr/vTHwjvixEXhBKOSEkgKsA9wRwZRvAEnGeN 27348 https://fonts.gstatic.com/s/plusjakartasans/v12/LDIoaomQNQcsA88c7O9yZ4KMCoOg4Ko20yw.woff2
+  fonts/plus-jakarta-sans-vietnamese.woff2 sha384-LLPYawdbnia2nxJk3UDReiaPLFIB6uM3UvR1j+gYlsk0u8v1DA4Mm4vUt9cJVP+d 8352 https://fonts.gstatic.com/s/plusjakartasans/v12/LDIoaomQNQcsA88c7O9yZ4KMCoOg4Ko50yyygA.woff2
+  fonts.css sha384-H2wL7IUxhPtGrn4JpRP80EKlP4LPpoDSP1UcvBZK7r3xpgiALcoboPlz6S8615xO 26190 https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap
   bootstrap.min.css sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH 232803 https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css
   bootstrap.rtl.min.css sha384-dpuaG1suU0eT09tx5plTaGMLBsfDLzUCCUXOY2j/LSvXYuG6Bqs43ALlhIqAJVRb 232911 https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css
   bootstrap.bundle.min.js sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz 80721 https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js

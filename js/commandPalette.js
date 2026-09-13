@@ -14,6 +14,7 @@
 
 import { I18n } from './i18n.js';
 import { Ui } from './ui.js';
+import { fold } from './textFold.js';
 import { CardState } from './cardState.js';
 import { CardSearch } from './cardSearch.js';
 import { CardManager } from './cardManager.js';
@@ -58,9 +59,6 @@ const JUMP_FIELDS = [
 ];
 
 const MAX_PER_SECTION = 12;
-
-/** Lowercase + strip diacritics, matching the search index's normalization. */
-const fold = (text) => String(text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 /** Relevance of a label against the query: prefix > word start > contains. */
 function labelScore(label, query) {
@@ -233,21 +231,26 @@ const CommandPalette = {
 
   _render(query) {
     if (!this._results) return;
+    // Labelled here rather than in index.html so it follows the active locale;
+    // the listbox is rebuilt on every keystroke anyway, so it cannot go stale.
+    this._results.setAttribute('aria-label', I18n.t('palette.results'));
     const items = this._build(query);
     this._items = items;
     this._active = 0;
     if (items.length === 0) {
       this._results.innerHTML = '<div class="palette-empty">' + Ui.escapeHtml(I18n.t('palette.empty')) + '</div>';
+      this._syncActiveDescendant();
       return;
     }
     this._results.innerHTML = items.map((item, i) => '<div class="palette-item' + (i === 0 ? ' active' : '')
-      + '" role="option" aria-selected="' + (i === 0) + '" data-index="' + i + '">'
+      + '" id="palette-option-' + i + '" role="option" aria-selected="' + (i === 0) + '" data-index="' + i + '">'
       + '<i class="bi ' + item.icon + ' palette-item-icon"></i>'
       + '<div class="palette-item-text"><div class="palette-item-label">' + Ui.escapeHtml(item.label) + '</div>'
       + (item.sub ? '<div class="palette-item-sub">' + Ui.escapeHtml(item.sub) + '</div>' : '')
       + '</div>'
       + '<span class="palette-item-kind">' + Ui.escapeHtml(I18n.t('palette.kind.' + item.kind)) + '</span>'
       + '</div>').join('');
+    this._syncActiveDescendant();
     this._scrollIntoView();
   },
 
@@ -258,7 +261,22 @@ const CommandPalette = {
       el.classList.toggle('active', on);
       el.setAttribute('aria-selected', String(on));
     });
+    this._syncActiveDescendant();
     this._scrollIntoView();
+  },
+
+  /**
+   * Point the combobox's aria-activedescendant at the highlighted option.
+   * role="listbox"/"option" alone announces the list but not which entry ↑/↓
+   * landed on, and the input keeps focus the whole time, so this attribute is
+   * the only thing that tells a screen reader where the cursor actually is.
+   */
+  _syncActiveDescendant() {
+    if (!this._input || !this._results) return;
+    const active = this._results.querySelector('.palette-item.active');
+    const id = active ? active.id : '';
+    if (id) this._input.setAttribute('aria-activedescendant', id);
+    else this._input.removeAttribute('aria-activedescendant');
   },
 
   _scrollIntoView() {

@@ -12,7 +12,37 @@
  * Usage:  bun scripts/check-i18n.mjs   (or:  npm run i18n:check)
  */
 
-import { translations, SUPPORTED } from "../js/i18n.js";
+import { readdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { SUPPORTED, loadAllLocales } from "../js/i18n.js";
+import { ALWAYS_ENGLISH, isUntranslated } from "./i18n-copyover.mjs";
+
+// Only English is bundled statically: the other 26 dictionaries are lazy chunks
+// (see js/i18n.js), so the whole set has to be requested explicitly here. This
+// line is load-bearing — without it the guard compares English against English
+// and passes. It did exactly that when the split landed: it reported success and
+// then, one check later, "only 1 language block found".
+const translations = await loadAllLocales();
+
+// A dictionary file that no loader names is unreachable code: it is not in
+// `translations`, so it is never compared, never counted, and never reachable
+// from the picker — the same class of failure as the old `elGr` registration
+// bug, but caught from the filesystem side.
+const i18nDir = join(dirname(fileURLToPath(import.meta.url)), "..", "js", "i18n");
+const unreachableFiles = readdirSync(i18nDir)
+  .filter((name) => name.endsWith(".js"))
+  .map((name) => name.replace(/\.js$/, ""))
+  .filter((lang) => !SUPPORTED.includes(lang));
+if (unreachableFiles.length) {
+  console.error(`✗ dictionary file(s) with no loader in js/i18n.js LOADERS: ${unreachableFiles.join(", ")}`);
+  process.exit(1);
+}
+const unloadable = SUPPORTED.filter((lang) => !Object.prototype.hasOwnProperty.call(translations, lang));
+if (unloadable.length) {
+  console.error(`✗ SUPPORTED language(s) whose LOADERS entry did not resolve: ${unloadable.join(", ")}`);
+  process.exit(1);
+}
 
 // Registration guard: a dictionary that exists but is not reachable under the
 // code the UI switches to is invisible to every other check here. The Greek
@@ -78,6 +108,58 @@ if (ph) {
   process.exit(1);
 }
 
+// Placeholder-parity guard: a translation that drops, renames or adds a
+// placeholder compared to English renders wrong at runtime and throws nothing.
+// "{{count}} cartes" translated as "cartes" loses the number silently, and
+// "{{total}}" renders as the literal braces because I18n.t has no such
+// variable. Only English defines the contract, so compare every locale to it.
+const placeholdersOf = (value) => (String(value).match(/\{\{[A-Za-z0-9_]+\}\}/g) || []).slice().sort().join("|");
+let phParity = 0;
+for (const lang of langs) {
+  if (lang === 'en') continue;
+  for (const [key, value] of Object.entries(translations[lang])) {
+    const want = placeholdersOf(translations.en[key]);
+    const got = placeholdersOf(value);
+    if (want !== got) {
+      phParity++;
+      if (phParity <= 15) console.error(`✗ ${lang}.${key}: placeholders [${got || "none"}] do not match en [${want || "none"}].`);
+    }
+  }
+}
+if (phParity) {
+  console.error(`\ncheck-i18n: ${phParity} value(s) with placeholders that differ from English.`);
+  process.exit(1);
+}
+
+// Allowlist integrity: scripts/i18n-copyover.mjs says "English is the right
+// text here", and that claim is only worth anything if it stays true. An entry
+// whose key no longer exists, or that no longer equals English in the locale it
+// names, is stale — and a stale allowlist hides exactly the gap it was written
+// to record, so it fails the build instead.
+const allowlistProblems = [];
+for (const entry of ALWAYS_ENGLISH) {
+  const [maybeLang, maybeKey] = entry.includes(':') ? entry.split(':') : [null, entry];
+  if (!(maybeKey in translations.en)) {
+    allowlistProblems.push(`${entry}: not a key of en.js`);
+    continue;
+  }
+  const targets = maybeLang ? [maybeLang] : langs.filter((lang) => lang !== 'en');
+  for (const lang of targets) {
+    if (!translations[lang]) {
+      allowlistProblems.push(`${entry}: unknown locale "${lang}"`);
+      continue;
+    }
+    if (translations[lang][maybeKey] !== translations.en[maybeKey]) {
+      allowlistProblems.push(`${entry}: ${lang} is "${String(translations[lang][maybeKey]).slice(0, 40)}", no longer English`);
+    }
+  }
+}
+if (allowlistProblems.length) {
+  for (const line of allowlistProblems.slice(0, 15)) console.error(`✗ allowlist ${line}`);
+  console.error(`\ncheck-i18n: ${allowlistProblems.length} stale ALWAYS_ENGLISH entry(ies) in scripts/i18n-copyover.mjs.`);
+  process.exit(1);
+}
+
 // Translation-coverage gate: keys whose value still equals English are
 // copyovers (untranslated). A locale below the coverage threshold FAILS the
 // check (unlike parity, this is about completeness, not key shape), so a
@@ -102,7 +184,13 @@ let withCopyover = 0;
 let belowFloor = 0;
 for (const lang of langs) {
   if (lang === 'en') continue;
-  const n = Object.entries(translations[lang]).filter(([k, v]) => v === translations.en[k]).length;
+  // Not every value equal to English is untranslated: see i18n-copyover.mjs
+  // (product names, colours, units, and the idiolect entries that are recorded
+  // as "the same word in this language"). Counting those would overstate the
+  // gap and leave the report full of work that does not exist.
+  const n = Object.entries(translations[lang])
+    .filter(([k, v]) => isUntranslated(lang, k, v, translations.en[k]))
+    .length;
   copyoverTotal += n;
   const pct = Math.round(((enKeys.length - n) / enKeys.length) * 100);
   if (n) {

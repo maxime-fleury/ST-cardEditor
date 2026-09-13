@@ -13,11 +13,20 @@
    (CardStorage.upsertCard → `stce:card-saved`, see cardManager.js), so a saved
    card is searchable immediately without re-reading anything.
 
+   Memory is the real budget here — this is the only structure that grows with
+   the library and is never persisted — so anything derivable is derived instead
+   of stored: the folded copy a snippet needs is rebuilt for the handful of
+   results actually returned, not kept per field (see foldSameLength), and a
+   snippet is built only after the ranked list has been truncated. `stats()`
+   reports what is retained, and tests/unit/cardSearch.test.mjs pins a per-card
+   ceiling so a future field or cap cannot quietly double it.
+
    Dependency-free on purpose (CardState only): the loader that reads cards from
    storage is injected by the caller, which keeps this module testable and out
    of the storage/manager import cycle. */
 
 import { CardState } from './cardState.js';
+import { fold, foldSameLength } from './textFold.js';
 
 // Bounds. A card's text is user-provided and can be huge (a lorebook with
 // hundreds of entries); the index is a convenience, not an archive, so it must
@@ -29,7 +38,7 @@ const MAX_RESULTS = 100;
 const SNIPPET_PAD = 60;    // raw chars of context kept before the match
 
 /** @typedef {{ id: string, labelKey: string, weight: number, value: (card: CardShape) => string }} SearchField */
-/** @typedef {{ norm: string, raw: string, rawFold: string }} IndexedField */
+/** @typedef {{ norm: string, raw: string }} IndexedField */
 /** @typedef {{ id: string, name: string, fields: Map<string, IndexedField> }} IndexEntry */
 // SearchHit is declared globally (js/globals.d.ts) so cardManager can type the
 // match it renders for each row.
@@ -79,34 +88,12 @@ const FIELDS = [
 /** Field id → label key, for callers that need to translate a hit's origin. */
 const FIELD_LABELS = new Map(FIELDS.map((f) => [f.id, f.labelKey]));
 
-/** Lowercase + strip diacritics, so "elodie" finds "Élodie". */
-function normalize(text) {
-  if (!text) return '';
-  return text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
+/** Lowercase + strip diacritics, so "elodie" finds "Élodie" (js/textFold.js). */
+const normalize = fold;
 
 /** Same normalization for the query, collapsed so multi-space input still hits. */
 function normalizeQuery(query) {
   return normalize(String(query || '')).replace(/\s+/g, ' ').trim();
-}
-
-/**
- * Fold a string character by character, keeping the result the SAME LENGTH as
- * the input, so a match position in the folded text is also valid in the raw
- * text. That is what lets an accent-insensitive query ("elodie") highlight the
- * accented original ("Élodie") instead of falling back to a head snippet.
- *
- * Characters whose fold changes the length (ß → ss, İ → i̇) are kept folded-out
- * of the map: their offsets can't be trusted, so they read as a non-match there
- * (the normalized `norm` copy still matches them for scoring).
- */
-function foldSameLength(text) {
-  let out = '';
-  for (const ch of text) {
-    const folded = ch.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    out += folded.length === ch.length ? folded : ch;
-  }
-  return out;
 }
 
 /** @type {Map<string, IndexEntry>} */
@@ -122,17 +109,18 @@ function buildEntry(card) {
     const raw = field.value(card);
     if (!raw) continue;
     const norm = normalize(raw).slice(0, Math.min(MATCH_CAP, budget));
-    const rawCapped = raw.slice(0, RAW_CAP);
-    fields.set(field.id, { norm, raw: rawCapped, rawFold: foldSameLength(rawCapped) });
+    fields.set(field.id, { norm, raw: raw.slice(0, RAW_CAP) });
     budget -= norm.length;
   }
   return { id: String(card._id || ''), name: str(card.name), fields };
 }
 
 /**
- * Score one field against the normalized query and locate the snippet window.
- * Returns null when the field does not match.
- * @returns {{ score: number, snippet: string, start: number, length: number } | null}
+ * Score one field against the normalized query. Returns null when it does not
+ * match — deliberately cheap, because it runs for every field of every indexed
+ * card on each keystroke; the snippet is built later, for the few hits that are
+ * actually returned.
+ * @returns {{ score: number } | null}
  */
 function scoreField(field, indexed, query) {
   const at = indexed.norm.indexOf(query);
@@ -143,20 +131,31 @@ function scoreField(field, indexed, query) {
   let count = 1;
   for (let i = indexed.norm.indexOf(query, at + query.length); i >= 0 && count < 5; i = indexed.norm.indexOf(query, i + query.length)) count++;
   score += count * 2;
+  return { score };
+}
 
-  // Snippet from the RAW text, located through the same-length folded copy so an
-  // accent-insensitive hit still highlights the original characters. If the fold
-  // cannot map the match (see foldSameLength), the badge still names the field
-  // and the snippet starts at the head of the field.
-  const rawAt = indexed.rawFold.indexOf(query);
+/**
+ * Locate the match inside a hit's raw text and cut the snippet window around it,
+ * folding the text here rather than keeping a folded copy in the index (see
+ * foldSameLength in js/textFold.js). If the fold cannot map the match, the
+ * caller's badge still names the field and the snippet falls back to the head of
+ * the field — folding is deliberately not stored per field, because that copy
+ * cost as much as the raw text again for every field of every card while only
+ * the returned hits ever read it.
+ * @param {string} raw
+ * @param {string} query
+ * @returns {{ snippet: string, start: number, length: number }}
+ */
+function snippetFor(raw, query) {
+  const rawAt = foldSameLength(raw).indexOf(query);
   const pos = rawAt >= 0 ? rawAt : 0;
   const len = rawAt >= 0 ? query.length : 0;
   const from = Math.max(0, pos - SNIPPET_PAD);
   // The ellipsis is part of the string, so the match offset must shift by one
   // when it is prepended — otherwise the caller's <mark> would sit one char off.
   const lead = from > 0 ? '…' : '';
-  const snippet = lead + indexed.raw.slice(from, pos + Math.max(len, 0) + 120).replace(/\s+/g, ' ').trim();
-  return { score, snippet, start: rawAt >= 0 ? pos - from + lead.length : 0, length: len };
+  const snippet = lead + raw.slice(from, pos + Math.max(len, 0) + 120).replace(/\s+/g, ' ').trim();
+  return { snippet, start: rawAt >= 0 ? pos - from + lead.length : 0, length: len };
 }
 
 const CardSearch = {
@@ -236,34 +235,60 @@ const CardSearch = {
     if (!needle) return [];
     const allow = options && options.allow ? options.allow : null;
     const limit = (options && options.limit) || MAX_RESULTS;
-    /** @type {SearchHit[]} */
-    const hits = [];
+    // Two passes on purpose: rank first (cheap, every matching card), then build
+    // snippets only for the ones that survive the limit. Snippets used to be cut
+    // for every match, i.e. up to the whole library per keystroke, and thrown
+    // away by the slice.
+    /** @type {{ id: string, field: SearchField, score: number, raw: string }[]} */
+    const ranked = [];
     for (const entry of index.values()) {
       if (allow && !allow.has(entry.id)) continue;
-      /** @type {{ score: number, snippet: string, start: number, length: number } | null} */
+      /** @type {{ score: number } | null} */
       let best = null;
       /** @type {SearchField | null} */
       let bestField = null;
+      let bestRaw = '';
       for (const field of FIELDS) {
         const indexed = entry.fields.get(field.id);
         if (!indexed || !indexed.norm) continue;
         const scored = scoreField(field, indexed, needle);
-        if (scored && (!best || scored.score > best.score)) { best = scored; bestField = field; }
+        if (scored && (!best || scored.score > best.score)) { best = scored; bestField = field; bestRaw = indexed.raw; }
       }
-      if (best && bestField) {
-        hits.push({
-          id: entry.id,
-          field: bestField.id,
-          labelKey: bestField.labelKey,
-          score: best.score,
-          snippet: best.snippet,
-          snippetMatchStart: best.start,
-          snippetMatchLength: best.length,
-        });
+      if (best && bestField) ranked.push({ id: entry.id, field: bestField, score: best.score, raw: bestRaw });
+    }
+    ranked.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+    return ranked.slice(0, limit).map(({ id, field, score, raw }) => {
+      const { snippet, start, length } = snippetFor(raw, needle);
+      return {
+        id,
+        field: field.id,
+        labelKey: field.labelKey,
+        score,
+        snippet,
+        snippetMatchStart: start,
+        snippetMatchLength: length,
+      };
+    });
+  },
+
+  /**
+   * What the index currently retains: `chars` is the total text held (the one
+   * structure that grows with the library and is never written back to disk),
+   * and `keys` counts the stored strings so a test can pin that each indexed
+   * field keeps exactly two (see stats() callers in
+   * tests/unit/cardSearch.test.mjs) — a derived third copy is how this index
+   * got twice as big as it needed to be before.
+   */
+  stats() {
+    let chars = 0;
+    let keys = 0;
+    for (const entry of index.values()) {
+      for (const field of entry.fields.values()) {
+        chars += field.norm.length + field.raw.length;
+        keys += Object.keys(field).length;
       }
     }
-    hits.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
-    return hits.slice(0, limit);
+    return { entries: index.size, chars, keys };
   },
 
   /** Label key for a field id (used by the palette to jump to a field). */

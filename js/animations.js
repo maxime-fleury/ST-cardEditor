@@ -12,6 +12,25 @@ const Anims = {
 
   _disabled() { return this._reducedMotion || typeof anime === 'undefined'; },
 
+  // The whole stagger may not spread over more than this window. `opacity:[0,1]`
+  // applies the FROM value to every target immediately, so an uncapped
+  // `stagger(25)` left item k invisible until 25×k ms: the 100th search result
+  // appeared after 2.5 s and a 500-card library after 12.5 s — the list looked
+  // broken, not animated.
+  _STAGGER_WINDOW_MS: 400,
+
+  /**
+   * Delay between two items, narrowed so the total stagger stays inside
+   * `_STAGGER_WINDOW_MS`. Small lists keep the full step (a 10-row list is
+   * unaffected); large ones become an almost-simultaneous fade.
+   * @param {number} count
+   * @param {number} base
+   */
+  _staggerStep(count, base) {
+    if (!(count > 1)) return base;
+    return Math.min(base, this._STAGGER_WINDOW_MS / (count - 1));
+  },
+
   staggerFadeIn(selector, opts) {
     if (this._disabled()) return;
     // Accept a single Element OR a collection — a bare <div> has no .length,
@@ -24,7 +43,7 @@ const Anims = {
       opacity: [0, 1],
       translateY: [opts?.from || 8, 0],
       duration: opts?.duration || 250,
-      delay: anime.stagger(opts?.stagger || 30),
+      delay: anime.stagger(this._staggerStep(els.length, opts?.stagger || 30)),
       easing: opts?.easing || 'easeOutCubic',
     });
   },

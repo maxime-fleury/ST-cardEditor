@@ -20,7 +20,13 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { translations } from "../js/i18n.js";
+import { loadAllLocales } from "../js/i18n.js";
+
+// Every locale, not just the bundled one. English is the only dictionary that is
+// a static import now (the other 26 are lazy chunks, see js/i18n.js), so reading
+// `translations` directly would show a single locale — and this script would then
+// report "nothing to add" while every locale was in fact missing the new keys.
+const translations = await loadAllLocales();
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const i18nDir = join(root, "js", "i18n");
@@ -51,7 +57,7 @@ let addedTotal = 0;
 for (const lang of langs) {
   const file = join(i18nDir, `${lang}.js`);
   if (!existsSync(file)) {
-    console.error(`✗ ${lang}: js/i18n/${lang}.js is missing (is it imported by js/i18n.js?).`);
+    console.error(`✗ ${lang}: js/i18n/${lang}.js is missing (does js/i18n.js's LOADERS list it?).`);
     outOfSync++;
     continue;
   }

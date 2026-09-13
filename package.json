@@ -1,6 +1,6 @@
 {
   "name": "st-card-editor",
-  "version": "2.8.1",
+  "version": "2.9.0",
   "description": "SillyTavern Character Card Reader & Editor - Edit, translate, and enhance character cards with AI",
   "type": "module",
   "scripts": {
@@ -15,6 +15,7 @@
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "test:unit": "bun test --parallel tests/unit",
+    "test:coverage": "bun scripts/check-coverage.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "prepare": "bunx simple-git-hooks"

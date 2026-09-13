@@ -138,8 +138,6 @@ test('grouped library: letter groups, collapse, tag chips, persisted sort', asyn
 test('full-text search matches body fields and names the field that matched', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/');
-  // Four cards: the search box only appears once the library is big enough to
-  // need it (`cards.length > 3` in renderCardList).
   await importCards(page, [
     v2Card('Aurora', { description: 'A cartographer who maps impossible coastlines.' }),
     v2Card('Bishop', { description: 'A quiet librarian from Toulouse, fond of a good café.' }),
@@ -161,6 +159,18 @@ test('full-text search matches body fields and names the field that matched', as
   await page.locator('#cardSearchInput').fill('cafe');
   await expect(page.locator('.card-list-item')).toHaveCount(1);
   await expect(page.locator('.card-list-match mark')).toHaveText('café');
+
+  // One query = ONE render. The old flow painted the results with a cold index
+  // and painted them again once it filled, so the whole list animated in twice.
+  await page.evaluate(() => {
+    window.__cardListRenders = 0;
+    new MutationObserver((records) => { window.__cardListRenders += records.length; })
+      .observe(document.querySelector('#cardList'), { childList: true });
+  });
+  await page.locator('#cardSearchInput').fill('navigator');
+  await expect(page.locator('.card-list-item')).toHaveCount(1);
+  await page.waitForTimeout(600); // long enough for a redundant second render
+  expect(await page.evaluate(() => window.__cardListRenders)).toBe(1);
 
   // Clearing the query restores the full library.
   await page.locator('#cardSearchInput').fill('');

@@ -6,6 +6,151 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-09-13
+
+### Added
+- **The translations are no longer silently English.** `check-i18n` had reported a
+  number nobody acted on: 2 839 keys across the 26 non-English locales still held
+  their English text — including, in *every* locale, the whole `health.*`,
+  `history.*` and `palette.*` wave and the 21 `wizard.language.*` labels that
+  `i18n-add` had scaffolded in English after each locale's last translation pass.
+  `scripts/i18n-translate.mjs` is the work order and its application. `--list`
+  prints one locale's keys that still hold English as a JSON patch to fill in
+  (`--list-all` does every locale at once), and `--apply` writes the filled patch
+  back into
+  `js/i18n/<lang>.js`, preserving key order, indentation and quoting. A patch is
+  refused before a byte is written when a value is still English, is empty, drops
+  or renames a `{{placeholder}}`, or would overwrite a key someone translated in
+  the meantime — and re-running a batch is a no-op rather than a clobber, so a
+  batch that failed halfway stays runnable.
+- **All 26 non-English locales are translated — 0 English keys left.** The second
+  pass took the 21 remaining locales (ja, zh, ko, ru, nl, sv, id, it, vi, pl, hi,
+  ar, he, fa, tr, tl, uk, ro, pt-pt, cs, th) from 1 947 keys holding English down
+  to zero, in batches, each applied through the tool's own validation after the
+  patch's key set was diffed against `--list <lang>`. Where a language genuinely
+  spells a word the way English does, the key is recorded in `ALWAYS_ENGLISH`
+  instead of being "translated" into something wrong: Scenario/Tags/Type/Genres/
+  Concept in Dutch, the genre and tech loanwords (Cyberpunk, Fantasy, Horror,
+  Sci-Fi) across the European locales, `Lorebook` where it is the community's own
+  term, and the two token-meter labels. Each of those entries is re-verified
+  against the dictionaries by `check-i18n`, so the claim stays true.
+- **`scripts/i18n-copyover.mjs` — what "still English" means.** Not every value
+  equal to English is untranslated: `#64748B`, `http://localhost:1234/v1` and
+  ` KB` have nothing to translate, and `ALWAYS_ENGLISH` records the cases that
+  were reviewed and should stay English — the product name, plus per-locale words
+  the target language genuinely shares with English (French *Description*,
+  *Compact*, *Concept*; German *Tags*, *Lorebook*; Spanish *Manual*, *General*).
+  `check-i18n` re-verifies every entry against the dictionaries, so a line that is
+  no longer true fails the build instead of hiding the gap it was written to
+  record. It caught 16 of its own first entries: Italian says "Scheda ST",
+  Turkish says "Tamam".
+- **A placeholder-parity guard** in `check-i18n`: a translation whose set of
+  `{{var}}` differs from English now fails the gate. The single-brace guard
+  already caught `{count}`, but a locale that dropped `{{count}}` altogether
+  rendered a sentence with no number in it and threw nothing.
+- **`scripts/i18n-literal.mjs`** — finding and re-escaping one value inside the
+  hand-written dictionaries, which mix raw UTF-8 with `\u2014`, put two entries on
+  a single line, and contain escaped quotes (`'l\'aperçu'`). Pure, unit-tested
+  (`tests/unit/i18nTranslate.test.mjs`), including the escaping round trip a
+  translation patch depends on and the `findValueSpan` case where a key name
+  appears inside another value.
+- **The test suite is measured, not just counted** — `bun run test:coverage`
+  runs the unit suite under `--coverage` (lcov), prints a per-file table, and
+  enforces two floors: a global ratchet that may only be raised, and a per-module
+  floor for the pure-logic modules (`cardEngine`, `cardSearch`, `cardHealth`,
+  `storage`, `textFold`, the two state stores). A module on that list that no
+  test imports fails the gate rather than being skipped — lcov only lists files
+  that were loaded, so an untested new module would otherwise be invisible. CI
+  and the deploy workflow run it, and `vendor:check` — a gate that existed but
+  ran nowhere — is now part of both.
+- **`js/textFold.js`** — the diacritic-stripping primitive that the search index,
+  the Ctrl+K palette and the intent learner had each grown their own copy of,
+  together with the offset-preserving variant the search snippets need. Unit
+  tested, including the characters for which folding cannot preserve offsets.
+- **`CardSearch.stats()`** — reports the characters the full-text index retains,
+  so its memory bound is asserted rather than assumed.
+- The command palette announces which entry ↑/↓ landed on
+  (`aria-activedescendant`, option ids, one `aria-selected`), and its listbox is
+  labelled from the active locale instead of a hardcoded English string.
+- `check-assets` now fails on any *external* asset reference or CDN allowlist:
+  `index.html` may not load anything off-origin, and neither CSP copy (the meta
+  tag, the `server.js` header) may name a non-keyword source in `default-src`,
+  `script-src`, `style-src` or `font-src`.
+
+### Changed
+- **Only English is compiled in; the other 26 languages load on demand.** The
+  dictionaries were static imports in `js/i18n.js`: minified, **845 KB of the
+  1 194 KB shared chunk — 71% of the JavaScript every user downloaded so that each
+  user could read one of 27 languages**, plus 845 KB of string tables to parse on
+  every load. English is now the only bundled one (it is the fallback every key
+  resolves through), and the rest are fetched from `js/i18n/<lang>.js` when that
+  language is selected: the chunk goes from **1 194.7 KB to 242.4 KB** raw and
+  from **354 748 to 71 200 bytes gzipped**, with no change to the five build
+  artifacts or to the service-worker shell. A dictionary is runtime-cached on
+  first use, so a language works offline once it has been used online once; a
+  never-fetched language picked while offline falls back to English and says so
+  (on the switch and at the next boot), while the choice is still remembered so
+  the UI translates itself on the next online load. `scripts/check-assets.mjs`
+  now fails if any dictionary reappears in the boot chunk, or if one is missing
+  from `RUNTIME_FILES` (which would work online and quietly stop working offline),
+  and `check-i18n` fails on a dictionary file that no longer has a loader.
+- **Google Fonts is vendored — the app now loads nothing from a CDN.**
+  `scripts/vendor.mjs` fetches the CSS API once, downloads all 17
+  unicode-subset `woff2` files it references and rewrites the `src` URLs, so
+  `public/vendor/fonts.css` is generated (never hand-edited) and every font is
+  hashed in `MANIFEST.txt` like the other 11 assets. The service worker's
+  cross-origin path is gone: `FONT_HOSTS`, `FONT_CACHE` and the
+  stale-while-revalidate branch are deleted, the retired `stce-fonts-*` /
+  `stce-cdn-*` caches are reclaimed on activation, and the fonts are precached
+  with the shell — so typography now works offline on the very first visit
+  instead of after a runtime CDN round-trip. `style-src` and `font-src` drop to
+  `'self'` in both CSP copies. (The Latin faces are deliberately not preloaded:
+  measured, Chrome fetched each of them twice; `tests/shell.spec.js` asserts one
+  fetch per face so that cannot be reintroduced unnoticed.)
+- **The bundle's cache-buster covers the code, not the stub.** `index.html` loads
+  `js/app.js?v=` — a 24-byte re-export — while the app itself is `js/app.chunk.js`,
+  imported relatively with no query. A release could therefore leave a browser
+  serving the previous chunk (and a lazy chunk that no longer matched the module
+  graph) for the host's whole `max-age`. `scripts/build.mjs` now rewrites the
+  `.chunk.js` specifiers inside the artifacts to carry the same `?v=`, and
+  `check-assets` asserts the committed artifacts do, at the right value.
+- **The dev server compresses each file once.** `gzipSync` on the 1.1 MB shared
+  chunk blocks the event loop for a few milliseconds and ran on every request;
+  the gzipped form is now memoized per `(path, mtime, size)`, so an edited file is
+  recompressed immediately and repeated loads cost ~2 ms (measured; 1 223 336 →
+  355 938 bytes on the wire).
+- **The full-text index no longer keeps a derived copy of every field.** Each
+  indexed field stored a same-length folded copy of its raw text — as large as the
+  raw copy again, for every field of every card, and read only when building a
+  snippet. Folding now happens on demand, for the hits that survive the result
+  limit, and snippets are cut after ranking instead of for every match.
+
+### Fixed
+- **The AI welcome screen kept the previous language after a language change.**
+  It is HTML `aiChat.js` generates with `I18n.t()` — title, text and the twelve
+  quick actions — so it carries no `data-i18n` attributes and
+  `I18n.translateDOM()` cannot reach it. The `stce:language-changed` hook existed
+  and its comment claimed to cover "the AI chips", but it called
+  `_renderFieldChips()` (the in-message field list) and never rebuilt the welcome,
+  which stayed in whatever language was active when it was first drawn until a
+  reload — the screenshot that caught it showed a French quick-action list under
+  an Arabic interface. `AiChat.refreshLanguage()` now rebuilds the welcome (and
+  the history list, when open); the transcript itself is deliberately left alone,
+  because its Apply/Retry buttons are wired to the in-memory apply queue and
+  rebuilding it would trade a stale label for a lost action.
+- **The card list no longer fades in one row at a time.** `opacity: [0, 1]` with
+  an uncapped `stagger(25)` applies the starting value to every row immediately,
+  so row *k* stayed invisible until 25×k ms: the 100th search result appeared
+  after 2.5 s and a 500-card library after 12.5 s — which reads as a broken list,
+  not as an animation. The whole stagger is now bounded to a 400 ms window (short
+  lists keep the full step), and the redundant re-renders that replayed the
+  animation are gone: the search no longer renders once cold and again once the
+  index is warm, and the idle index build only re-renders when the indexed text is
+  actually on screen.
+- The search box and the sort/tag controls appear with the **first** card instead
+  of the fourth. The old threshold predated the full-text index, and it hid
+  *sorting* — which needs no index at all.
+
 ## [2.8.1] - 2026-09-12
 
 ### Fixed
@@ -369,7 +514,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   with a white popup in dark mode — fixed via `color-scheme` plus dark
   `form-select`/`option` styling across all browsers.
 
-[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.8.1...HEAD
+[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.9.0...HEAD
+[2.9.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.9.0
 [2.8.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.8.1
 [2.8.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.8.0
 [2.7.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.7.1

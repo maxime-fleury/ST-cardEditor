@@ -537,6 +537,12 @@ function initFloatingLabels() {
 async function init() {
   const $ = Ui.$;
 
+  // The boot's only network round-trip is the language pack (every locale but
+  // English is a lazy chunk now). Start it before the storage reads so it
+  // overlaps them instead of queueing behind them — I18n.init() below awaits the
+  // same module, so this is a head start, not a second fetch.
+  const localeReady = I18n.preload();
+
   await CardStorage._checkMigration();
   await CardStorage.migrateCardsToIndexedDB();
   await CardManager.migrateImagesToIndexedDB();
@@ -581,7 +587,14 @@ async function init() {
   $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
 
   // ─── I18n ────────────────────────────────────────────
-  I18n.init();
+  await localeReady;
+  const activeLang = await I18n.init();
+  // The chosen language's pack is a lazy chunk: when it has never been fetched
+  // and we are offline, the UI is English. Say so once, rather than letting the
+  // user conclude the language picker is broken.
+  if (activeLang !== I18n.getLang()) {
+    Ui.showToast(I18n.t('toast.langOffline'), 'warning');
+  }
 
   const settingsModal = new bootstrap.Modal('#settingsModal');
 
@@ -828,18 +841,28 @@ function bindEvents(settingsModal) {
   $('#btnExportWorkspace').addEventListener('click', () => Settings.exportWorkspace());
   $('#btnImportWorkspace').addEventListener('click', () => Settings.importWorkspace());
   $('#providerSelect').addEventListener('change', () => Settings.toggleProvider());
-  $('#languageSelect').addEventListener('change', (e) => {
-    I18n.setLanguage(e.target.value);
-    I18n.translateDOM();
+  $('#languageSelect').addEventListener('change', async (e) => {
+    // setLanguage applies the translations itself once the pack is loaded, so
+    // there is no separate translateDOM() call to make here — and calling it
+    // early would render English for a pack that has not arrived yet.
+    const loaded = await I18n.setLanguage(e.target.value);
+    if (!loaded) {
+      Ui.showToast(I18n.t('toast.langOffline'), 'warning');
+      return;
+    }
     Ui.showToast(I18n.t('settings.languageChanged'), 'success');
   });
 
-  // Re-render dynamic (JS-generated) content after a language change: the
-  // card counter, tag cloud and AI chips are built with I18n.t() at render
-  // time and are not covered by data-i18n translation.
+  // Re-render dynamic (JS-generated) content after a language change: the card
+  // counter, the tag cloud, the AI field chips and the AI welcome screen are
+  // built with I18n.t() at render time and are not covered by data-i18n
+  // translation. The welcome screen was the one that slipped through — it is
+  // generated HTML, so a language change left its title and twelve quick
+  // actions in the previous language until a reload (see AiChat.refreshLanguage).
   window.addEventListener('stce:language-changed', () => {
     CardManager.renderCardList();
     AiChat._renderFieldChips();
+    AiChat.refreshLanguage();
     AiChat.updateContextBar();
   });
 

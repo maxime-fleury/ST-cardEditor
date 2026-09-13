@@ -40,17 +40,47 @@ function getMimeType(path) {
 const COMPRESSIBLE = /^(text\/|application\/(javascript|json|manifest\+json)|image\/svg)/;
 const COMPRESSION_MIN_BYTES = 1024;
 
-async function serveStatic(filePath, fallbackPath, acceptEncoding = '') {
+/**
+ * Read a static file once per (path, mtime, size) and keep its gzipped form.
+ *
+ * The gzip pass was the expensive part of every request: Bun.gzipSync on the
+ * 1.1 MB shared chunk blocks the event loop for a few milliseconds, and it ran
+ * again on every single page load — including all ~40 loads of an e2e run and
+ * every auto-reload while developing. The bytes of a given file do not change
+ * between requests, so the result is memoized; keying on lastModified + size
+ * means an edited file is recompressed immediately and the map is bounded by the
+ * number of distinct files served (no eviction policy needed).
+ */
+const staticCache = new Map();
+
+async function readStatic(filePath) {
   const file = Bun.file(filePath);
   // Bun.file(filename) has size 0 for a *missing* file, so distinguish a real
   // zero-byte asset from "not found" via exists() (#46).
-  if (await file.exists()) {
-    const content = await file.arrayBuffer();
-    const mimeType = getMimeType(filePath);
-    const gzip = content.byteLength >= COMPRESSION_MIN_BYTES
-      && COMPRESSIBLE.test(mimeType)
-      && /\bgzip\b/.test(acceptEncoding);
-    return new Response(gzip ? Bun.gzipSync(new Uint8Array(content)) : content, {
+  if (!(await file.exists())) return null;
+  const mimeType = getMimeType(filePath);
+  const cached = staticCache.get(filePath);
+  if (cached && cached.mtime === file.lastModified && cached.size === file.size) return cached;
+
+  const content = await file.arrayBuffer();
+  const compressible = content.byteLength >= COMPRESSION_MIN_BYTES && COMPRESSIBLE.test(mimeType);
+  const entry = {
+    content,
+    mimeType,
+    gzip: compressible ? Buffer.from(Bun.gzipSync(new Uint8Array(content))) : null,
+    mtime: file.lastModified,
+    size: file.size,
+  };
+  staticCache.set(filePath, entry);
+  return entry;
+}
+
+async function serveStatic(filePath, fallbackPath, acceptEncoding = '') {
+  const entry = await readStatic(filePath);
+  if (entry) {
+    const { content, mimeType, gzip: gzipped } = entry;
+    const gzip = !!gzipped && /\bgzip\b/.test(acceptEncoding);
+    return new Response(gzip && gzipped ? gzipped : content, {
       headers: {
         "Content-Type": mimeType,
         ...(gzip ? { "Content-Encoding": "gzip" } : {}),
@@ -68,7 +98,7 @@ async function serveStatic(filePath, fallbackPath, acceptEncoding = '') {
         // on local/LAN/WAN addresses (LM Studio, Ollama, vLLM...). https: stays
         // host-allowlisted; CUSTOM_LLM_ORIGINS adds further hosts (e.g. https).
         // cdn.waifu.im is where the wizard blob-fetches image bytes.
-        "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co" + (EXTRA_CONNECT_SRC ? " " + EXTRA_CONNECT_SRC : "") + ";",
+        "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co" + (EXTRA_CONNECT_SRC ? " " + EXTRA_CONNECT_SRC : "") + ";",
       },
     });
   }

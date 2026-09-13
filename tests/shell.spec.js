@@ -205,15 +205,16 @@ test('server sends CSP headers and gates the proxy by Origin', async ({ request 
 
 test('service worker serves the vendored app shell offline', async ({ page, context }) => {
   const errors = collectErrors(page);
-  // Nothing but the typefaces may leave the origin: Bootstrap, icons, jsdiff,
-  // anime.js, marked and DOMPurify are all vendored and served same-origin,
-  // which is what makes the offline shell (and `script-src 'self'`) reliable.
-  // This is the regression guard for the CDN → vendored migration.
+  // Nothing at all may leave the origin: Bootstrap, icons, jsdiff, anime.js,
+  // marked, DOMPurify *and the typefaces* are all vendored and served
+  // same-origin, which is what makes the offline shell (and `script-src
+  // 'self'` / `font-src 'self'`) reliable. Google Fonts was the last holdout,
+  // so unlike before there is no longer an exemption here — this is the
+  // regression guard for the CDN → vendored migration.
   const external = [];
   page.on('request', (req) => {
     const url = req.url();
     if (/^(http:\/\/localhost|data:|blob:)/.test(url)) return;
-    if (/^https:\/\/fonts\.(googleapis|gstatic)\.com/.test(url)) return;
     external.push(url);
   });
 
@@ -227,7 +228,21 @@ test('service worker serves the vendored app shell offline', async ({ page, cont
         : new Promise((res) => { navigator.serviceWorker.addEventListener('controllerchange', () => res(true), { once: true }); })
     ));
   await page.waitForTimeout(2000);
-  expect(external, 'no script or stylesheet may be fetched from another origin').toEqual([]);
+  expect(external, 'no script, stylesheet or font may be fetched from another origin').toEqual([]);
+
+  // "No external requests" would also pass if the webfonts silently fell back
+  // to a system face, so check the files were actually fetched — and exactly
+  // once. The count matters: adding <link rel=preload as=font> for these two
+  // made Chrome fetch each of them twice (the @font-face fetch did not reuse
+  // the preload), so this asserts the single-fetch that motivated dropping the
+  // preloads rather than trusting that comment in index.html.
+  const fontFetches = await page.evaluate(() => performance.getEntriesByType('resource')
+    .map((entry) => new URL(entry.name).pathname)
+    .filter((path) => path.endsWith('.woff2')));
+  const count = (path) => fontFetches.filter((p) => p === path).length;
+  for (const face of ['/vendor/fonts/inter-latin.woff2', '/vendor/fonts/plus-jakarta-sans-latin.woff2']) {
+    expect(count(face), `${face} must be fetched exactly once`).toBe(1);
+  }
 
   await context.setOffline(true);
   await page.reload();
@@ -236,7 +251,93 @@ test('service worker serves the vendored app shell offline', async ({ page, cont
   // The stylesheet came from the precache, so the navbar is still sticky offline.
   const sticky = await page.evaluate(() => getComputedStyle(document.querySelector('#topNav')).position);
   expect(sticky).toBe('sticky');
+  // …and the typeface did too, instead of dropping to a fallback face.
+  const interLoaded = await page.evaluate(() => document.fonts.check('16px "Inter"'));
+  expect(interLoaded, 'the vendored font must still render offline').toBe(true);
   // No JS errors; ignore cosmetic resource-load logs from uncached extras.
+  expect(errors.filter((e) => !/Failed to load resource|ERR_|favicon/i.test(e))).toEqual([]);
+});
+
+test('language packs load on demand, one at a time', async ({ page }) => {
+  // The 26 non-English dictionaries used to be static imports: 845 KB of the
+  // 1.2 MB boot chunk, i.e. 71% of the JavaScript every user downloaded so that
+  // each user could read one of them. This pins both halves of the replacement —
+  // nothing is fetched for English, and choosing a language fetches exactly that
+  // language.
+  const errors = collectErrors(page);
+  const jsRequests = [];
+  page.on('request', (req) => {
+    const path = new URL(req.url()).pathname;
+    if (path.startsWith('/js/')) jsRequests.push(path);
+  });
+
+  await page.goto('/');
+  await expect(page.locator('#cardList')).toBeVisible();
+  expect(jsRequests.filter((p) => p.startsWith('/js/i18n/')), 'English is bundled, nothing to fetch').toEqual([]);
+
+  await page.locator('#btnSettings').click();
+  await page.locator('#settingsModal.show').waitFor({ timeout: 5_000 });
+  await page.locator('#languageSelect').selectOption('fr');
+
+  await expect.poll(() => jsRequests.filter((p) => p.startsWith('/js/i18n/'))).toEqual(['/js/i18n/fr.js']);
+
+  // The DOM really was re-translated, not just the internal state: the title and
+  // a data-i18n element show French, and no other locale was fetched.
+  await expect(page).toHaveTitle(/Studio de cartes de personnages/);
+  await expect(page.locator('[data-i18n="editor.preview"]').first()).toHaveText('Aperçu');
+  // The AI welcome screen too. It is HTML aiChat.js generates with I18n.t() and
+  // carries no data-i18n attributes, so it is invisible to translateDOM() — it
+  // kept the language it was first drawn in until the language-changed hook
+  // learned to rebuild it.
+  await expect(page.locator('#aiChatMessages .ai-welcome h6')).toHaveText('Assistant IA de cartes');
+  await expect(page.locator('#aiChatMessages .quick-action[data-action="translate"]')).toContainText('Traduire');
+  expect(await page.evaluate(() => window.I18n.getLang())).toBe('fr');
+  expect(errors, 'language switch must not throw').toEqual([]);
+});
+
+test('a language works offline once used, and falls back with a message otherwise', async ({ page, context }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  // The service worker has to be in control before the switch, or the dictionary
+  // is fetched straight from the network and never enters the runtime cache.
+  await page.evaluate(() =>
+    navigator.serviceWorker.ready.then(() =>
+      navigator.serviceWorker.controller
+        ? true
+        : new Promise((res) => { navigator.serviceWorker.addEventListener('controllerchange', () => res(true), { once: true }); })
+    ));
+
+  await page.locator('#btnSettings').click();
+  await page.locator('#settingsModal.show').waitFor({ timeout: 5_000 });
+  await page.locator('#languageSelect').selectOption('fr');
+  await expect.poll(() => page.evaluate(() => window.I18n.getLang())).toBe('fr');
+  await page.waitForTimeout(500); // let the SW finish writing its runtime cache
+
+  // Offline, the chosen language still loads — from the cache, not the network.
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator('#appContainer')).toBeVisible();
+  expect(await page.evaluate(() => window.I18n.t('editor.name'))).toBe('Nom du personnage');
+  await expect(page).toHaveTitle(/Studio de cartes de personnages/);
+
+  // A language that was never fetched cannot be, offline. The UI stays English
+  // and the user is told why, instead of being left with an unexplained English
+  // page and a picker that says Deutsch.
+  await page.locator('#btnSettings').click();
+  await page.locator('#settingsModal.show').waitFor({ timeout: 5_000 });
+  await page.locator('#languageSelect').selectOption('de');
+  await expect(page.locator('.toast-body')).toContainText('not available offline', { timeout: 10_000 });
+  expect(await page.evaluate(() => window.I18n.t('editor.name'))).toBe('Character Name');
+  // The choice is kept, so the app heals on the next online load.
+  expect(await page.evaluate(() => window.I18n.getLang())).toBe('de');
+
+  // Boot says the same thing: the stored choice is German, its pack is not in the
+  // cache, so the app explains why it is showing English instead of silently
+  // ignoring the setting.
+  await page.reload();
+  await expect(page.locator('.toast-body')).toContainText('not available offline', { timeout: 10_000 });
+  expect(await page.evaluate(() => window.I18n.t('editor.name'))).toBe('Character Name');
+
   expect(errors.filter((e) => !/Failed to load resource|ERR_|favicon/i.test(e))).toEqual([]);
 });
 

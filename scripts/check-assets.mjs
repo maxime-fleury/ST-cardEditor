@@ -11,6 +11,8 @@
  *      exists on disk.
  *   2. Every js/css asset referenced by index.html is listed in the service
  *      worker's SHELL_FILES (so the offline shell is never stale).
+ *   2c. index.html, and both copies of the CSP, reference no external origin
+ *      for scripts/styles/fonts (the zero-CDN invariant).
  *   3. All js script cache-busters (?v=N) are identical AND equal to the
  *      value derived from package.json's version.
  *   4. The navbar version badge (vX.Y), the README version badge, and the
@@ -23,6 +25,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleArtifacts } from "./build.mjs";
+import { SUPPORTED, loadAllLocales } from "../js/i18n.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -124,6 +127,55 @@ if (swList("SHELL_FILES").includes(LAZY_TOKENIZER)) {
   ok(`${LAZY_TOKENIZER} is runtime-cached, not part of the install shell.`);
 }
 
+// 2c + 2d. Zero-CDN invariant. Every asset the UI loads is vendored under
+//     public/vendor and precached, so index.html must not reference an external
+//     origin — and the CSP must not allowlist one for scripts, styles or fonts
+//     either. Google Fonts was the last holdout (two extra CSP origins plus a
+//     whole cross-origin cache in the service worker), and a single pasted
+//     <link href="https://…"> is exactly how it crept back.
+// Only the tags that make the browser *fetch* something count: <script src>
+// and <link href> (stylesheet, preload, preconnect…). A plain <a href> is a
+// navigation the user chooses, and those legitimately point off-site —
+// "Get an API key" goes to the provider's own page.
+const externalRefs = [...indexHtml.matchAll(/<(?:script|link)\b[^>]*>/g)].flatMap((tag) => {
+  const url = /(?:src|href)="(https?:\/\/[^"]+)"/.exec(tag[0])?.[1];
+  return url ? [url] : [];
+});
+if (externalRefs.length) {
+  fail(`public/index.html loads external asset(s): ${externalRefs.join(", ")} — vendor them with scripts/vendor.mjs instead.`);
+} else {
+  ok("index.html references no external origin (every asset is vendored same-origin).");
+}
+
+// The policy is mirrored in two places — the <meta> tag (what GitHub Pages
+// serves) and the header server.js sends — so both are read, and a policy that
+// cannot be located is a failure rather than a silent pass. Only the directives
+// that govern code, styles and fonts are inspected: img-src/connect-src are
+// meant to name third-party hosts (the model APIs and cover art).
+const ASSET_DIRECTIVES = /\b(default-src|script-src|style-src|font-src)\s+([^;"]+)/g;
+const CSP_KEYWORD = /^'(?:self|none|unsafe-inline|unsafe-eval|strict-dynamic)'$/;
+for (const file of ["public/index.html", "server.js"]) {
+  const text = read(file);
+  const policy = file.endsWith(".html")
+    ? /<meta http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(text)?.[1]
+    : /"Content-Security-Policy":\s*"([^"]*)"/.exec(text)?.[1];
+  if (!policy) {
+    fail(`could not locate the Content-Security-Policy in ${file} — the zero-CDN check cannot run, so it must not pass.`);
+    continue;
+  }
+  const offenders = [];
+  for (const [, directive, sources] of policy.matchAll(ASSET_DIRECTIVES)) {
+    for (const source of sources.trim().split(/\s+/)) {
+      if (source && !CSP_KEYWORD.test(source)) offenders.push(`${directive} ${source}`);
+    }
+  }
+  if (offenders.length) {
+    fail(`${file}: CSP still allowlists external origin(s) for assets — ${offenders.join(", ")}.`);
+  } else {
+    ok(`${file}: CSP allows no external origin for script/style/font.`);
+  }
+}
+
 // 4a. Navbar version badge (full version, e.g. "v2.5.5").
 const badgeMatch = />v(\d+\.\d+(?:\.\d+)?)</.exec(indexHtml);
 if (!badgeMatch) {
@@ -207,6 +259,87 @@ if (freshArtifacts) {
     fail(`bundle artifacts missing from public/sw.js SHELL_FILES: ${artifactShellMisses.join(", ")}`);
   } else {
     ok(`all ${freshArtifacts.length} bundle artifacts are present in the service-worker shell.`);
+  }
+}
+
+// 5b-2. The bundle's *internal* imports must carry the same buster as the
+//     <script> tag. index.html loads js/app.js?v=281, which is a 24-byte
+//     re-export — the code is js/app.chunk.js, imported relatively, so without
+//     the query there the buster protects a stub and the browser may keep
+//     serving the previous chunk (and a lazy chunk that no longer matches the
+//     module graph). scripts/build.mjs rewrites those specifiers; this reads the
+//     *committed* artifacts — what actually ships — and requires the value to
+//     match the version, so a build whose rewrite stopped working, or a release
+//     that bumped only the <script> tag, fails here. (The freshness check just
+//     above is what ties the committed bytes to a fresh build.)
+if (freshArtifacts) {
+  const chunkRef = /\.\/([A-Za-z0-9_-]+\.chunk\.js)(\?v=(\d+))?/g;
+  const problems = [];
+  for (const artifact of freshArtifacts) {
+    for (const [, name, query, value] of read(artifact.relPath).matchAll(chunkRef)) {
+      if (!query) problems.push(`${artifact.relPath} imports ./${name} with no ?v= buster`);
+      else if (value !== expectedBuster) problems.push(`${artifact.relPath} imports ./${name}?v=${value} (expected ${expectedBuster})`);
+    }
+  }
+  if (problems.length) {
+    fail(`bundle imports are not busted consistently: ${problems.join("; ")}`);
+  } else {
+    ok("every intra-bundle import carries the release cache-buster.");
+  }
+}
+
+// 5b-3. The 26 non-English dictionaries stay OUT of the boot chunk and IN the
+//     runtime cache. They were ~845 KB of the shared chunk's 1 194 KB — 71% of
+//     the JavaScript every user downloaded so that each user could read one of
+//     them — so both halves of the split need a guard:
+//       * a locale that quietly becomes a static import again (one line in
+//         js/i18n.js) costs every user the whole set, and the app still works,
+//         it is just four times bigger — nothing else here would notice;
+//       * a locale missing from RUNTIME_FILES works perfectly online and then
+//         silently falls back to English once offline, which is exactly the
+//         failure the split introduces and must not ship with.
+//     Each locale is recognised by a string of its own, so one leaked dictionary
+//     cannot hide behind the others.
+const bootChunk = read("js/app.chunk.js");
+const dictionaries = await loadAllLocales();
+const localeFiles = SUPPORTED.filter((lang) => lang !== "en").map((lang) => `js/i18n/${lang}.js`);
+{
+  const leaked = [];
+  for (const lang of SUPPORTED) {
+    if (lang === "en") continue;
+    const dict = dictionaries[lang];
+    if (!dict) { leaked.push(`${lang} (no dictionary)`); continue; }
+    const marker = Object.entries(dict).find(([key, value]) => typeof value === "string"
+      && value.length >= 12
+      && value !== dictionaries.en[key]
+      && !Object.entries(dictionaries).some(([other, d]) => other !== lang && d[key] === value));
+    if (!marker) continue; // nothing distinctive to look for; the file check below still applies
+    if (bootChunk.includes(marker[1])) leaked.push(`${lang} (${marker[0]})`);
+  }
+  if (leaked.length) {
+    fail(`dictionary data is inside the boot chunk for: ${leaked.join(", ")} — only js/i18n/en.js may be imported statically (see js/i18n.js).`);
+  } else {
+    ok(`no locale dictionary is bundled into the boot chunk (${localeFiles.length} fetched on demand).`);
+  }
+
+  const missingFiles = localeFiles.filter((rel) => !existsSync(join(root, rel)));
+  if (missingFiles.length) {
+    fail(`dictionary file(s) missing for a SUPPORTED language: ${missingFiles.join(", ")}`);
+  }
+  const precached = localeFiles.filter((rel) => swJs.includes(`'${rel}'`)
+    && /SHELL_FILES\s*=\s*\[([\s\S]*?)\]/.exec(swJs)?.[1]?.includes(`'${rel}'`));
+  const notCached = localeFiles.filter((rel) => {
+    const runtime = /RUNTIME_FILES\s*=\s*\[([\s\S]*?)\]/.exec(swJs)?.[1] || "";
+    return !runtime.includes(`'${rel}'`);
+  });
+  if (precached.length) {
+    fail(`dictionary file(s) precached in SHELL_FILES: ${precached.join(", ")} — precaching every locale puts the 845 KB back into the install.`);
+  }
+  if (notCached.length) {
+    fail(`dictionary file(s) missing from public/sw.js RUNTIME_FILES: ${notCached.join(", ")} — a language would stop working offline after its first online use.`);
+  }
+  if (!precached.length && !notCached.length && !missingFiles.length) {
+    ok(`all ${localeFiles.length} dictionaries are runtime-cached and none is precached.`);
   }
 }
 
