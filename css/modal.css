@@ -1,0 +1,245 @@
+﻿/* ============================================================
+   MODAL
+   ============================================================ */
+.modal-content {
+  background: var(--bg-base);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: slideInUp 0.25s ease;
+}
+.modal-header {
+  border-bottom: 1px solid var(--surface-border);
+}
+.modal-title {
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: var(--text-primary);
+}
+.modal-footer {
+  border-top: 1px solid var(--surface-border);
+}
+.modal-body { color: var(--text-primary); }
+
+.btn-close-white { filter: invert(1) grayscale(100%) brightness(200%); }
+
+.text-accent { color: var(--text-accent) !important; }
+
+/* Model list */
+.model-search-group { max-width: 220px; }
+.model-search-group .input-group-text {
+  background: var(--bg-surface);
+  border: 1px solid var(--surface-border);
+  color: var(--text-muted);
+}
+
+.model-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.model-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--surface-border);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  position: relative;
+  overflow: hidden;
+}
+.model-item:last-child { border-bottom: none; }
+.model-item:hover {
+  background: var(--bg-surface-hover);
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+.model-item.selected {
+  background: var(--bg-elevated);
+  border-inline-start: 3px solid var(--purple-500);
+  box-shadow: inset 0 0 12px var(--purple-glow);
+}
+.model-item.selected:hover { border-inline-start-color: var(--magenta-500); }
+
+.model-item-info { flex: 1; min-width: 0; }
+.model-item-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+.model-item-provider { font-size: 0.7rem; color: var(--text-muted); }
+
+.model-item-pricing {
+  text-align: end;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.model-item-pricing .price-highlight { color: var(--success); font-weight: 600; }
+
+/* Credits section */
+.credits-section {
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  border: 1px solid var(--surface-border);
+}
+
+.stat-card {
+  background: var(--bg-deep);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  text-align: center;
+}
+.stat-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+.stat-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.15rem;
+}
+
+/* ─── Command palette (Ctrl/Cmd+K) ─────────────────────── */
+/* Anchored near the top of the viewport like a launcher, not centred like a
+   dialog: the list grows downward and the eye stays on the input. */
+.palette-dialog {
+  margin-top: 8vh;
+  align-items: flex-start;
+}
+.palette-content {
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--surface-border);
+  color: var(--text-muted);
+}
+.palette-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+.palette-results {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+}
+.palette-item.active {
+  background: color-mix(in srgb, var(--text-accent) 14%, transparent);
+  border-left-color: var(--text-accent);
+}
+.palette-item-icon { color: var(--text-accent); flex: none; }
+.palette-item-text { min-width: 0; flex: 1 1 auto; }
+.palette-item-label {
+  font-size: 0.86rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.palette-item-sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.palette-item-kind {
+  flex: none;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+.palette-empty {
+  padding: 1.2rem 1rem;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.palette-footer {
+  padding: 0.45rem 1rem;
+  border-top: 1px solid var(--surface-border);
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+/* Mini card preview */
+.card-preview-avatar {
+  width: 56px; height: 56px; border-radius: 12px; flex: none;
+  background: var(--bg-secondary); border: 1px solid var(--surface-border);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; color: var(--text-muted);
+}
+.card-preview-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+.card-preview-avatar .avatar-placeholder { font-size: 1.6rem; }
+.card-preview-meta { font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px; }
+.card-preview-section-title {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-accent); margin: 0 0 0.35rem; font-weight: 600;
+}
+.card-preview-section { margin-bottom: 1.1rem; }
+.card-preview-section:last-child { margin-bottom: 0; }
+
+/* Diagnostics: one row per finding, coloured by severity. */
+.health-issue {
+  display: flex; align-items: flex-start; gap: 0.4rem;
+  font-size: 0.8rem; color: var(--text-secondary);
+  padding: 0.2rem 0;
+}
+.health-issue i { margin-top: 0.15rem; }
+/* theme.css defines --danger/--warning/--success/--info, which follow the
+   light/dark theme. Do not invent a --danger-500: an undefined custom property
+   silently falls back to the hardcoded colour and stops tracking the theme. */
+.health-issue.is-danger i { color: var(--danger); }
+.health-issue.is-warn i { color: var(--warning); }
+.health-issue.is-info i { color: var(--info); }
+.health-issue.is-ok i { color: var(--success); }
+
+/* Version history rows: the timestamp is the identity of a version, so it stays
+   on its own line rather than competing with the buttons. */
+.history-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0.55rem; border: 1px solid var(--surface-border);
+  border-radius: 8px; margin-bottom: 0.3rem; background: var(--bg-tertiary);
+}
+.history-item:last-child { margin-bottom: 0; }
+.history-item-when { font-size: 0.78rem; color: var(--text-secondary); }
+.history-item-actions { display: flex; gap: 0.3rem; }
+.card-preview-section .md-body,
+#cardPreviewBody .md-body { font-size: 0.9rem; line-height: 1.55; color: var(--text-primary); }
+#cardPreviewBody .md-body p:last-child { margin-bottom: 0; }
