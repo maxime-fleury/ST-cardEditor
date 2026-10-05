@@ -109,6 +109,7 @@ const CardStorage = {
     activeCardId: 'activeCardId',
     aiChatHistory: 'aiChatHistory',
     maxTokens: 'maxTokens',
+    aiTimeout: 'aiTimeout',
     injectCopyright: 'injectCopyright',
     provider: 'provider',
     customApiUrl: 'customApiUrl',
@@ -359,6 +360,21 @@ const CardStorage = {
 
   setMaxTokens(tokens) {
     localStorage.setItem(this.PREFIX + this._keys.maxTokens, String(tokens));
+  },
+
+  // ─── AI Request Timeout ─────────────────────────────
+
+  // Seconds to wait for an AI request before aborting it. 0 means "unset":
+  // AIService falls back to its built-in default (120 s). Stored in seconds
+  // because that is what the Settings field shows, and clamped there so a slow
+  // model or a long generation can be given more room than the default (#5).
+  getAiTimeout() {
+    const val = localStorage.getItem(this.PREFIX + this._keys.aiTimeout);
+    return val ? parseInt(val, 10) || 0 : 0;
+  },
+
+  setAiTimeout(seconds) {
+    localStorage.setItem(this.PREFIX + this._keys.aiTimeout, String(seconds));
   },
 
   getInjectCopyright() {

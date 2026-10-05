@@ -6,6 +6,42 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-10-05
+
+### Added
+- **The AI request timeout is configurable.** Every chat request was aborted
+  after a hard-coded 120 s, so a slow model or a long generation could be cut
+  off mid-answer with no way to give it more room (#5). Settings → General now
+  has a **Request Timeout** field, in seconds, where `0` keeps the built-in
+  120 s default — enter `180` for the 3 minutes the issue asked for. It is
+  stored as `stce_aiTimeout`, honored by both the streaming and the
+  non-streaming path (and by the credit lookup), and clamped to 5 s–60 min so a
+  typo can neither abort a request instantly nor leave it hanging for a day. The
+  setting round-trips through the settings file and the workspace backup next to
+  Max Output Tokens, and the three new `settings.aiTimeout*` keys ship
+  translated in all 26 non-English locales.
+- **Every AI failure now says which failure it was.** A dead endpoint, a
+  rejected key, rate limiting, a model the provider does not know, a timeout and
+  a provider-side error used to all arrive as "AI Error: Failed to fetch" —
+  which names neither the cause nor the fix. `AIService.describeError()`
+  classifies the failure (fetch rejections are tagged with the endpoint they
+  could not reach, HTTP failures with the status, model and timeout that were in
+  effect) and the chat, the settings model list and the connection probe render
+  the matching sentence: raise Request Timeout, re-enter the key for *this*
+  provider, pick another model, or retry the provider's own 5xx. Anything the
+  classifier cannot place keeps its own message, so locally-produced errors like
+  "insufficient credits" are unchanged, and a user abort is still a cancellation
+  rather than an error.
+- **Test Connection** in Settings → General sends one tiny request (capped at 8
+  output tokens) through the real `chat()` path and reports the provider, the
+  model, the round-trip time and the timeout in effect — or the classified
+  reason it failed. It runs against what the form currently shows (including an
+  unsaved endpoint and key), so first-time setup can be verified before saving.
+  Eleven new keys (`error.timeout`, `error.network`, `error.auth`,
+  `error.rateLimit`, `error.modelRejected`, `error.serverError` and the
+  five `settings.test*` labels) ship translated in all 26 non-English locales —
+  686 keys now.
+
 ## [2.9.0] - 2026-09-13
 
 ### Added
@@ -514,7 +550,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   with a white popup in dark mode — fixed via `color-scheme` plus dark
   `form-select`/`option` styling across all browsers.
 
-[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.9.0...HEAD
+[Unreleased]: https://github.com/maxime-fleury/ST-cardEditor/compare/v2.10.0...HEAD
+[2.10.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.10.0
 [2.9.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.9.0
 [2.8.1]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.8.1
 [2.8.0]: https://github.com/maxime-fleury/ST-cardEditor/releases/tag/v2.8.0

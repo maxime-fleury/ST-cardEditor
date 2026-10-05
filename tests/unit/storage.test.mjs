@@ -70,6 +70,25 @@ test('pushVersion caps the history at the limit, keeping the newest', () => {
   expect(versions[19].data.description).toBe('v5');
 });
 
+test('getAiTimeout/setAiTimeout round-trip in seconds and default to 0', () => {
+  // Bun has no localStorage: stub it so the real accessors are exercised.
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => { store.set(k, String(v)); },
+    removeItem: (k) => { store.delete(k); },
+  };
+  try {
+    // Unset is 0 = "use the built-in default" (AIService falls back to 120 s).
+    expect(CardStorage.getAiTimeout()).toBe(0);
+    CardStorage.setAiTimeout(180);
+    expect(store.get('stce_aiTimeout')).toBe('180');
+    expect(CardStorage.getAiTimeout()).toBe(180);
+  } finally {
+    delete globalThis.localStorage;
+  }
+});
+
 test('pushVersion tolerates a corrupt stored record', () => {
   expect(CardStorage.pushVersion(null, card(), card({ description: 'B' }))).toHaveLength(1);
   expect(CardStorage.pushVersion(undefined, card(), card({ description: 'B' }))).toHaveLength(1);

@@ -253,7 +253,7 @@ const AiChat = {
             section.classList.remove('streaming');
             const label = section.querySelector('.multi-field-label');
             if (label) label.innerHTML = label.innerHTML.replace(I18n.t ? I18n.t('ai.streaming') : 'streaming...', I18n.t ? I18n.t('ai.failed') : 'failed');
-            if (contentEl) contentEl.textContent = err.name === 'AbortError' ? (I18n.t ? I18n.t('ai.cancelled') : 'Cancelled.') : (I18n.t ? I18n.t('ai.errorPrefix') : 'Error: ') + err.message;
+            if (contentEl) contentEl.textContent = this._errorText(err);
           } catch (_) {}
 
           completedCount++;
@@ -553,10 +553,18 @@ const AiChat = {
   // callbacks, drop pending applies + session pointer, force re-render.
   _resetChat() { ChatState.resetChat(); },
 
-  _setCurrentSession(id) { ChatState.currentSessionId = id; },
+  _setCurrentSession(id) { ChatState.currentSessionId = id; },  _releaseController(controller) { ChatState.releaseController(controller); },
 
-  _releaseController(controller) {
-    ChatState.releaseController(controller);
+  // Localized text for a failed AI request: the classifier in aiService knows
+  // a timeout from an unreachable endpoint from a rejected key; anything it
+  // cannot classify keeps its own (already localized) message. A user abort is
+  // "cancelled", not an error.
+  _errorText(err) {
+    if (err && err.name === 'AbortError') return I18n.t ? I18n.t('ai.cancelled') : 'Cancelled.';
+    const info = AIService.describeError ? AIService.describeError(err) : null;
+    if (info) return I18n.t(info.key, info.values);
+    const detail = err && err.message ? err.message : String(err);
+    return (I18n.t ? I18n.t('ai.errorPrefix') : 'Error: ') + detail;
   },
 
   /**
@@ -700,8 +708,12 @@ const AiChat = {
         if (err && err.name === 'AbortError') {
           this.addChatMessage('system', I18n.t ? I18n.t('toast.genStopped') : 'Generation stopped.');
         } else {
-          this.addChatMessage('system', (I18n.t ? I18n.t('ai.errorPrefix') : 'Error: ') + err.message);
-          Ui.showToast(I18n.t('toast.aiError', { error: err.message }), 'danger');
+          // A distinct, actionable sentence per failure class (timeout, dead
+          // endpoint, rejected key, server error) instead of one generic
+          // "Error: …" that names neither the cause nor the fix.
+          const text = this._errorText(err);
+          this.addChatMessage('system', text);
+          Ui.showToast(text, 'danger');
         }
       })
       .finally(() => {

@@ -79,6 +79,7 @@ const Settings = {
     const apiKey = $('#apiKeyInput').value.trim();
     const defaultModel = $('#defaultModelSelect').value;
     const maxTokens = parseInt($('#maxTokensInput').value, 10) || 0;
+    const aiTimeout = parseInt($('#aiTimeoutInput').value, 10) || 0;
     const customApiUrl = $('#customApiUrlInput').value.trim();
     const keyInput = provider === 'custom' ? $('#customApiKeyInput') : $('#namedApiKeyInput');
     const customApiKey = keyInput.value.trim();
@@ -116,6 +117,8 @@ const Settings = {
     }
 
     CardStorage.setMaxTokens(maxTokens);
+    // 0 means "unset": AIService falls back to its built-in 120 s default.
+    CardStorage.setAiTimeout(aiTimeout);
     CardStorage.setInjectCopyright($('#injectCopyrightToggle').checked);
     // Appearance prefs (read the live controls so saving persists what the
     // user actually picked, then apply so the theme updates immediately).
@@ -330,6 +333,7 @@ const Settings = {
       ? CardStorage.getCustomModelId()
       : CardStorage.getProviderModelId(provider);
     $('#maxTokensInput').value = CardStorage.getMaxTokens() || '';
+    $('#aiTimeoutInput').value = CardStorage.getAiTimeout() || '';
     $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
     this.toggleProvider();
     this.syncAccentControls();
@@ -359,19 +363,18 @@ const Settings = {
     this.updateStorageUsage();
   },
 
-  async refreshModelsList() {
+  // Point AIService at what the settings form currently shows — provider, the
+  // possibly-unsaved key, and for Custom the typed base URL — so a button
+  // pressed before "Save Settings" acts on the credentials the user is looking
+  // at. Prefers the dropdown only while the modal is open; page-load and
+  // workspace-import callers fall back to the saved provider so a stale
+  // unopened dropdown never hijacks the request.
+  _syncAIServiceFromForm() {
     const $ = Ui.$;
-    // Prefer the dropdown selection when the settings modal is open (Refresh
-    // Models button); otherwise (page load, workspace import) fall back to the
-    // saved provider so a stale unopened dropdown never hijacks the fetch.
     const modalEl = $('#settingsModal');
-    const modalOpen = modalEl && modalEl.classList.contains('show');
+    const modalOpen = !!(modalEl && modalEl.classList.contains('show'));
     const provider = modalOpen ? $('#providerSelect').value : CardStorage.getProvider();
     const isCustom = provider === 'custom';
-    // When the modal is open, use the provider and key as currently typed in
-    // the form (possibly unsaved), so first-time setup works: paste key ->
-    // Refresh Models. Otherwise pass an empty key so the stored credentials
-    // are used.
     let formKey = '';
     if (modalOpen) {
       const keyField = provider === 'openrouter' ? $('#apiKeyInput') : (isCustom ? $('#customApiKeyInput') : $('#namedApiKeyInput'));
@@ -380,11 +383,65 @@ const Settings = {
     AIService.setProvider(provider, formKey);
     if (isCustom && modalOpen) {
       // Mirror the typed base URL into AIService so a first-time setup
-      // (paste URL -> Refresh Models, before saving) resolves the endpoint
-      // instead of failing with "Custom API base URL is not set".
+      // (paste URL -> button, before saving) resolves the endpoint instead of
+      // failing with "Custom API base URL is not set".
       const urlInput = $('#customApiUrlInput');
       AIService._customApiUrl = urlInput ? urlInput.value.trim() : '';
     }
+    return { provider, isCustom, modalOpen };
+  },
+
+  // Localized, actionable text for a failed request (timeout vs dead endpoint
+  // vs rejected key …), falling back to the error's own message.
+  _describeErrorText(err) {
+    const info = AIService.describeError ? AIService.describeError(err) : null;
+    if (info) return I18n.t(info.key, info.values);
+    return err && err.message ? err.message : String(err);
+  },
+
+  // One tiny request through the real generation path: proves the endpoint, key
+  // and model work — and reports the round-trip time and the timeout in effect
+  // — before the user spends a full generation on them.
+  async testConnection() {
+    const $ = Ui.$;
+    const btn = $('#btnTestConnection');
+    const out = $('#testConnectionResult');
+    if (!btn || !out) return;
+    const { isCustom } = this._syncAIServiceFromForm();
+    // Local OpenAI-compatible endpoints have no key by design; only keyed
+    // providers are blocked when the credential is missing.
+    if (!AIService.hasApiKey() && !isCustom) {
+      out.className = 'form-text text-warning';
+      out.textContent = I18n.t('error.apiKeyNotSet');
+      return;
+    }
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + I18n.t('settings.testing');
+    out.className = 'form-text text-muted';
+    out.textContent = I18n.t('settings.testing');
+    try {
+      const res = await AIService.testConnection();
+      out.className = 'form-text text-success';
+      out.textContent = I18n.t('settings.testOk', {
+        model: res.model,
+        ms: res.latencyMs,
+        seconds: Math.round(res.timeoutMs / 1000),
+      });
+    } catch (err) {
+      // The result line already says what failed and why; a console.error here
+      // would only make an expected failure look like a page error (the e2e
+      // suite treats every console error as a failure).
+      out.className = 'form-text text-danger';
+      out.textContent = this._describeErrorText(err);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = original;
+    }
+  },
+
+  async refreshModelsList() {
+    const { isCustom } = this._syncAIServiceFromForm();
     // Custom/OpenAI-compatible local endpoints intentionally have no API key.
     // Only keyed providers should be blocked when credentials are missing.
     if (!AIService.hasApiKey() && !isCustom) {
@@ -408,7 +465,7 @@ const Settings = {
       // Keep the selects usable: surface the saved default model even when
       // the fetch failed.
       this.populateModelSelects();
-      Ui.showToast(I18n.t('toast.modelsFailed', { error: err.message }), 'danger');
+      Ui.showToast(I18n.t('toast.modelsFailed', { error: this._describeErrorText(err) }), 'danger');
     }
   },
 
@@ -543,6 +600,7 @@ const Settings = {
       provider: CardStorage.getProvider(),
       defaultModel: CardStorage.getDefaultModel(),
       maxTokens: CardStorage.getMaxTokens(),
+      aiTimeout: CardStorage.getAiTimeout(),
       injectCopyright: CardStorage.getInjectCopyright(),
       customApiUrl: CardStorage.getCustomApiUrl(),
       // NOTE: customApiKey intentionally NOT exported — it is a credential and
@@ -582,6 +640,7 @@ const Settings = {
             $('#aiModelSelect').value = this._currentModelId();
           }
           if (settings.maxTokens !== undefined) { CardStorage.setMaxTokens(settings.maxTokens); $('#maxTokensInput').value = settings.maxTokens || ''; }
+          if (settings.aiTimeout !== undefined) { CardStorage.setAiTimeout(settings.aiTimeout); $('#aiTimeoutInput').value = settings.aiTimeout || ''; }
           if (settings.injectCopyright !== undefined) { CardStorage.setInjectCopyright(settings.injectCopyright); $('#injectCopyrightToggle').checked = settings.injectCopyright; }
           if (settings.customApiUrl !== undefined) { CardStorage.setCustomApiUrl(settings.customApiUrl); $('#customApiUrlInput').value = settings.customApiUrl; }
           if (settings.customModelId !== undefined) { CardStorage.setCustomModelId(settings.customModelId); $('#customModelInput').value = settings.customModelId; }
@@ -685,6 +744,7 @@ const Settings = {
         provider: CardStorage.getProvider(),
         defaultModel: CardStorage.getDefaultModel(),
         maxTokens: CardStorage.getMaxTokens(),
+        aiTimeout: CardStorage.getAiTimeout(),
         injectCopyright: CardStorage.getInjectCopyright(),
         glassDensity: CardStorage.getGlassDensity(),
         cardRadius: CardStorage.getCardRadius(),
@@ -795,6 +855,7 @@ const Settings = {
       this._setCurrentModelId(settings.defaultModel);
     }
     if (settings.maxTokens !== undefined) CardStorage.setMaxTokens(settings.maxTokens);
+    if (settings.aiTimeout !== undefined) CardStorage.setAiTimeout(settings.aiTimeout);
     if (settings.injectCopyright !== undefined) CardStorage.setInjectCopyright(settings.injectCopyright);
     // Appearance prefs are optional for backward compatibility.
     if (settings.glassDensity !== undefined) CardStorage.setGlassDensity(settings.glassDensity);

@@ -14,7 +14,7 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 - **[Stable demo](https://maxime-fleury.github.io/ST-cardEditor/)** — the recommended current version
 - **[Beta demo](https://maxime-fleury.github.io/ST-cardEditor/dev/)** — the latest development build; features may change or break
 
-![Version](https://img.shields.io/badge/version-2.9.0-purple)
+![Version](https://img.shields.io/badge/version-2.10.0-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-000?logo=bun)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![Stable Demo](https://img.shields.io/badge/stable-demo-9147ff?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/)
@@ -118,6 +118,9 @@ Lorebook activation rules (which entry fires, and when an entry can never fire) 
 - **Field chip selector** — visual toggle for targeting specific fields or the full card
 - **Editable AI prompts** — every prompt (assistant, full-card, wizard, all quick actions, tags, greetings and field system-instructions) is viewable/editable under **Settings → AI Prompts**, with a **Restore defaults** button and **Export / Import** so prompt settings can be shared
 - **Context bar** — accurate token usage vs. context window with progress indicator
+- **Adjustable request timeout** — Settings → General sets how long to wait for a model response before the request is aborted (120 s by default; e.g. 180 s for 3 minutes), so a slow local model or a long generation is not cut off mid-answer
+- **Failures that name themselves** — a dead endpoint, a rejected API key, rate limiting, a model the provider does not know, a timeout and a server error each produce their own sentence with the fix in it, instead of one generic "AI Error"
+- **Test Connection** — one tiny request from Settings reports the provider, model, round-trip time and the timeout in effect, so the setup can be checked before spending a generation on it
 - **Chat history** — persisted per card across sessions with session management
 - **Cost display** — shows token usage and estimated cost per message
 
@@ -157,7 +160,7 @@ Powered by [anime.js](https://animejs.com/) with full `prefers-reduced-motion` s
 
 ### Localization (i18n)
 
-The interface ships in **27 languages** — **672** keys, one file per language in `js/i18n/`.
+The interface ships in **27 languages** — **686** keys, one file per language in `js/i18n/`.
 English is compiled into the app; every other language is a small pack fetched
 when it is selected (see _Building the bundle_), so `js/i18n/<lang>.js` is a real
 runtime URL, not only a build input:
@@ -192,7 +195,7 @@ runtime URL, not only a build input:
 | Portuguese (Portugal) | `pt-pt` |
 | Filipino | `tl` |
 
-Every locale ships **all 672 keys** — `check-i18n` fails on a missing one, because
+Every locale ships **all 686 keys** — `check-i18n` fails on a missing one, because
 a missing key renders as the raw key to the user. Parity is not the same as
 translation, though: it also reports, per locale, how many strings are still
 English placeholders and what percentage that leaves translated. Ship a feature
@@ -443,7 +446,7 @@ st-card-editor/
 │   ├── animations.js       # anime.js animation utilities (stagger, slide, pulse, etc.)
 │   ├── i18n.js             # I18n entry: bundles English, fetches the other packs on demand
 │   ├── globals.d.ts        # Ambient types for window.* and the DOM-adjacent helpers
-│   ├── i18n/               # One translation file per language (672 keys × 27; 26 fetched at runtime)
+│   ├── i18n/               # One translation file per language (686 keys × 27; 26 fetched at runtime)
 │   └── ui.js               # Main controller: utilities, init, event binding, error boundary
 ├── .github/
 │   ├── screenshots/        # README screenshots
@@ -491,7 +494,7 @@ The app is a **single-page application** built with vanilla JavaScript and **Boo
 - **`settings.js`** — Settings modal with provider selection (7 providers), API key management, model browsing/selection, credit tracking, storage usage display, language switching, and full workspace backup/restore.
 - **`tokenizer.js`** — Token estimation using lazy-loaded `gpt-tokenizer` BPE library with offline heuristic fallback.
 - **`animations.js`** — Reusable animation functions built on anime.js: stagger fade-in, slide transitions, pulse, shake, scale click, progress bounce, icon spin, skeleton reveal, toast entrance. All respect `prefers-reduced-motion`.
-- **`i18n.js`** — Internationalization entry: bundles English, fetches any other language as a lazy pack from `js/i18n/` (672 keys across 27 languages), and exposes the `I18n` engine — `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings, and automatic RTL layout for Arabic/Hebrew/Persian.
+- **`i18n.js`** — Internationalization entry: bundles English, fetches any other language as a lazy pack from `js/i18n/` (686 keys across 27 languages), and exposes the `I18n` engine — `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings, and automatic RTL layout for Arabic/Hebrew/Persian.
 - **`ui.js`** — Thin controller: utility functions (`escapeHtml`, `debounce`, `showToast`, `renderMarkdown`), initialization, I18n boot, global error boundary, lazy chunk loading, keyboard shortcuts, and all event binding. State lives in the stores, not here.
 
 ---

@@ -55,7 +55,7 @@
           <i class="bi bi-stars"></i>
         </div>
         <span class="brand-text" data-i18n="nav.brand">ST Card Editor</span>
-        <span class="badge bg-purple ms-2">v2.9.0</span>
+        <span class="badge bg-purple ms-2">v2.10.0</span>
       </a>
       
       <div class="d-flex align-items-center gap-2">
@@ -984,6 +984,34 @@
               </small>
             </div>
 
+            <!-- Request Timeout -->
+            <div class="mb-4">
+              <label class="form-label fw-semibold" for="aiTimeoutInput">
+                <i class="bi bi-hourglass-split me-2 text-accent"></i><span data-i18n="settings.aiTimeout">Request Timeout</span>
+              </label>
+              <input type="number" class="form-control" id="aiTimeoutInput"
+                     min="0" step="10" data-i18n-placeholder="settings.aiTimeoutPlaceholder" placeholder="0 = default (120 s)">
+              <small class="form-text text-muted" data-i18n="settings.aiTimeoutHint">
+                Seconds to wait for an AI response before the request is aborted. Raise it for slow models or long generations.
+              </small>
+            </div>
+
+            <!-- Test Connection -->
+            <div class="mb-4">
+              <label class="form-label fw-semibold" for="btnTestConnection">
+                <i class="bi bi-plug me-2 text-accent"></i><span data-i18n="settings.testConnection">Test Connection</span>
+              </label>
+              <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-outline-accent btn-sm text-nowrap" id="btnTestConnection">
+                  <i class="bi bi-lightning-charge me-1"></i><span data-i18n="settings.testConnectionBtn">Test</span>
+                </button>
+                <output id="testConnectionResult" class="form-text text-muted mb-0" role="status" aria-live="polite"></output>
+              </div>
+              <small class="form-text text-muted d-block mt-1" data-i18n="settings.testConnectionHint">
+                Sends one tiny request to check the endpoint, key and model before you generate. Reports the round-trip time and the timeout in effect.
+              </small>
+            </div>
+
             <!-- Copyright -->
             <div class="mb-4">
               <div class="form-check form-switch">
@@ -1556,6 +1584,6 @@
   <!-- App bundle -- one entry module built by `bun run build` (scripts/build.mjs).
        Replaces the 13 individual <script type="module"> tags; a single ?v= buster
        (derived from package.json version by check-assets) invalidates the cache.) -->
-  <script type="module" src="js/app.js?v=290"></script>
+  <script type="module" src="js/app.js?v=300"></script>
 </body>
 </html>

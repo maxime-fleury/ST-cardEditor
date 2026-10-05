@@ -25,6 +25,15 @@ const store = {
     for (const [p, v] of Object.entries(store.providerModelIds)) if (p && v) out[p] = v;
     return out;
   },
+  aiTimeout: 0,
+  maxTokens: 0,
+  getAiTimeout: () => store.aiTimeout,
+  setAiTimeout: (v) => { store.aiTimeout = v || 0; },
+  // The import path below runs past these; without the stubs it threw a
+  // TypeError inside its own try/catch and silently skipped the rest.
+  setMaxTokens: (v) => { store.maxTokens = v || 0; },
+  setInjectCopyright: () => {},
+  setCustomApiUrl: () => {},
 };
 
 const stubs = {
@@ -107,7 +116,7 @@ test('importSettings routes the imported model into the imported provider\'s slo
   store.providerModelIds = {};
   const file = { name: 'settings.json' };
   const reader = {
-    result: JSON.stringify({ provider: 'deepseek', defaultModel: 'deepseek-chat', maxTokens: 8000 }),
+    result: JSON.stringify({ provider: 'deepseek', defaultModel: 'deepseek-chat', maxTokens: 8000, aiTimeout: 180 }),
     onload: null,
     readAsText: function () { this.onload(); },
   };
@@ -118,6 +127,7 @@ test('importSettings routes the imported model into the imported provider\'s slo
     '#defaultModelSelect': { value: '' },
     '#aiModelSelect': { value: '' },
     '#maxTokensInput': { value: '' },
+    '#aiTimeoutInput': { value: '' },
     '#injectCopyrightToggle': { checked: false },
     '#customApiUrlInput': { value: '' },
     '#customModelInput': { value: '' },
@@ -139,6 +149,10 @@ test('importSettings routes the imported model into the imported provider\'s slo
   expect(store.defaultModel).toBe('or-existing');
   // The visible dropdowns mirror the routed value.
   expect(els['#aiModelSelect'].value).toBe('deepseek-chat');
+  // The AI request timeout rotates through the settings file too (#5).
+  expect(store.maxTokens).toBe(8000);
+  expect(store.aiTimeout).toBe(180);
+  expect(els['#aiTimeoutInput'].value).toBe(180);
   delete globalThis.FileReader;
   delete globalThis.document;
 });// The service-worker activate filter moved to its own file

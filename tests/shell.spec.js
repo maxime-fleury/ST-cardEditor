@@ -113,6 +113,38 @@ test('PNG export is a valid, re-importable PNG', async ({ page }) => {
   expect(parsed.spec_version).toBe('2.0');
 });
 
+test('the AI request timeout is configurable and survives a reload', async ({ page }) => {
+  // Regression (issue #5): every chat request was aborted after a hard-coded
+  // 120 s, so a slow model or a long generation could never be given more room.
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await page.locator('#btnSettings').click();
+  await page.locator('#settingsModal.show').waitFor({ timeout: 5_000 });
+  // openSettings() populates the form from the modal's async `shown` handler;
+  // typing before it finishes would be overwritten a tick later.
+  await page.waitForTimeout(500);
+  const field = page.locator('#aiTimeoutInput');
+
+  // Unset means the built-in 2-minute default.
+  await expect(field).toHaveValue('');
+  expect(await page.evaluate(() => window.AIService.getRequestTimeoutMs())).toBe(120000);
+
+  // 180 seconds = the 3 minutes the issue asked for.
+  await field.fill('180');
+  await page.locator('#btnSaveSettings').click();
+  await expect(page.locator('.toast-body')).toContainText('Settings saved!');
+  expect(await page.evaluate(() => window.AIService.getRequestTimeoutMs())).toBe(180000);
+
+  // The value is persisted, and the reopened dialog shows it again.
+  await page.reload();
+  await expect(page.locator('#cardList')).toBeVisible();
+  await page.locator('#btnSettings').click();
+  await page.locator('#settingsModal.show').waitFor({ timeout: 5_000 });
+  await expect(page.locator('#aiTimeoutInput')).toHaveValue('180');
+  expect(await page.evaluate(() => window.AIService.getRequestTimeoutMs())).toBe(180000);
+  expect(errors, 'the timeout setting must not throw').toEqual([]);
+});
+
 test('appearance presets and settings apply live without errors', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/');

@@ -12,6 +12,12 @@ import { ChatState } from './chatState.js';
 const AIService = {
   DEFAULT_TEMPERATURE: 0.7,
   DEFAULT_MAX_TOKENS: 16384,
+  // Abort an AI request that has not answered within this many milliseconds.
+  // A slow model (or a long generation) can need far more than two minutes,
+  // so Settings exposes it and the stored value wins (see getRequestTimeoutMs).
+  DEFAULT_TIMEOUT_MS: 120000,
+  MIN_TIMEOUT_MS: 5000,
+  MAX_TIMEOUT_MS: 3600000,
 
   PROVIDERS: {
     openrouter: { name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', requiresKey: true },
@@ -130,17 +136,23 @@ const AIService = {
     }
     if (!this._getApiKeyForProvider()) throw new Error(I18n.t('error.apiKeyNotSet'));
 
-    const resp = await fetch(`${this._getBaseUrl()}/models`, {
-      headers: {
-        'Authorization': `Bearer ${this._getApiKeyForProvider()}`,
-        'Content-Type': 'application/json',
-      },
-      signal: AbortSignal.timeout(30000),
-    });
-    
+    const modelsUrl = `${this._getBaseUrl()}/models`;
+    let resp;
+    try {
+      resp = await fetch(modelsUrl, {
+        headers: {
+          'Authorization': `Bearer ${this._getApiKeyForProvider()}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(30000),
+      });
+    } catch (e) {
+      throw this._tagError(e, { url: modelsUrl });
+    }
+
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error?.message || `HTTP ${resp.status}`);
+      throw this._tagError(new Error(err.error?.message || `HTTP ${resp.status}`), { status: resp.status, url: modelsUrl });
     }
     
     const data = await resp.json();
@@ -214,14 +226,14 @@ const AIService = {
     }
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      if (err.error?.message) throw new Error(err.error.message);
+      if (err.error?.message) throw this._tagError(new Error(err.error.message), { status: resp.status, url: apiBaseUrl });
       if (resp.status === 401 || resp.status === 403) {
-        throw new Error(I18n.t ? I18n.t('error.customAuthFailed', { status: resp.status }) : 'Authentication failed (HTTP ' + resp.status + '). Check the API key for this endpoint.');
+        throw this._tagError(new Error(I18n.t ? I18n.t('error.customAuthFailed', { status: resp.status }) : 'Authentication failed (HTTP ' + resp.status + '). Check the API key for this endpoint.'), { status: resp.status, url: apiBaseUrl });
       }
       if (resp.status === 404) {
-        throw new Error(I18n.t ? I18n.t('error.customPathNotFound') : 'Endpoint not found (HTTP 404). Check that the API Base URL includes /v1.');
+        throw this._tagError(new Error(I18n.t ? I18n.t('error.customPathNotFound') : 'Endpoint not found (HTTP 404). Check that the API Base URL includes /v1.'), { status: resp.status, url: apiBaseUrl });
       }
-      throw new Error(I18n.t ? I18n.t('error.fetchModelsFailed', { status: resp.status }) : 'Failed to fetch models (HTTP ' + resp.status + ')');
+      throw this._tagError(new Error(I18n.t ? I18n.t('error.fetchModelsFailed', { status: resp.status }) : 'Failed to fetch models (HTTP ' + resp.status + ')'), { status: resp.status, url: apiBaseUrl });
     }
 
     const data = await resp.json().catch(() => ({}));
@@ -296,14 +308,15 @@ const AIService = {
   /**
    * Build request body for chat completion.
    */
-  _buildRequestBody(model, messages, { jsonMode = false, stream = false } = {}) {
+  _buildRequestBody(model, messages, { jsonMode = false, stream = false, maxTokens = 0 } = {}) {
     const body = {
       model,
       messages,
       temperature: this.DEFAULT_TEMPERATURE,
       stream,
     };
-    const userMax = CardStorage.getMaxTokens();
+    // An explicit cap (the connection probe) wins over the user's setting.
+    const userMax = maxTokens > 0 ? maxTokens : CardStorage.getMaxTokens();
     if (userMax > 0) body.max_tokens = userMax;
     if (jsonMode) body.response_format = { type: 'json_object' };
     if (stream) body.stream_options = { include_usage: true };
@@ -386,10 +399,95 @@ const AIService = {
   },
 
   /**
-   * Combine an external controller signal with the 120 s idle timeout.
+   * Effective timeout for an AI request, in milliseconds.
+   * The Settings value (seconds, 0 = unset) wins when present; otherwise the
+   * built-in default. Clamped, so a typo can neither abort a request instantly
+   * nor leave it hanging for a day.
+   */
+  getRequestTimeoutMs() {
+    const seconds = Number(
+      typeof CardStorage.getAiTimeout === 'function' ? CardStorage.getAiTimeout() : 0
+    ) || 0;
+    if (!(seconds > 0)) return this.DEFAULT_TIMEOUT_MS;
+    return Math.min(Math.max(seconds * 1000, this.MIN_TIMEOUT_MS), this.MAX_TIMEOUT_MS);
+  },
+
+  /**
+   * Tag an error with the request context (HTTP status, URL, model) so a
+   * failure can be explained later. One place, because @ts-check needs the
+   * widen-to-any cast for properties Error does not declare.
+   */
+  _tagError(err, fields) {
+    const e = /** @type {any} */ (err);
+    if (e && typeof e === 'object') {
+      for (const [key, value] of Object.entries(fields)) {
+        if (value !== undefined && value !== null && value !== '') e[key] = value;
+      }
+    }
+    return err;
+  },
+
+  /**
+   * Explain a failed request to the user: a timeout, an unreachable endpoint,
+   * a rejected key and a server-side error are different problems with
+   * different fixes, and "Error: Failed to fetch" says none of that.
+   * Returns an i18n key + values for I18n.t, or null when the error already
+   * carries a specific localized message (local validation, insufficient
+   * credits) that should be shown as-is.
+   * @returns {{ key: string; values: Record<string, string | number> } | null}
+   */
+  describeError(err) {
+    if (!err || typeof err !== 'object') return null;
+    const e = /** @type {any} */ (err);
+    const status = Number(e.status) || 0;
+    const provider = this.getProviderInfo(this._provider).name;
+
+    // AbortSignal.timeout() rejects with a DOMException named TimeoutError. The
+    // user pressing Stop is an AbortError instead, and the caller owns that.
+    if (e.name === 'TimeoutError' || status === 408) {
+      return { key: 'error.timeout', values: { seconds: Math.round(this.getRequestTimeoutMs() / 1000) } };
+    }
+    // Dead endpoint, DNS failure, CSP block or offline: fetch rejects with a
+    // TypeError. Tagged failures carry the URL; the message is the fallback for
+    // browsers that word it differently.
+    const message = String(e.message || '');
+    if ((!status && e.url && e.name === 'TypeError') || /failed to fetch|networkerror|load failed|fetch failed|network request failed/i.test(message)) {
+      return { key: 'error.network', values: { url: e.url || this._getChatBaseUrl() || provider } };
+    }
+    if (status === 401 || status === 403) return { key: 'error.auth', values: { status, provider } };
+    if (status === 402) return null; // already thrown as the localized credits message
+    if (status === 404) return { key: 'error.modelRejected', values: { provider, model: e.model || this._resolveModel('') || '?' } };
+    if (status === 429) return { key: 'error.rateLimit', values: { provider } };
+    if (status >= 500) return { key: 'error.serverError', values: { status, provider } };
+    return null;
+  },
+
+  /**
+   * One tiny request through the same path (and the same timeout) as a real
+   * generation, so Settings can prove the endpoint, key and model work before
+   * the user spends a generation on them. Resolves with what was exercised;
+   * rejects with the raw error so the caller can render it via describeError().
+   */
+  async testConnection(opts = {}) {
+    const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+    const started = now();
+    const model = this._resolveModel('');
+    const res = await this.chat('Reply with the single word: ok', '', model, { maxTokens: 8, signal: opts.signal });
+    return {
+      ok: true,
+      provider: this.getProviderInfo(this._provider).name,
+      model: res.model || model,
+      timeoutMs: this.getRequestTimeoutMs(),
+      latencyMs: Math.max(0, Math.round(now() - started)),
+      reply: String(res.content || '').trim().slice(0, 120),
+    };
+  },
+
+  /**
+   * Combine an external controller signal with the configured request timeout.
    */
   _withTimeout(signal) {
-    const timeout = AbortSignal.timeout(120000);
+    const timeout = AbortSignal.timeout(this.getRequestTimeoutMs());
     if (!signal) return timeout;
     if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
     return signal; // Older browsers: rely on the caller's controller alone.
@@ -407,9 +505,9 @@ const AIService = {
   },
 
   async chat(prompt, systemPrompt = '', model = '', opts = {}) {
-    /** @type {{ jsonMode?: boolean; signal?: AbortSignal | null; history?: ChatMessage[] }} */
+    /** @type {{ jsonMode?: boolean; signal?: AbortSignal | null; history?: ChatMessage[]; maxTokens?: number }} */
     const safeOpts = (typeof opts === 'object' && opts !== null) ? opts : {};
-    const { jsonMode = false, signal, history = [] } = safeOpts;
+    const { jsonMode = false, signal, history = [], maxTokens = 0 } = safeOpts;
     const apiKey = this._getApiKeyForProvider();
     const info = this.getProviderInfo(this._provider);
     if (!apiKey && info.requiresKey) throw new Error(I18n.t('error.apiKeyNotSet'));
@@ -425,16 +523,22 @@ const AIService = {
     const headers = this._buildHeaders(apiKey);
 
     const fetchChat = async (useJsonMode) => {
-      const resp = await fetch(`${apiBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: false })),
-        signal: this._withTimeout(signal),
-      });
+      let resp;
+      try {
+        resp = await fetch(`${apiBaseUrl}/chat/completions`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: false, maxTokens })),
+          signal: this._withTimeout(signal),
+        });
+      } catch (e) {
+        // fetch() hides the endpoint it could not reach; tag it for describeError.
+        throw this._tagError(e, { url: apiBaseUrl, model: useModel });
+      }
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         if (resp.status === 402) throw new Error(I18n.t('error.insufficientCredits'));
-        throw new Error(this._extractApiError(err, resp.status));
+        throw this._tagError(new Error(this._extractApiError(err, resp.status)), { status: resp.status, url: apiBaseUrl, model: useModel });
       }
       return resp.json();
     };
@@ -509,16 +613,22 @@ const AIService = {
     const headers = this._buildHeaders(apiKey);
 
     const doStream = async (useJsonMode) => {
-      const resp = await fetch(`${apiBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: true })),
-        signal: this._withTimeout(signal),
-      });
+      let resp;
+      try {
+        resp = await fetch(`${apiBaseUrl}/chat/completions`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(this._buildRequestBody(useModel, messages, { jsonMode: useJsonMode, stream: true })),
+          signal: this._withTimeout(signal),
+        });
+      } catch (e) {
+        // fetch() hides the endpoint it could not reach; tag it for describeError.
+        throw this._tagError(e, { url: apiBaseUrl, model: useModel });
+      }
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         if (resp.status === 402) throw new Error(I18n.t('error.insufficientCredits'));
-        throw new Error(this._extractApiError(err, resp.status));
+        throw this._tagError(new Error(this._extractApiError(err, resp.status)), { status: resp.status, url: apiBaseUrl, model: useModel });
       }
       return resp;
     };

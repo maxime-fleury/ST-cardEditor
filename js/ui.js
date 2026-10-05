@@ -584,6 +584,8 @@ async function init() {
 
   const maxTokens = CardStorage.getMaxTokens();
   if (maxTokens > 0) $('#maxTokensInput').value = maxTokens;
+  const aiTimeout = CardStorage.getAiTimeout();
+  if (aiTimeout > 0) $('#aiTimeoutInput').value = aiTimeout;
   $('#injectCopyrightToggle').checked = CardStorage.getInjectCopyright();
 
   // ─── I18n ────────────────────────────────────────────
@@ -835,6 +837,8 @@ function bindEvents(settingsModal) {
   $('#btnExportPrompts').addEventListener('click', () => Settings.exportPrompts());
   $('#btnImportPrompts').addEventListener('click', () => Settings.importPrompts());
   $('#btnRefreshModels').addEventListener('click', () => Settings.refreshModelsList());
+  const testConnBtn = $('#btnTestConnection');
+  if (testConnBtn) testConnBtn.addEventListener('click', () => Settings.testConnection());
   $('#btnClearStorage').addEventListener('click', () => Settings.confirmClearStorage());
   $('#btnExportSettings').addEventListener('click', () => Settings.exportSettings());
   $('#btnImportSettings').addEventListener('click', () => Settings.importSettings());

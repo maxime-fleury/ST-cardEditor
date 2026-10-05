@@ -23,7 +23,7 @@ const stubs = {
   Editor: { populateEditor: noop, syncEditorToCard: noop, renderGreetings: noop },
   CardManager: { renderCardList: noop },
   CardEngine: { parseJSON: (s) => JSON.parse(s), toJSON: (c) => JSON.stringify(c) },
-  AIService: { hasApiKey: () => true, chat: async () => ({ content: '[]' }) },
+  AIService: { hasApiKey: () => true, chat: async () => ({ content: '[]' }), describeError: () => null },
   CardStorage: {},
   Anims: { staggerFadeIn: noop },
   Settings: { getDefaultPrompt: () => '', refreshCredits: noop },
@@ -599,6 +599,26 @@ test('_classifyFields tolerates a missing model (falls back gracefully)', async 
   const out = await AiChat._classifyFields('Arrive chez quelqu\'un');
   expect(out).toEqual(['scenario']);
   expect(seenModel).toBe('');
+});
+
+// ─── Actionable failure text ──────────────────────────────────────────────
+
+test('_errorText reports a classified failure instead of a generic Error prefix', () => {
+  // aiService knows a timeout from a rejected key; the chat must show the
+  // classified sentence, not "Error: Failed to fetch" (issue #5 follow-up).
+  stubs.AIService.describeError = () => ({ key: 'error.timeout', values: { seconds: 180 } });
+  stubs.I18n.t = (key, vars) => key + (vars ? ':' + Object.values(vars).join(',') : '');
+  const timeout = Object.assign(new Error('signal timed out'), { name: 'TimeoutError' });
+  expect(AiChat._errorText(timeout)).toBe('error.timeout:180');
+
+  // Unclassifiable errors keep their own (already localized) message.
+  stubs.AIService.describeError = () => null;
+  expect(AiChat._errorText(new Error('Insufficient credits.'))).toBe('ai.errorPrefixInsufficient credits.');
+
+  // A user abort is a cancellation, not an error.
+  expect(AiChat._errorText(Object.assign(new Error('aborted'), { name: 'AbortError' }))).toBe('ai.cancelled');
+  stubs.I18n.t = (key) => key;
+  stubs.AIService.describeError = () => null;
 });
 
 // ─── STORED-JSON UNWRAPPING (legacy damage repair) ────────────────────────

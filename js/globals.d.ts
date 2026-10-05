@@ -214,6 +214,8 @@ declare const CardStorage: {
   _keys: Record<string, string>;
   getPrompt(name: string): string;
   getMaxTokens(): number;
+  getAiTimeout(): number;
+  setAiTimeout(seconds: number): void;
   getChatHistory(id?: string): ChatMessage[];
   saveChatHistory(history: ChatMessage[], id?: string): void;
   clearChatHistory(id?: string): void;
@@ -251,6 +253,7 @@ declare const CardEngine: {
 declare const Settings: {
   getDefaultPrompt(name: string): string;
   refreshCredits(): void;
+  testConnection(): Promise<void>;
   [k: string]: unknown;
 };
 
@@ -262,7 +265,18 @@ declare const Tokenizer: {
 
 declare const AIService: {
   DEFAULT_MAX_TOKENS: number;
+  DEFAULT_TIMEOUT_MS: number;
   hasApiKey(): boolean;
+  getRequestTimeoutMs(): number;
+  describeError(err: unknown): { key: string; values: Record<string, string | number> } | null;
+  testConnection(opts?: { signal?: AbortSignal | null }): Promise<{
+    ok: boolean;
+    provider: string;
+    model: string;
+    timeoutMs: number;
+    latencyMs: number;
+    reply: string;
+  }>;
   chatStream(
     prompt: string,
     systemPrompt?: string,
