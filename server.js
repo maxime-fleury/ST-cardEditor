@@ -98,7 +98,7 @@ async function serveStatic(filePath, fallbackPath, acceptEncoding = '') {
         // on local/LAN/WAN addresses (LM Studio, Ollama, vLLM...). https: stays
         // host-allowlisted; CUSTOM_LLM_ORIGINS adds further hosts (e.g. https).
         // cdn.waifu.im is where the wizard blob-fetches image bytes.
-        "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co" + (EXTRA_CONNECT_SRC ? " " + EXTRA_CONNECT_SRC : "") + ";",
+        "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.demonroute.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co" + (EXTRA_CONNECT_SRC ? " " + EXTRA_CONNECT_SRC : "") + ";",
       },
     });
   }
