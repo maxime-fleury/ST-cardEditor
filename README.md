@@ -14,7 +14,7 @@ A web-based tool for editing, translating, and enhancing **SillyTavern character
 - **[Stable demo](https://maxime-fleury.github.io/ST-cardEditor/)** — the recommended current version
 - **[Beta demo](https://maxime-fleury.github.io/ST-cardEditor/dev/)** — the latest development build; features may change or break
 
-![Version](https://img.shields.io/badge/version-2.10.0-purple)
+![Version](https://img.shields.io/badge/version-2.11.0-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-000?logo=bun)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![Stable Demo](https://img.shields.io/badge/stable-demo-9147ff?logo=githubpages)](https://maxime-fleury.github.io/ST-cardEditor/)
@@ -94,7 +94,7 @@ Lorebook activation rules (which entry fires, and when an entry can never fire) 
 
 ### AI Assistant
 
-**Seven built-in provider modes:**
+**Eight built-in provider modes:**
 
 | Provider | Description |
 |----------|-------------|

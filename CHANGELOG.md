@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-11-19
+
+### Added
+- **Demon Route is a named provider.** The provider registry added in 2.10.0
+  made this a registry entry rather than a new code path, so `Demon Route` now
+  sits next to NanoGPT, xAI, Z.AI, Chutes and DeepSeek: `https://api.demonroute.com/v1`
+  is OpenAI-compatible, so the same `GET /models` listing, price parsing, free
+  detection and streaming chat completions drive it, Settings offers its
+  dashboard link for the key, and only the CSP needed a new origin — in both
+  copies, the `<meta>` tag GitHub Pages serves and the header `server.js`
+  sends, so the hosted demo is not blocked by the policy. README provider table
+  and counts updated (#6, thanks @demonroute1), and the README heading that
+  still advertised "seven built-in provider modes" while the table listed eight
+  now says eight.
+
 ## [2.10.0] - 2026-10-05
 
 ### Added
