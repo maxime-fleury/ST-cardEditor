@@ -1,0 +1,795 @@
+/* ============================================================
+   wizard.js — Card Creation Wizard: Guided Character Builder
+   ============================================================ */
+
+const Wizard = {
+  _step: 1,
+  _totalSteps: 5,
+  _answers: {},
+  _modal: null,
+  _fetchedImages: [],
+  _selectedImageIdx: -1,
+  _tagSearch: '',
+  _autoFetched: false,
+  _fetching: false,
+  _wizardDirtyKey: 'stce_wizard_draft',
+  _draftCleared: false,
+
+  init() {
+    this._modal = new bootstrap.Modal('#wizardModal');
+    this._bindEvents();
+    // Clean up object URLs when modal is dismissed
+    document.querySelector('#wizardModal').addEventListener('hidden.bs.modal', () => this._onModalClose());
+  },
+
+  show() {
+    this._step = 1;
+    this._answers = {};
+    this._fetchedImages = [];
+    this._selectedImageIdx = -1;
+    this._tagSearch = '';
+    this._autoFetched = false;
+    this._fetching = false;
+    this._resetFormUI();
+    this._resetImageUI();
+    this._renderStepIndicator();
+    this._showStep(1);
+    this._modal.show();
+    // Restore draft from sessionStorage if available (after step 1 is shown)
+    if (this._restoreDraft()) {
+      this._populateStep(1);
+    }
+    setTimeout(() => {
+      const step1 = document.querySelector('.wizard-step[data-step="1"]');
+      if (step1) Anims.staggerFadeIn(step1.querySelectorAll('.mb-3, .mb-4'), { stagger: 30, duration: 200 });
+    }, 100);
+  },
+
+  _onModalClose() {
+    // Revoke all object URLs to prevent memory leaks
+    this._fetchedImages.forEach(img => {
+      if (img && img._objUrl) URL.revokeObjectURL(img._objUrl);
+    });
+    this._fetchedImages = [];
+    this._selectedImageIdx = -1;
+    // Save draft unless it was intentionally cleared (e.g. after generation)
+    if (!this._draftCleared) this._saveDraft();
+    this._draftCleared = false;
+  },
+
+  _saveDraft() {
+    try {
+      if (this._answers && Object.keys(this._answers).length > 0) {
+        sessionStorage.setItem(this._wizardDirtyKey, JSON.stringify(this._answers));
+      }
+    } catch (_) {}
+  },
+
+  _clearDraft() {
+    try { sessionStorage.removeItem(this._wizardDirtyKey); } catch (_) {}
+    this._draftCleared = true;
+  },
+
+  _restoreDraft() {
+    try {
+      const saved = sessionStorage.getItem(this._wizardDirtyKey);
+      if (!saved) return false;
+      const data = JSON.parse(saved);
+      if (typeof data !== 'object' || !data.name) return false; // require at least a name
+      this._answers = data;
+      // Don't restore image state — images are blobs that can't be serialized
+      Ui.showToast(I18n.t('wizard.draftRestored'), 'info');
+      return true;
+    } catch (_) {
+      sessionStorage.removeItem(this._wizardDirtyKey);
+      return false;
+    }
+  },
+
+  _resetFormUI() {
+    const body = document.querySelector('#wizardModal .modal-body');
+    if (!body) return;
+    body.querySelectorAll('input[type="text"], textarea').forEach(el => { el.value = ''; });
+    body.querySelectorAll('select').forEach(el => { el.selectedIndex = 0; });
+    body.querySelectorAll('.wizard-chip.active').forEach(c => c.classList.remove('active'));
+    const gc = document.querySelector('#wizGenderCustom'); if (gc) { gc.value = ''; gc.classList.add('d-none'); }
+    const lc = document.querySelector('#wizLanguageCustom'); if (lc) { lc.value = ''; lc.classList.add('d-none'); }
+    if (window.syncFloatLabels) window.syncFloatLabels();
+  },
+
+  _resetImageUI() {
+    const btnFetch = document.querySelector('#wizBtnFetchImage');
+    if (btnFetch) btnFetch.innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.fetchImages');
+    document.querySelectorAll('.wizard-image-card').forEach(c => {
+      c.classList.remove('selected');
+      const thumb = c.querySelector('.wiz-thumb');
+      if (thumb) { thumb.src = ''; thumb.hidden = true; }
+      const loader = c.querySelector('.wiz-image-loader');
+      if (loader) loader.classList.add('d-none');
+      const ph = c.querySelector('.wizard-image-placeholder');
+      if (ph) ph.classList.remove('d-none');
+    });
+    const btnUse = document.querySelector('#wizBtnUseImage');
+    const btnRemove = document.querySelector('#wizBtnRemoveImage');
+    if (btnUse) btnUse.classList.add('d-none');
+    if (btnRemove) btnRemove.classList.add('d-none');
+  },
+
+  _bindEvents() {
+    const self = this;
+
+    document.querySelector('#wizBtnNext').addEventListener('click', () => self._next());
+    document.querySelector('#wizBtnBack').addEventListener('click', () => self._back());
+
+    // Keyboard shortcuts within wizard
+    document.querySelector('#wizardModal').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && self._step === self._totalSteps) {
+        e.preventDefault();
+        self._generateWithAI();
+      }
+    });
+
+    document.querySelector('#wizGender').addEventListener('change', (e) => {
+      document.querySelector('#wizGenderCustom').classList.toggle('d-none', e.target.value !== 'other');
+    });
+
+    document.querySelector('#wizLanguage').addEventListener('change', (e) => {
+      document.querySelector('#wizLanguageCustom').classList.toggle('d-none', e.target.value !== 'other');
+    });
+
+    document.querySelectorAll('.wizard-chip-group').forEach(group => {
+      group.querySelectorAll('.wizard-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          chip.classList.toggle('active');
+          Anims.scaleClick(chip);
+        });
+      });
+    });
+
+    document.querySelector('#wizBtnAI').addEventListener('click', () => self._generateWithAI());
+    document.querySelector('#wizBtnBlank').addEventListener('click', () => self._generateBlank());
+
+    document.querySelector('#wizBtnFetchImage').addEventListener('click', () => self._fetchImage());
+    document.querySelector('#wizBtnUseImage').addEventListener('click', () => self._useFetchedImage());
+    document.querySelector('#wizBtnRemoveImage').addEventListener('click', () => self._removeFetchedImage());
+
+    const searchInput = document.querySelector('#wizImageTagSearch');
+    const searchBtn = document.querySelector('#wizBtnSearchImages');
+    if (searchInput) {
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          self._syncTagSearch();
+          self._fetchImage();
+        }
+      });
+      searchInput.addEventListener('input', () => {
+        self._tagSearch = searchInput.value;
+        self._renderQuickTags();
+      });
+    }
+    if (searchBtn) {
+      searchBtn.addEventListener('click', () => {
+        self._syncTagSearch();
+        self._fetchImage();
+      });
+    }
+
+    document.querySelector('#btnWizardNav').addEventListener('click', () => self.show());
+    const centerBtn = document.querySelector('#btnWizard');
+    if (centerBtn) centerBtn.addEventListener('click', () => self.show());
+
+    // Image selection delegated in _bindImageEvents
+    self._bindImageEvents();
+  },
+
+  _collectStep(step) {
+    const a = this._answers;
+    switch (step) {
+      case 1:
+        a.name = document.querySelector('#wizName').value.trim();
+        a.gender = document.querySelector('#wizGender').value;
+        a.genderCustom = document.querySelector('#wizGenderCustom').value.trim();
+        a.tags = document.querySelector('#wizTags').value.split(',').map(s => s.trim()).filter(Boolean);
+        a.creator = document.querySelector('#wizCreator').value.trim();
+        break;
+      case 2:
+        a.type = document.querySelector('#wizType').value;
+        a.language = document.querySelector('#wizLanguage').value;
+        a.languageCustom = document.querySelector('#wizLanguageCustom').value.trim();
+        a.genres = this._getChips('wizGenre');
+        a.moods = this._getChips('wizMood');
+        break;
+      case 3:
+        a.personalityDesc = document.querySelector('#wizPersonalityDesc').value.trim();
+        a.appearance = document.querySelector('#wizAppearance').value.trim();
+        a.abilities = document.querySelector('#wizAbilities').value.trim();
+        break;
+      case 4:
+        a.scenario = document.querySelector('#wizScenario').value.trim();
+        a.relationship = document.querySelector('#wizRelationship').value.trim();
+        a.openingVibe = this._getChips('wizOpening');
+        a.notes = document.querySelector('#wizNotes').value.trim();
+        break;
+    }
+  },
+
+  _populateStep(step) {
+    const a = this._answers;
+    switch (step) {
+      case 1:
+        if (a.name) document.querySelector('#wizName').value = a.name;
+        if (a.gender) document.querySelector('#wizGender').value = a.gender;
+        if (a.genderCustom) { document.querySelector('#wizGenderCustom').value = a.genderCustom; document.querySelector('#wizGenderCustom').classList.remove('d-none'); }
+        if (a.tags?.length) document.querySelector('#wizTags').value = a.tags.join(', ');
+        if (a.creator) document.querySelector('#wizCreator').value = a.creator;
+        break;
+      case 2:
+        if (a.type) document.querySelector('#wizType').value = a.type;
+        if (a.language) document.querySelector('#wizLanguage').value = a.language;
+        if (a.languageCustom) { document.querySelector('#wizLanguageCustom').value = a.languageCustom; document.querySelector('#wizLanguageCustom').classList.remove('d-none'); }
+        this._setChips('wizGenre', a.genres || []);
+        this._setChips('wizMood', a.moods || []);
+        break;
+      case 3:
+        if (a.personalityDesc) document.querySelector('#wizPersonalityDesc').value = a.personalityDesc;
+        if (a.appearance) document.querySelector('#wizAppearance').value = a.appearance;
+        if (a.abilities) document.querySelector('#wizAbilities').value = a.abilities;
+        break;
+      case 4:
+        if (a.scenario) document.querySelector('#wizScenario').value = a.scenario;
+        if (a.relationship) document.querySelector('#wizRelationship').value = a.relationship;
+        this._setChips('wizOpening', a.openingVibe || []);
+        if (a.notes) document.querySelector('#wizNotes').value = a.notes;
+        break;
+    }
+    // Re-sync floating labels so restored/prefilled values show their floated labels
+    if (window.syncFloatLabels) window.syncFloatLabels();
+  },
+
+  _getChips(groupId) {
+    const active = [];
+    document.querySelectorAll('#' + groupId + ' .wizard-chip.active').forEach(c => active.push(c.dataset.value));
+    return active;
+  },
+
+  _setChips(groupId, values) {
+    const valSet = new Set(values);
+    document.querySelectorAll('#' + groupId + ' .wizard-chip').forEach(c => {
+      c.classList.toggle('active', valSet.has(c.dataset.value));
+    });
+  },
+
+  _next() {
+    this._collectStep(this._step);
+    if (this._step === 1 && !this._answers.name) {
+      Ui.showToast(I18n.t('wizard.nameRequired'), 'warning');
+      Anims.shakeElement(document.querySelector('#wizName'));
+      document.querySelector('#wizName').focus();
+      return;
+    }
+    if (this._step < this._totalSteps) {
+      const prevStep = this._step;
+      this._step++;
+      this._populateStep(this._step);
+      this._showStepAnimated(this._step, prevStep, 'next');
+    }
+  },
+
+  _back() {
+    this._collectStep(this._step);
+    if (this._step > 1) {
+      const prevStep = this._step;
+      this._step--;
+      this._populateStep(this._step);
+      this._showStepAnimated(this._step, prevStep, 'back');
+    }
+  },
+
+  _renderStepNav(step) {
+    document.querySelector('#wizBtnBack').disabled = step === 1;
+
+    if (step === this._totalSteps) {
+      document.querySelector('#wizBtnNext').classList.add('d-none');
+      document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.ready');
+      this._renderSummary();
+      this._renderQuickTags();
+      const derivedTags = this._deriveImageTags();
+      const searchInput = document.querySelector('#wizImageTagSearch');
+      if (searchInput && !this._autoFetched) {
+        searchInput.value = derivedTags;
+        this._tagSearch = derivedTags;
+        this._renderQuickTags();
+      }
+      if (!this._autoFetched) {
+        this._autoFetched = true;
+        this._fetchImage();
+      }
+    } else {
+      document.querySelector('#wizBtnNext').classList.remove('d-none');
+      document.querySelector('#wizBtnNext').innerHTML = I18n.t('wizard.next') + ' <i class="bi bi-arrow-right ms-1"></i>';
+      document.querySelector('#wizStepLabel').textContent = I18n.t('wizard.stepLabel', { step: step, total: this._totalSteps });
+    }
+
+    this._renderStepIndicator();
+    this._updateProgressBar();
+  },
+
+  _showStepAnimated(step, prevStep, direction) {
+    const prevEl = document.querySelector('.wizard-step[data-step="' + prevStep + '"]');
+    const nextEl = document.querySelector('.wizard-step[data-step="' + step + '"]');
+
+    document.querySelectorAll('.wizard-step').forEach(el => {
+      el.style.opacity = '';
+      el.style.transform = '';
+    });
+
+    this._renderStepNav(step);
+
+    Anims.slideStep(prevEl, nextEl, direction, () => {
+      if (step === this._totalSteps) {
+        const items = document.querySelectorAll('.wizard-summary-item');
+        Anims.staggerFadeIn(items, { stagger: 20, duration: 200 });
+      } else {
+        Anims.staggerFadeIn(nextEl.querySelectorAll('.mb-3, .mb-4'), { stagger: 25, duration: 180 });
+      }
+    });
+
+    // Safety net: guarantee the target step is visible even if the
+    // slide animation is interrupted (e.g. rapid navigation).
+    setTimeout(() => {
+      if (nextEl) {
+        nextEl.classList.remove('d-none');
+        nextEl.style.opacity = '';
+        nextEl.style.transform = '';
+      }
+    }, 400);
+  },
+
+  _showStep(step) {
+    document.querySelectorAll('.wizard-step').forEach(el => {
+      el.classList.add('d-none');
+      el.style.opacity = '';
+      el.style.transform = '';
+    });
+    const target = document.querySelector('.wizard-step[data-step="' + step + '"]');
+    if (target) target.classList.remove('d-none');
+    this._renderStepNav(step);
+  },
+
+  _renderStepIndicator() {
+    const labels = [
+      I18n.t('wizard.step.basics'),
+      I18n.t('wizard.step.concept'),
+      I18n.t('wizard.step.personality'),
+      I18n.t('wizard.step.scenario'),
+      I18n.t('wizard.step.generate')
+    ];
+    const container = document.querySelector('#wizardStepsIndicator');
+    container.innerHTML = labels.map((label, i) => {
+      const stepNum = i + 1;
+      const isActive = stepNum === this._step;
+      const isDone = stepNum < this._step;
+      const isFuture = stepNum > this._step;
+      let connectorHtml = '';
+      if (i < labels.length - 1) {
+        const prevDone = i < this._step - 1 || (i === this._step - 1 && !isActive);
+        connectorHtml = '<div class="wizard-connector' + (prevDone ? ' done' : '') + '"></div>';
+      }
+      return '<div class="wizard-step-dot-wrap">'
+        + '<div class="wizard-step-dot' + (isActive ? ' active' : '') + (isDone ? ' done' : '') + (isFuture ? ' future' : '') + '">'
+        + (isDone ? '<i class="bi bi-check-lg"></i>' : '<span>' + (stepNum === this._step ? '<i class="bi bi-chevron-right"></i>' : stepNum) + '</span>')
+        + '</div>'
+        + (i < labels.length - 1 ? connectorHtml : '')
+        + '<span class="wizard-step-dot-label">' + label + '</span>'
+        + '</div>';
+    }).join('');
+  },
+
+  _updateProgressBar() {
+    const pct = Math.round((this._step / this._totalSteps) * 100);
+    document.querySelector('#wizardProgressBar').style.width = pct + '%';
+    Anims.progressBounce(document.querySelector('#wizardProgressBar'));
+  },
+
+  _renderSummary() {
+    const a = this._answers;
+    const genderLabel = a.gender === 'other' ? a.genderCustom : a.gender;
+    const langLabel = a.language === 'other' ? a.languageCustom : a.language;
+
+    function summaryItem(key, value, step, full) {
+      const stepIdx = step || -1;
+      const editBtn = stepIdx >= 0
+        ? '<button class="wizard-edit-btn btn btn-sm btn-link p-0 ms-1" data-step="' + stepIdx + '" title="' + I18n.t('wizard.editStep') + '" aria-label="' + I18n.t('wizard.editStep') + '"><i class="bi bi-pencil"></i></button>'
+        : '';
+      return '<div class="wizard-summary-item' + (full ? ' full' : '') + '">'
+        + '<span class="wizard-summary-label">' + I18n.t(key) + editBtn + '</span>'
+        + '<span class="wizard-summary-value">' + Ui.escapeHtml(value || '-') + '</span></div>';
+    }
+
+    let html = '<div class="wizard-summary-grid">';
+    html += summaryItem('wizard.summary.name', a.name || '-', 1, false);
+    html += summaryItem('wizard.summary.gender', genderLabel || '-', 1, false);
+    html += summaryItem('wizard.summary.type', a.type ? I18n.t('wizard.type.' + a.type) : '-', 2, false);
+    html += summaryItem('wizard.summary.language', langLabel || '-', 2, false);
+    html += summaryItem('wizard.summary.tags', (a.tags || []).join(', ') || '-', 1, false);
+    html += summaryItem('wizard.summary.genres', (a.genres || []).join(', ') || '-', 2, false);
+    html += summaryItem('wizard.summary.mood', (a.moods || []).join(', ') || '-', 2, false);
+    html += summaryItem('wizard.summary.opening', (a.openingVibe || []).join(', ') || '-', 4, false);
+    if (a.personalityDesc) html += summaryItem('wizard.summary.personality', a.personalityDesc, 3, true);
+    if (a.appearance) html += summaryItem('wizard.summary.appearance', a.appearance, 3, true);
+    if (a.scenario) html += summaryItem('wizard.summary.scenario', a.scenario, 4, true);
+    if (a.relationship) html += summaryItem('wizard.summary.relationship', a.relationship, 4, true);
+    if (a.notes) html += summaryItem('wizard.summary.notes', a.notes, 4, true);
+    html += '</div>';
+
+    document.querySelector('#wizardSummary').innerHTML = html;
+
+    // Bind edit buttons
+    document.querySelectorAll('.wizard-edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const targetStep = parseInt(btn.dataset.step, 10);
+        if (targetStep >= 1 && targetStep <= 4) {
+          this._collectStep(this._step);
+          this._step = targetStep;
+          this._populateStep(targetStep);
+          this._showStepAnimated(targetStep, this._totalSteps, 'back');
+        }
+      });
+    });
+  },
+
+  // ─── IMAGE FETCH (waifu.im) ─────────────────────────
+
+  TAG_OPTIONS: [
+    'waifu', 'maid', 'uniform', 'selfies', 'dress',
+    'cat', 'neko', 'fox', 'witch', 'swimsuit',
+    'gothic', 'dark', 'fantasy', 'cyberpunk', 'military',
+    'sailor', 'princess', 'angel', 'devil', 'ninja',
+    'samurai', 'pirate', 'vampire', 'elf', 'robot',
+  ],
+
+  _renderQuickTags() {
+    const container = document.querySelector('#wizQuickTags');
+    if (!container) return;
+
+    // Find or create the label
+    let label = container.querySelector('.wizard-quick-tags-label');
+    if (!label) {
+      label = document.createElement('span');
+      label.className = 'wizard-quick-tags-label';
+      label.setAttribute('data-i18n', 'wizard.quick');
+      label.textContent = I18n.t('wizard.quick');
+    }
+    container.innerHTML = '';
+    container.appendChild(label);
+
+    const activeTags = this._tagSearch
+      ? new Set(this._tagSearch.split(',').map(s => s.trim().toLowerCase()).filter(Boolean))
+      : new Set();
+
+    this.TAG_OPTIONS.forEach(tag => {
+      const chip = document.createElement('span');
+      chip.className = 'wizard-quick-tag' + (activeTags.has(tag) ? ' active' : '');
+      chip.dataset.tag = tag;
+      chip.textContent = tag;
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const input = document.querySelector('#wizImageTagSearch');
+        if (!input) return;
+        const current = input.value
+          .split(',')
+          .map(s => s.trim().toLowerCase())
+          .filter(Boolean);
+        const idx = current.indexOf(tag);
+        if (idx >= 0) {
+          current.splice(idx, 1);
+        } else {
+          current.push(tag);
+        }
+        input.value = current.join(', ');
+        this._renderQuickTags();
+      });
+      container.appendChild(chip);
+    });
+  },
+
+  _bindImageEvents() {
+    const self = this;
+    document.querySelectorAll('.wizard-image-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const idx = parseInt(card.dataset.idx, 10);
+        if (!self._fetchedImages[idx]) return;
+        document.querySelectorAll('.wizard-image-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        self._selectedImageIdx = idx;
+        document.querySelector('#wizBtnUseImage').classList.remove('d-none');
+        document.querySelector('#wizBtnRemoveImage').classList.remove('d-none');
+        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.refetchOthers');
+      });
+    });
+  },
+
+  _syncTagSearch() {
+    const input = document.querySelector('#wizImageTagSearch');
+    if (input) {
+      this._tagSearch = input.value;
+      this._renderQuickTags();
+    }
+  },
+
+  _deriveImageTags() {
+    const a = this._answers;
+    const tagMap = {
+      fantasy: 'fantasy',
+      scifi: 'cyberpunk',
+      modern: 'uniform',
+      horror: 'dark',
+      romance: 'dress',
+      'slice-of-life': 'maid',
+      cyberpunk: 'cyberpunk',
+      military: 'military',
+      dark: 'gothic',
+      supernatural: 'witch',
+    };
+    const tags = new Set(['waifu']);
+    (a.genres || []).forEach(g => {
+      if (tagMap[g]) tags.add(tagMap[g]);
+    });
+    if (a.type === 'vtuber') tags.add('selfies');
+    if (a.type === 'historical') tags.add('maid');
+    if (a.type === 'anime') tags.add('neko');
+    const appearance = (a.appearance || '').toLowerCase();
+    if (appearance.includes('cat') || appearance.includes('feline') || appearance.includes('neko')) tags.add('cat');
+    if (appearance.includes('fox') || appearance.includes('kitsune')) tags.add('fox');
+    if (appearance.includes('angel')) tags.add('angel');
+    if (appearance.includes('devil') || appearance.includes('demon') || appearance.includes('succubus')) tags.add('devil');
+    if (appearance.includes('vampire')) tags.add('vampire');
+    if (appearance.includes('elf')) tags.add('elf');
+    if (appearance.includes('sword') || appearance.includes('samurai') || appearance.includes('ninja')) { tags.add('samurai'); tags.add('ninja'); }
+    if (appearance.includes('pirate')) tags.add('pirate');
+    if (appearance.includes('robot') || appearance.includes('cyborg') || appearance.includes('android')) tags.add('robot');
+    if (appearance.includes('princess')) tags.add('princess');
+    if (appearance.includes('sailor') || appearance.includes('navy') || appearance.includes('marine')) tags.add('sailor');
+    return [...tags].join(', ');
+  },
+
+  async _fetchImage() {
+    if (this._fetching) return; // guard against double clicks
+    this._fetching = true;
+
+    const btn = document.querySelector('#wizBtnFetchImage');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>' + I18n.t('wizard.fetching');
+
+    this._syncTagSearch();
+
+    const userTags = this._tagSearch
+      .split(',')
+      .map(s => s.trim().toLowerCase())
+      .filter(Boolean);
+
+    if (!userTags.length) userTags.push('waifu');
+
+    try {
+      const slotsToFetch = [];
+      for (let i = 0; i < 3; i++) {
+        if (i === this._selectedImageIdx) continue;
+        slotsToFetch.push(i);
+      }
+      if (!slotsToFetch.length) { this._fetching = false; btn.disabled = false; btn.innerHTML = origHtml; return; }
+
+      // Show loading spinners on slots being fetched
+      for (const i of slotsToFetch) {
+        const card = document.querySelectorAll('.wizard-image-card')[i];
+        card.classList.remove('selected');
+        const thumb = card.querySelector('.wiz-thumb');
+        thumb.src = '';
+        thumb.hidden = true;
+        const loader = card.querySelector('.wiz-image-loader');
+        if (loader) loader.classList.remove('d-none');
+        const ph = card.querySelector('.wizard-image-placeholder');
+        if (ph) ph.classList.add('d-none');
+        const prev = this._fetchedImages[i];
+        if (prev && prev._objUrl) URL.revokeObjectURL(prev._objUrl);
+        this._fetchedImages[i] = null;
+      }
+
+      await Promise.all(slotsToFetch.map(async (i) => {
+        try {
+          const slotTags = [];
+          const tagIdx1 = (i * 2) % userTags.length;
+          slotTags.push(userTags[tagIdx1]);
+          if (userTags.length > 1) {
+            const tagIdx2 = (i * 2 + 1) % userTags.length;
+            if (tagIdx2 !== tagIdx1) slotTags.push(userTags[tagIdx2]);
+          }
+
+          const page = Math.max(1, Math.floor(Math.random() * 20));
+          const resp = await fetch('https://api.waifu.im/images?'
+            + 'included_tags=' + encodeURIComponent(slotTags.join(','))
+            + '&is_nsfw=false&page=' + page);
+          if (!resp.ok) throw new Error('API returned ' + resp.status);
+          const data = await resp.json();
+          const items = data.items || [];
+          if (!items.length) throw new Error('No image for tags: ' + slotTags.join(', '));
+          const item = items[Math.floor(Math.random() * items.length)];
+          const imgResp = await fetch(item.url);
+          const blob = await imgResp.blob();
+          const objUrl = URL.createObjectURL(blob);
+          this._fetchedImages[i] = {
+            blob,
+            url: item.url,
+            _objUrl: objUrl,
+            tags: (item.tags || []).map(t => t.name).join(', '),
+          };
+          const card = document.querySelectorAll('.wizard-image-card')[i];
+          const thumb = card.querySelector('.wiz-thumb');
+          thumb.src = objUrl;
+          thumb.hidden = false;
+          const loader = card.querySelector('.wiz-image-loader');
+          if (loader) loader.classList.add('d-none');
+          card.querySelector('.wizard-image-placeholder').classList.add('d-none');
+        } catch (e) {
+          console.error('waifu.im slot ' + i + ' fetch failed', e);
+          // Show error state in the card
+          const card = document.querySelectorAll('.wizard-image-card')[i];
+          const loader = card.querySelector('.wiz-image-loader');
+          if (loader) loader.classList.add('d-none');
+          const ph = card.querySelector('.wizard-image-placeholder');
+          if (ph) {
+            ph.classList.remove('d-none');
+            ph.innerHTML = '<i class="bi bi-exclamation-triangle"></i>';
+          }
+        }
+      }));
+
+      const ok = slotsToFetch.some(i => this._fetchedImages[i]);
+      if (!ok) throw new Error('All requests failed');
+
+      if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
+        document.querySelector('#wizBtnUseImage').classList.remove('d-none');
+        document.querySelector('#wizBtnRemoveImage').classList.remove('d-none');
+        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.refetchOthers');
+      } else {
+        document.querySelector('#wizBtnUseImage').classList.add('d-none');
+        document.querySelector('#wizBtnRemoveImage').classList.add('d-none');
+        document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.fetchImages');
+      }
+    } catch (e) {
+      console.error('waifu.im fetch failed', e);
+      Ui.showToast(I18n.t('toast.wizardFetchFailed', { error: e.message }), 'danger');
+    } finally {
+      this._fetching = false;
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+  },
+
+  async _useFetchedImage() {
+    if (this._selectedImageIdx < 0 || !this._fetchedImages[this._selectedImageIdx]) return;
+    const card = window.AppState.activeCard;
+    if (!card) {
+      Ui.showToast(I18n.t('toast.createCardFirst'), 'warning');
+      return;
+    }
+    await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob);
+  },
+
+  _removeFetchedImage() {
+    this._fetchedImages.forEach(img => { if (img && img._objUrl) URL.revokeObjectURL(img._objUrl); });
+    this._fetchedImages = [];
+    this._selectedImageIdx = -1;
+    document.querySelectorAll('.wizard-image-card').forEach(c => {
+      c.classList.remove('selected');
+      const thumb = c.querySelector('.wiz-thumb');
+      if (thumb) { thumb.src = ''; thumb.hidden = true; }
+      const loader = c.querySelector('.wiz-image-loader');
+      if (loader) loader.classList.add('d-none');
+      const ph = c.querySelector('.wizard-image-placeholder');
+      if (ph) {
+        ph.classList.remove('d-none');
+        ph.innerHTML = '<i class="bi bi-image"></i>';
+      }
+    });
+    document.querySelector('#wizBtnUseImage').classList.add('d-none');
+    document.querySelector('#wizBtnRemoveImage').classList.add('d-none');
+    document.querySelector('#wizBtnFetchImage').innerHTML = '<i class="bi bi-shuffle me-1"></i>' + I18n.t('wizard.fetchImages');
+  },
+
+  // ─── GENERATE ───────────────────────────────────────
+  async _generateBlank() {
+    this._collectStep(this._step);
+    this._clearDraft();
+    this._modal.hide();
+
+    const card = CardEngine.createEmptyCard(this._answers.name || 'New Character');
+    card.tags = this._answers.tags || [];
+    card.creator = this._answers.creator || '';
+
+    await CardStorage.upsertCard(card);
+    window.AppState.cards = CardStorage.getCards();
+    await CardManager.selectCard(card);
+    if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
+      try { await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob); } catch (_) {}
+    }
+    CardManager.renderCardList();
+    document.querySelector('#editName').focus();
+    Ui.showToast(I18n.t('toast.wizardCreated'), 'success');
+  },
+
+  async _generateWithAI() {
+    this._collectStep(this._step);
+    if (!AIService.hasApiKey()) {
+      Ui.showToast(I18n.t('toast.wizardApi'), 'warning');
+      return;
+    }
+    const modelId = document.querySelector('#aiModelSelect').value;
+    if (!modelId) {
+      Ui.showToast(I18n.t('toast.wizardModel'), 'warning');
+      return;
+    }
+    document.querySelector('#aiModelSelect').value = modelId;
+
+    this._clearDraft();
+    this._modal.hide();
+    const a = this._answers;
+
+    const genderText = a.gender === 'other' ? a.genderCustom : (a.gender || 'unspecified');
+    const langMap = { en: 'English', fr: 'French', de: 'German', ja: 'Japanese' };
+    const langText = langMap[a.language] || a.languageCustom || 'English';
+    const typeLabels = {
+      original: 'Original Character', fanfic: 'Fan Fiction', game: 'Game Character',
+      anime: 'Anime / Manga', book: 'Book / Movie / Show', historical: 'Historical Figure',
+      mythological: 'Mythological / Folklore', vtuber: 'VTuber / Streamer', other: 'Other'
+    };
+
+    let prompt = 'Create a complete SillyTavern character card as valid JSON (chara_card_v2 spec). ';
+    prompt += 'Write everything in ' + langText + '. ';
+    prompt += 'Return ONLY the JSON code block, no explanation.\n\n';
+    prompt += '## Character Details\n\n';
+    prompt += '- **Name**: ' + (a.name || 'New Character') + '\n';
+    prompt += '- **Gender**: ' + genderText + '\n';
+    prompt += '- **Type**: ' + (typeLabels[a.type] || 'Original Character') + '\n';
+    prompt += '- **Tags**: ' + (a.tags || []).join(', ') + '\n';
+    if (a.genres?.length) prompt += '- **Genre/World**: ' + a.genres.join(', ') + '\n';
+    if (a.moods?.length) prompt += '- **Mood/Tone**: ' + a.moods.join(', ') + '\n';
+    if (a.personalityDesc) prompt += '- **Personality**: ' + a.personalityDesc + '\n';
+    if (a.appearance) prompt += '- **Appearance**: ' + a.appearance + '\n';
+    if (a.abilities) prompt += '- **Special Traits**: ' + a.abilities + '\n';
+    if (a.scenario) prompt += '- **Scenario**: ' + a.scenario + '\n';
+    if (a.relationship) prompt += '- **Relationship to {{user}}**: ' + a.relationship + '\n';
+    if (a.openingVibe?.length) prompt += '- **First Message Style**: ' + a.openingVibe.join(', ') + '\n';
+    if (a.notes) prompt += '- **Additional Notes**: ' + a.notes + '\n';
+
+    prompt += '\n## Requirements\n\n';
+    prompt += '- `name`: Character name\n';
+    prompt += '- `description`: Detailed appearance and backstory (2-4 paragraphs)\n';
+    prompt += '- `personality`: Personality traits and mannerisms\n';
+    prompt += '- `scenario`: The current setting and context\n';
+    prompt += '- `first_mes`: An engaging opening message in character, using *asterisks for actions* and dialogue in quotes. Match the requested opening vibe.\n';
+    prompt += '- `mes_example`: 2-3 example dialogues in <START> blocks showing different aspects of the character\n';
+    prompt += '- `system_prompt`: A system prompt that captures the character essence\n';
+    prompt += '- `tags`: The tags provided\n';
+    prompt += '- `creator_notes`: Brief usage notes for the card\n';
+    prompt += '- Use {{char}} for the character name and {{user}} for the user in example messages\n';
+    prompt += '- Keep the JSON structure clean and valid\n';
+
+    const card = CardEngine.createEmptyCard(a.name || 'New Character');
+    card.tags = a.tags || [];
+    card.creator = a.creator || '';
+    await CardStorage.upsertCard(card);
+    window.AppState.cards = CardStorage.getCards();
+    await CardManager.selectCard(card);
+    if (this._selectedImageIdx >= 0 && this._fetchedImages[this._selectedImageIdx]) {
+      try { await Editor.setAvatar(this._fetchedImages[this._selectedImageIdx].blob); } catch (_) {}
+    }
+    CardManager.renderCardList();
+
+    AiChat._sendFullCard(prompt);
+  },
+};
+
+window.Wizard = Wizard;
