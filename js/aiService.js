@@ -26,6 +26,7 @@ const AIService = {
     zai:        { name: 'Z.AI (GLM)', baseUrl: 'https://api.z.ai/api/paas/v4', requiresKey: true },
     chutes:     { name: 'Chutes',     baseUrl: 'https://llm.chutes.ai/v1', requiresKey: true },
     deepseek:   { name: 'DeepSeek',   baseUrl: 'https://api.deepseek.com/v1', requiresKey: true },
+    demonroute: { name: 'Demon Route', baseUrl: 'https://api.demonroute.com/v1', requiresKey: true },
     custom:     { name: 'Custom',     baseUrl: '', requiresKey: false },
   },
 

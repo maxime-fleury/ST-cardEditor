@@ -201,6 +201,7 @@ const Settings = {
         zai: 'https://z.ai',
         chutes: 'https://chutes.ai',
         deepseek: 'https://platform.deepseek.com',
+        demonroute: 'https://demonroute.com/dashboard',
       };
       $('#namedProviderLink').innerHTML = '<a href="' + (linkMap[provider] || '#') + '" target="_blank" class="text-accent">' + (I18n.t ? I18n.t('settings.getApiKeyFrom') : 'Get API key from ') + Ui.escapeHtml(info.name) + ' <i class="bi bi-box-arrow-up-right ms-1"></i></a>';
     }

@@ -104,6 +104,7 @@ Lorebook activation rules (which entry fires, and when an entry can never fire) 
 | **Z.AI (GLM)** | ZhipuAI GLM models |
 | **Chutes** | Hosted models via Chutes AI |
 | **DeepSeek** | DeepSeek models (V3, R1, etc.) |
+| **Demon Route** | Open-weight, uncensored and roleplay models via demonroute.com |
 | **Custom** | LM Studio, Ollama, vLLM, or any OpenAI-compatible endpoint |
 
 - **Streaming responses** with real-time text rendering
@@ -324,7 +325,7 @@ Or try it instantly on **GitHub Pages**:
 4. Click **Refresh Models** to load available AI models
 5. Select your preferred model from the navbar dropdown
 
-#### Option B: Named Providers (NanoGPT, xAI, Z.AI, Chutes, DeepSeek)
+#### Option B: Named Providers (NanoGPT, xAI, Z.AI, Chutes, DeepSeek, Demon Route)
 1. Open Settings (gear icon) and select your provider
 2. Click the provider link to get an API key
 3. Paste the API key and enter a Model ID
@@ -426,7 +427,7 @@ st-card-editor/
 │   ├── app.chunk.js        # BUILT shared chunk (the whole app)
 │   ├── *.chunk.js          # BUILT lazy chunks (wizard, waifu tab, command palette)
 │   ├── cardEngine.js       # Card parsing, normalization, content signature, PNG chunk embedding
-│   ├── aiService.js        # AI API client (7 providers + custom)
+│   ├── aiService.js        # AI API client (8 providers + custom)
 │   ├── storage.js          # localStorage + IndexedDB persistence (cards, images, version history)
 │   ├── exportUtils.js      # PNG/JSON export, CRC32, PNG chunk embedding
 │   ├── cardState.js        # Store: cards, active card, dirty flag, selection
@@ -481,7 +482,7 @@ st-card-editor/
 The app is a **single-page application** built with vanilla JavaScript and **Bootstrap 5.3** for layout:
 
 - **`cardEngine.js`** — Parses SillyTavern card formats (V1 flat, V2/V3 spec), extracts embedded data from PNG/WebP files (`chara`/`ccv3` tEXt chunks), and handles stable ID generation via content hashing.
-- **`aiService.js`** — Wraps 7 AI providers (OpenRouter, NanoGPT, xAI, Z.AI, Chutes, DeepSeek, Custom) with a unified registry: lists models with pricing, sends chat completions (streaming and non-streaming) with context-aware system prompts, fetches account credit info, and includes request timeouts.
+- **`aiService.js`** — Wraps 8 AI providers (OpenRouter, NanoGPT, xAI, Z.AI, Chutes, DeepSeek, Demon Route, Custom) with a unified registry: lists models with pricing, sends chat completions (streaming and non-streaming) with context-aware system prompts, fetches account credit info, and includes request timeouts.
 - **`storage.js`** — Hybrid persistence: lightweight metadata in `localStorage` (namespaced `stce_*`), full card data, images and per-card version history in **IndexedDB** (`stce_data`, 3 stores). Every write funnels through `upsertCard`, which is what lets the version history be recorded automatically. Includes one-time migration from the legacy localStorage-only format. Deleted cards are captured whole (content, artwork, chat) so undo can restore them.
 - **`cardState.js` / `chatState.js`** — The two stores that hold all mutable app state. The old `window.AppState` global is gone (a build check fails if it reappears) because a single shared bag is how a stale active card or chat transcript used to outlive a card switch.
 - **`exportUtils.js`** — PNG/JSON export with CRC32 checksum calculation and `tEXt` chunk embedding for SillyTavern-compatible output.
@@ -491,7 +492,7 @@ The app is a **single-page application** built with vanilla JavaScript and **Boo
 - **`commandPalette.js`** — `Ctrl+K`: one input over cards (via `cardSearch`), editor fields and the actions the buttons already run — the palette calls the same entry points rather than reimplementing them.
 - **`aiChat.js`** — AI chat interface with streaming responses, side-by-side diff preview (via jsdiff), re-apply button for past responses, markdown rendering (via marked + DOMPurify), context-aware system prompts, multi-field parallel editing, and quick action presets.
 - **`wizard.js`** — 5-step guided character creation with chip-based multi-select inputs, summary review, waifu.im image fetching and selection, and AI generation with automatic thumbnail setup.
-- **`settings.js`** — Settings modal with provider selection (7 providers), API key management, model browsing/selection, credit tracking, storage usage display, language switching, and full workspace backup/restore.
+- **`settings.js`** — Settings modal with provider selection (8 providers), API key management, model browsing/selection, credit tracking, storage usage display, language switching, and full workspace backup/restore.
 - **`tokenizer.js`** — Token estimation using lazy-loaded `gpt-tokenizer` BPE library with offline heuristic fallback.
 - **`animations.js`** — Reusable animation functions built on anime.js: stagger fade-in, slide transitions, pulse, shake, scale click, progress bounce, icon spin, skeleton reveal, toast entrance. All respect `prefers-reduced-motion`.
 - **`i18n.js`** — Internationalization entry: bundles English, fetches any other language as a lazy pack from `js/i18n/` (686 keys across 27 languages), and exposes the `I18n` engine — `I18n.t(key, vars?)` with `{{var}}` interpolation, `translateDOM()` for batch element translation, auto-detection from browser language, manual switch via Settings, and automatic RTL layout for Arabic/Hebrew/Persian.

@@ -16,7 +16,7 @@
        vendor/ and committed (see scripts/vendor.mjs), so no third-party origin
        may execute code in this page. The remaining remote origins are data
        (AI providers, waifu.im/anilist images) plus Google Fonts stylesheets. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' http: ws://localhost:* ws://127.0.0.1:* https://openrouter.ai https://api.nano-gpt.com https://api.x.ai https://api.z.ai https://llm.chutes.ai https://api.deepseek.com https://api.demonroute.com https://api.waifu.im https://cdn.waifu.im https://graphql.anilist.co https://s4.anilist.co https://img.anilist.co;">
   
   <!-- Bootstrap 5.3 CSS -->
   <link href="vendor/bootstrap.min.css" rel="stylesheet" id="bootstrapLtr">
@@ -741,6 +741,7 @@
               <option value="zai">Z.AI (GLM)</option>
               <option value="chutes">Chutes</option>
               <option value="deepseek">DeepSeek</option>
+              <option value="demonroute">Demon Route</option>
               <option value="custom" data-i18n="settings.providerCustom">Custom (OpenAI-compatible)</option>
             </select>
             <small class="form-text text-muted" id="providerHint" data-i18n="settings.providerHint">
@@ -769,7 +770,7 @@
             </div>
           </div>
 
-          <!-- Named Provider Settings (NanoGPT, xAI, Z.AI, Chutes, DeepSeek) -->
+          <!-- Named Provider Settings (NanoGPT, xAI, Z.AI, Chutes, DeepSeek, Demon Route) -->
           <div id="namedProviderSettings" class="d-none">
             <div class="mb-3">
               <label class="form-label fw-semibold">
